@@ -32,7 +32,9 @@ powershell -ExecutionPolicy Bypass -File tools\serve.ps1
 1. **Find the object**: the background colour is read from the edge of the box, and Otsu's method picks the cut-off between object and background.
 2. **Scale**: two clicks on the ruler give mm per pixel.
 3. **Shape**: a voxel grid is carved so a cell stays only if the front, side and top outlines all cover it. Uploaded models are voxelized by sampling their surface and flood-filling the outside.
-4. **Bricks**: cells snap to a 17-colour palette, then merge greedily into the largest same-colour bricks (2×4 down to 1×1), turned 90° every other layer so layers interlock. Stud pitch is 8, 12 or 16 mm, with a 0.2 mm printing gap.
+4. **Hollow (default)**: only a shell 2 bricks thick is kept; the inside is left empty to save plastic. Solid is still an option.
+5. **Bricks**: cells snap to a 17-colour palette, then merge into bricks (2×4 down to 1×1). Each brick is scored on size and on how many bricks below it grips, so joins stagger like a real brick wall. Loose bricks get joined onto a neighbour, or get a pillar down through the hollow. Stud pitch is 8, 12 or 16 mm, with a 0.2 mm printing gap.
+6. **Instructions**: each step adds up to 8 bricks, working round the layer, with the new bricks outlined in red.
 
 ## Image credits
 

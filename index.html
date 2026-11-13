@@ -42,6 +42,7 @@ button:disabled{background:#ddd;color:#888;cursor:not-allowed;transform:none;box
 .preset{background:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px}
 .preset svg{width:64px;height:64px}.preset small{font:400 14px Nunito,sans-serif}
 .preset.on{background:var(--yel)}
+.presets.fill{grid-template-columns:repeat(2,1fr);margin-top:12px}.fill b{font:600 18px Fredoka,sans-serif}
 #info{margin:14px 0 0;font-size:17px}.range{margin:0 0 12px;font-size:16px}
 .page{background:#e3ecf6;border:3px solid var(--ink);border-radius:16px;padding:16px}
 .phead{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
@@ -87,6 +88,10 @@ button:disabled{background:#ddd;color:#888;cursor:not-allowed;transform:none;box
  <div id="build" hidden>
   <p class="range">Brick sizes go from <b>8 mm</b> (most detail) to <b>16 mm</b> (chunkiest).</p>
   <div class="presets" id="presets"></div>
+  <div class="presets fill" id="fill">
+   <button class="preset" data-h="1"><b>Hollow</b><small>Bricks only where you can see them. Much less plastic.</small></button>
+   <button class="preset" data-h="0"><b>Solid</b><small>Bricks all the way through. Heavier and stronger.</small></button>
+  </div>
   <div id="info"></div>
   <div id="v3build"><div id="view3d"></div></div>
  </div>
@@ -108,7 +113,7 @@ button:disabled{background:#ddd;color:#888;cursor:not-allowed;transform:none;box
 <script>
 const $=id=>document.getElementById(id),cv=$('cv');
 const P={front:{},side:{},top:{},back:{},bottom:{}},OPT=['back','bottom']; // back and bottom photos only improve colours, so they can be skipped
-let step=0,ruler=[],cm=10,drag=null,detail=1,stl;
+let step=0,ruler=[],cm=10,drag=null,detail=1,hollow=true,stl;
 
 // ---------- illustrations ----------
 const ICON=p=>`<svg viewBox="0 0 44 44" fill="none" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round">${p}</svg>`;
@@ -137,7 +142,7 @@ const PHOTO_STEPS=[
   ['back','Back',CAM,'Photo 4 (optional): the back','Go behind the object and shoot straight on. Skip this if the back looks like the front.'],
   ['bottom','Bottom',CAM,'Photo 5 (optional): the bottom','Roll the object over sideways and shoot from above, front still at the bottom of the photo. Skip if the bottom is plain.'],
   ['build','Build',BRK,'Build your bricks','Pick a brick size. Every brick has studs on top and snaps onto the bricks below it.'],
-  ['manual','Manual',BOOK,'Building instructions','Print the bricks, then follow the book one layer at a time.']];
+  ['manual','Manual',BOOK,'Building instructions','Print the bricks, then follow the book. Each step adds a few bricks, marked in red.']];
 const CUBE='<path d="M22 4l17 9v18l-17 9-17-9V13z" fill="#00a650"/><path d="M5 13l17 9 17-9M22 22v18"/>';
 const MODEL_STEPS=[['upload','Model',CUBE,'Upload your 3D model','An STL, OBJ or GLB file. It gets sliced into bricks that snap together.'],...PHOTO_STEPS.slice(-2)];
 let STEPS=PHOTO_STEPS,mode=null; // mode: 'photo' or 'model', null = still choosing
@@ -328,7 +333,7 @@ function orient(){
   MODEL.tri=t;MODEL.size=hi.map((v,k)=>v-lo[k]);
 }
 function showModel(){
-  if(!R)init3d();size3d();layers.forEach(g=>g.visible=false);
+  if(!R)init3d();size3d();groups.forEach(g=>g.visible=false);
   if(modelMesh){scene.remove(modelMesh);modelMesh.geometry.dispose()}
   const k=MODEL.h/MODEL.size[2],geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.BufferAttribute(MODEL.tri,3));geo.computeVertexNormals();
@@ -401,7 +406,7 @@ const partsHTML=list=>{const m={};list.forEach(b=>{const k=`${Math.min(b.w,b.d)}
   return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,n])=>{const[a,b,ci]=k.split('|').map(Number);
     return`<div class="part">${brickSVG(b,a,ci)}<span>${n}×</span><small>${a}×${b} ${PAL[ci][0].toLowerCase()}</small></div>`}).join('')};
 
-let bricks=[],layers=[],mats={},pages=[],page=0,sizeTxt='';
+let bricks=[],steps=[],groups=[],mats={},pages=[],page=0,sizeTxt='';
 function build(){
   let Wmm,Dmm,Hmm,Dtop;
   if(mode=='model'){const k=MODEL.h/MODEL.size[2];[Wmm,Dmm,Hmm]=MODEL.size.map(v=>v*k);Dtop=Dmm}
@@ -414,6 +419,8 @@ function build(){
   const dims=Pt=>[Wmm/Pt,Dmm/Pt,Hmm/(Pt*1.2)].map(v=>Math.max(1,Math.round(v)));
   $('presets').innerHTML=SIZES.map(([t,Pt,v],i)=>{const[a,b,c]=dims(Pt);return`<button class="preset ${i==detail?'on':''}" data-i="${i}">${pixCircle(v)}${t} · ${Pt} mm<small>${a}×${b} studs, ${c} layers</small></button>`}).join('');
   $('presets').onclick=e=>{const b=e.target.closest('.preset');if(b){detail=+b.dataset.i;build()}};
+  $('fill').querySelectorAll('.preset').forEach(b=>b.classList.toggle('on',+b.dataset.h==hollow));
+  $('fill').onclick=e=>{const b=e.target.closest('.preset');if(b){hollow=!!+b.dataset.h;build()}};
   const Pt=SIZES[detail][1],bh=Pt*1.2,[nx,ny,nz]=dims(Pt);
   if(nx*ny*nz>40000){$('info').textContent='That is a very big build. Pick bigger bricks.';return}
 
@@ -445,14 +452,75 @@ function build(){
       :!g(x,y,z-1)?(has('bottom')?vote('bottom',1-u1,1-u0,1-w1,1-w0):vote('top',u0,u1,1-w1,1-w0)):-1;
     C[gi(x,y,z)]=c;if(c>=0)tally[c]=(tally[c]||0)+1}
   const main=+Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0]||0; // hidden inside bricks get the main colour
+
+  // hollow: keep a shell 2 bricks thick (so the layers still overlap and lock), empty the rest
+  const I=G.slice(),full=G.reduce((a,v)=>a+v,0),N6=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  if(hollow){const dist=new Uint8Array(G.length);let q=[];
+    for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)
+      if(G[gi(x,y,z)]&&N6.some(([a,b,c])=>!g(x+a,y+b,z+c))){dist[gi(x,y,z)]=1;q.push([x,y,z])}
+    for(let d=1;d<2;d++){const nq=[];
+      for(const[x,y,z]of q)for(const[a,b,c]of N6)if(g(x+a,y+b,z+c)&&!dist[gi(x+a,y+b,z+c)]){dist[gi(x+a,y+b,z+c)]=d+1;nq.push([x+a,y+b,z+c])}
+      q=nq}
+    for(let i=0;i<G.length;i++)if(!dist[i])G[i]=0}
+
   // join same-colour cells into the biggest bricks that fit; turn them every other layer so the layers lock together
-  const SH=[[4,2],[2,4],[3,2],[2,3],[2,2],[4,1],[1,4],[3,1],[1,3],[2,1],[1,2],[1,1]],used=new Uint8Array(G.length);bricks=[];
-  for(let z=0;z<nz;z++){const sh=z%2?SH.map(([a,b])=>[b,a]):SH;
-    for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const i0=gi(x,y,z);if(!G[i0]||used[i0])continue;const ci=C[i0];
-      for(const[w,d]of sh){let ok=true;
-        for(let j=0;j<d&&ok;j++)for(let k=0;k<w&&ok;k++){const i=gi(x+k,y+j,z);ok=x+k<nx&&y+j<ny&&G[i]&&!used[i]&&(C[i]==ci||C[i]==-1)}
-        if(ok){for(let j=0;j<d;j++)for(let k=0;k<w;k++)used[gi(x+k,y+j,z)]=1;bricks.push({x,y,z,w,d,ci:ci<0?main:ci});break}}}}
+  const SH=[[4,2],[2,4],[3,2],[2,3],[2,2],[4,1],[1,4],[3,1],[1,3],[2,1],[1,2],[1,1]];
+  // v picks one of 8 layouts: which layers turn, and which corner the filling starts from
+  // each brick is scored: bigger is better, gripping several bricks below is better still (that's what
+  // staggers the joins, like a real brick wall), and resting on nothing at all is worst
+  const merge=v=>{const own=new Int32Array(G.length).fill(-1),sx=v&2?-1:1,sy=v&4?-1:1;bricks=[];
+    for(let z=0;z<nz;z++){const sh=(z+v)%2?SH.map(([a,b])=>[b,a]):SH;
+      // cells over empty space go first, so they get first pick of the neighbours that can hold them up
+      for(const pass of[0,1])for(let yy=0;yy<ny;yy++)for(let xx=0;xx<nx;xx++){const x=sx>0?xx:nx-1-xx,y=sy>0?yy:ny-1-yy,i0=gi(x,y,z);
+        if(!G[i0]||own[i0]>=0||!pass&&(!z||own[i0-nx*ny]>=0))continue;const ci=C[i0];
+        let top=null;
+        for(const anyCol of[0,1]){if(top&&top.s>0)break; // only mix colours when a brick would rest on nothing
+          for(const[w,d]of sh)for(let oy=0;oy<d;oy++)for(let ox=0;ox<w;ox++){ // every position of this brick that covers the cell
+            const x0=x-ox,y0=y-oy;let ok=x0>=0&&y0>=0&&x0+w<=nx&&y0+d<=ny;const below=new Set();
+            for(let j=0;j<d&&ok;j++)for(let k=0;k<w&&ok;k++){const i=gi(x0+k,y0+j,z);ok=G[i]&&own[i]<0&&(anyCol||C[i]==ci||C[i]==-1);
+              if(ok&&z&&own[i-nx*ny]>=0)below.add(own[i-nx*ny])}
+            const s=w*d+4*Math.min(below.size,3)-(z&&!below.size?100:0);
+            if(ok&&(!top||s>top.s))top={s,x0,y0,w,d}}}
+        const{x0,y0,w,d}=top;for(let j=0;j<d;j++)for(let k=0;k<w;k++)own[gi(x0+k,y0+j,z)]=bricks.length;
+        bricks.push({x:x0,y:y0,z,w,d,ci:ci<0?main:ci})}}};
+  // every brick must connect, through studs above or below, to the main model (the biggest connected group).
+  // a loose brick over the hollow gets a pillar of bricks down to whatever is under it
+  const loose=()=>{const own=new Int32Array(G.length).fill(-1),grp=new Int32Array(bricks.length).fill(-1),size=[];
+    bricks.forEach((b,n)=>{for(let j=0;j<b.d;j++)for(let k=0;k<b.w;k++)own[gi(b.x+k,b.y+j,b.z)]=n});
+    bricks.forEach((_,s)=>{if(grp[s]>=0)return;const id=size.length,q=[s];grp[s]=id;size.push(0);
+      while(q.length){const b=bricks[q.pop()];size[id]++;
+        for(const dz of[-1,1])if(b.z+dz>=0&&b.z+dz<nz)for(let j=0;j<b.d;j++)for(let k=0;k<b.w;k++){const n=own[gi(b.x+k,b.y+j,b.z+dz)];if(n>=0&&grp[n]<0){grp[n]=id;q.push(n)}}}});
+    const big=size.indexOf(Math.max(...size));
+    return bricks.filter((_,n)=>grp[n]!=big)};
+  // first try joining a loose brick onto a held neighbour in its layer, making one longer brick (up to 2×8).
+  // a same-colour neighbour is best; if there isn't one, holding together beats the colour of one edge stud
+  const join=()=>{let lost=loose();
+    for(let pass=0;lost.length&&pass<20;pass++){let n=0;const L=new Set(lost);
+      for(const b of lost)find:for(const same of[1,0])for(const a of bricks){if(a==b||a.z!=b.z||L.has(a)||same&&a.ci!=b.ci)continue;
+        const x0=Math.min(a.x,b.x),y0=Math.min(a.y,b.y),w=Math.max(a.x+a.w,b.x+b.w)-x0,d=Math.max(a.y+a.d,b.y+b.d)-y0;
+        if(w*d!=a.w*a.d+b.w*b.d||Math.min(w,d)>2||Math.max(w,d)>8)continue;
+        Object.assign(a,{x:x0,y:y0,w,d});bricks.splice(bricks.indexOf(b),1);n++;break find}
+      if(!n)break;lost=loose()}
+    return lost};
+  // try the layouts and keep the one with the fewest loose bricks (then the fewest bricks)
+  const best=()=>{let top;
+    for(let v=0;v<8;v++){merge(v);const lost=join(),s=lost.length*1e6+bricks.length;
+      if(!top||s<top.s)top={s,v,lost,bricks};if(!lost.length)break}
+    bricks=top.bricks;return top.lost};
+  let lost=best();
+  for(let tries=0;lost.length&&tries<4;tries++){let added=0;
+    for(const b of lost){const x=b.x+(b.w>>1),y=b.y+(b.d>>1);
+      for(let z=b.z-1;z>=0&&I[gi(x,y,z)]&&!G[gi(x,y,z)];z--){G[gi(x,y,z)]=1;added++}}
+    if(!added)break;lost=best()}
   if(!bricks.length){$('info').textContent='No bricks fit. Try smaller bricks, or check the outlines.';return}
+  const kept=G.reduce((a,v)=>a+v,0);
+
+  // instruction steps, like a real booklet: a few bricks at a time, going round each layer
+  steps=[];
+  for(let z=0;z<nz;z++){const L=bricks.filter(b=>b.z==z);if(!L.length)continue;
+    const mx=L.reduce((a,b)=>a+b.x+b.w/2,0)/L.length,my=L.reduce((a,b)=>a+b.y+b.d/2,0)/L.length,ang=b=>Math.atan2(b.y+b.d/2-my,b.x+b.w/2-mx);
+    L.sort((a,b)=>ang(a)-ang(b));const n=Math.ceil(L.length/8),per=Math.ceil(L.length/n);
+    for(let i=0;i<L.length;i+=per)steps.push({z,list:L.slice(i,i+per)})}
 
   // ----- printable kit (STL, mm) -----
   // 0.2 mm gap around each brick; studs fit snugly between the walls and the tubes underneath
@@ -482,48 +550,60 @@ function build(){
   for(let i=0,o=84;i<n;i++,o+=50)for(let j=0;j<12;j++)dv.setFloat32(o+j*4,tris[i*12+j],true);
   stl=dv.buffer;
 
-  // ----- 3D model: one group per layer, one mesh per colour -----
+  // ----- 3D model: one group per instruction step, one mesh per colour -----
   if(!R)init3d();size3d();
-  layers.forEach(gr=>scene.remove(gr));layers=[];
+  groups.forEach(gr=>scene.remove(gr));groups=[];
   const boxG=new THREE.BoxGeometry(1,1,1),studG=new THREE.CylinderGeometry(sd/2,sd/2,sh,16);studG.rotateX(Math.PI/2);
+  const arrowG=new THREE.ConeGeometry(Pt*.7,Pt*1.4,4);arrowG.rotateX(-Math.PI/2);
   const m=new THREE.Matrix4(),cx=nx*Pt/2,cy=ny*Pt/2;
-  for(let z=0;z<nz;z++){const gr=new THREE.Group(),byCol={};
-    bricks.filter(b=>b.z==z).forEach(b=>(byCol[b.ci]=byCol[b.ci]||[]).push(b));
+  for(const s of steps){const gr=new THREE.Group(),byCol={},z=s.z,line=[];
+    s.list.forEach(b=>(byCol[b.ci]=byCol[b.ci]||[]).push(b));
     for(const[ci,list]of Object.entries(byCol)){
       const bm=new THREE.InstancedMesh(boxG,mat(+ci),list.length),sm=new THREE.InstancedMesh(studG,mat(+ci),list.reduce((a,b)=>a+b.w*b.d,0));let si=0;
       list.forEach((b,i)=>{
         bm.setMatrixAt(i,m.makeScale(b.w*Pt-gap*3,b.d*Pt-gap*3,bh-gap*3).setPosition((b.x+b.w/2)*Pt-cx,(b.y+b.d/2)*Pt-cy,(z+.5)*bh));
         for(let j=0;j<b.d;j++)for(let k=0;k<b.w;k++)sm.setMatrixAt(si++,m.makeTranslation((b.x+k+.5)*Pt-cx,(b.y+j+.5)*Pt-cy,(z+1)*bh+sh/2-.3));
       });
-      bm.userData.ci=sm.userData.ci=+ci;gr.add(bm,sm);
+      gr.add(bm,sm);
     }
-    scene.add(gr);layers.push(gr);
+    // outline round the new bricks, and an arrow pointing at them (only shown on their own page)
+    s.list.forEach(b=>{const x0=b.x*Pt-cx,x1=x0+b.w*Pt-gap,y0=b.y*Pt-cy,y1=y0+b.d*Pt-gap,z0=z*bh,z1=z0+bh,P8=[];
+      for(const zz of[z0,z1])P8.push([x0,y0,zz],[x1,y0,zz],[x1,y1,zz],[x0,y1,zz]);
+      [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]].forEach(([a,c])=>line.push(...P8[a],...P8[c]))});
+    const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(line,3));
+    const hl=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0xd01012,depthTest:false}));hl.renderOrder=2;
+    const ar=new THREE.Mesh(arrowG,new THREE.MeshLambertMaterial({color:0xd01012}));
+    const L=s.list,ax=L.reduce((a,b)=>a+(b.x+b.w/2)*Pt,0)/L.length-cx,ay=L.reduce((a,b)=>a+(b.y+b.d/2)*Pt,0)/L.length-cy;
+    ar.position.set(ax,ay,(z+1)*bh+sh+Pt*1.6);hl.userData.hl=ar.userData.hl=true;gr.add(hl,ar);gr.userData.h=(z+.5)*bh;
+    scene.add(gr);groups.push(gr);
   }
   const W=nx*Pt,D=ny*Pt,H=nz*bh,sz=Math.max(W,D,H);
-  ctl.target.set(0,0,H/2);cam.position.set(sz*.9,-sz*1.5,H/2+sz*.9);
-  view(nz-1,false);
+  ctl.target.set(0,0,H/2);cam.position.set(sz*.65,-sz*1.05,H/2+sz*.7);
+  view(steps.length-1,false);
   sizeTxt=`${W.toFixed(0)} × ${D.toFixed(0)} × ${H.toFixed(0)} mm`;
-  pages=['cover','parts',...layers.map((_,z)=>z).filter(z=>bricks.some(b=>b.z==z))];
+  pages=['cover','parts',...steps.map((_,i)=>i)];
   const warn=Math.abs(Dtop-Dmm)>Dmm*.25?`<br>⚠️ The side and top photos disagree on depth (${Dmm.toFixed(0)} vs ${Dtop.toFixed(0)} mm). Try retaking them straight on.`:'';
-  $('info').innerHTML=`<b>${sizeTxt}</b> (wide × deep × tall) · <b>${bricks.length} bricks</b> in ${Object.keys(tally).length} colour${Object.keys(tally).length>1?'s':''}. Drag the model to spin it.`+warn;
+  const save=hollow&&full>kept?` Hollow uses about <b>${Math.round(100*(1-kept/full))}% less plastic</b> than solid.`:'';
+  const nl=lost.length?`<br>⚠️ ${lost.length} brick${lost.length>1?'s':''} ${lost.length>1?"don't":"doesn't"} snap onto the rest of the model. Glue ${lost.length>1?'them':'it'} on, or try another brick size.`:'';
+  $('info').innerHTML=`<b>${sizeTxt}</b> (wide × deep × tall) · <b>${bricks.length} bricks</b> in ${Object.keys(tally).length} colour${Object.keys(tally).length>1?'s':''}.${save} Drag the model to spin it.`+warn+nl;
 }
-function mat(ci,faded){const k=ci+(faded?'f':'');
-  if(!mats[k]){const c=new THREE.Color(PAL[ci][1]/255,PAL[ci][2]/255,PAL[ci][3]/255);
-    mats[k]=new THREE.MeshLambertMaterial(faded?{color:c,transparent:true,opacity:.18,depthWrite:false}:{color:c})} // earlier layers go see-through
-  return mats[k]}
-// show layers up to `upTo`; with `fade`, earlier layers go pale so the new bricks stand out
-function view(upTo,fade){layers.forEach((gr,z)=>{gr.visible=z<=upTo;gr.children.forEach(o=>o.material=mat(o.userData.ci,fade&&z<upTo))})}
+function mat(ci){
+  if(!mats[ci])mats[ci]=new THREE.MeshLambertMaterial({color:new THREE.Color(PAL[ci][1]/255,PAL[ci][2]/255,PAL[ci][3]/255)});
+  return mats[ci]}
+// show steps up to `upTo`; with `mark`, the newest step's bricks get an outline and an arrow
+function view(upTo,mark){groups.forEach((gr,i)=>{gr.visible=i<=upTo;gr.children.forEach(o=>{if(o.userData.hl)o.visible=mark&&i==upTo})});
+  if(mark){const dz=groups[upTo].userData.h-ctl.target.z;ctl.target.z+=dz;cam.position.z+=dz;ctl.update()}} // keep the camera on the layer being built
 function place3d(slot){$(slot).append($('view3d'));if(R)size3d()}
 
 // ---------- instruction book ----------
 function showPage(i){
   page=i;const pg=pages[i];let num,call='',body='';
-  if(pg=='cover'){num=`<span class="cover">${$('name').value.trim()||'My model'}</span>`;call=`<b>${bricks.length} bricks</b><span>${sizeTxt}</span>`;view(layers.length-1,false)}
+  if(pg=='cover'){num=`<span class="cover">${$('name').value.trim()||'My model'}</span>`;call=`<b>${bricks.length} bricks</b><span>${sizeTxt}</span>`;view(steps.length-1,false)}
   else if(pg=='parts'){num='Parts';body=`<div class="parts">${partsHTML(bricks)}</div>`}
-  else{num=i-1;call=partsHTML(bricks.filter(b=>b.z==pg));view(pg,true)}
+  else{num=pg+1;call=partsHTML(steps[pg].list);view(pg,true)}
   $('pnum').innerHTML=num;$('callout').innerHTML=call;$('pageBody').innerHTML=body;
   $('view3d').hidden=pg=='parts';
-  $('pageTxt').textContent=`Page ${i+1} of ${pages.length}`;
+  $('pageTxt').textContent=`Page ${i+1} of ${pages.length}`+(typeof pg=='number'?` · layer ${steps[pg].z+1}`:'');
   $('prevP').disabled=i==0;$('nextP').disabled=i==pages.length-1;
 }
 $('prevP').onclick=()=>showPage(page-1);
