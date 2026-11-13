@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrickSnap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--red:#e3000b;--yel:#ffcf00;--blue:#006cb7;--green:#00a650;--ink:#1b1b1b;--paper:#fffdf5}
+*{box-sizing:border-box}
+body{margin:0;font-family:Nunito,system-ui,sans-serif;background:var(--paper);color:var(--ink)}
+header{background:var(--yel);border-bottom:6px solid var(--ink);padding:14px 16px}
+.bar{max-width:1100px;margin:auto;display:flex;align-items:center;gap:14px}
+.logo{background:var(--red);color:#fff;font:700 28px Fredoka,sans-serif;padding:6px 16px 8px;border:4px solid var(--ink);border-radius:10px;box-shadow:4px 4px 0 var(--ink);position:relative;letter-spacing:.5px}
+.logo:before{content:"";position:absolute;top:-12px;left:14px;width:16px;height:9px;background:var(--red);border:3px solid var(--ink);border-bottom:0;border-radius:6px 6px 0 0;box-shadow:28px 0 0 -3px var(--red),28px 0 0 0 var(--ink)}
+.tag{font:600 18px Fredoka,sans-serif}
+.hero{background:var(--blue);color:#fff;padding:20px 16px 24px;border-bottom:6px solid var(--ink);
+ background-image:radial-gradient(circle at 20px 20px,rgba(255,255,255,.13) 9px,transparent 10px);background-size:40px 40px}
+.hin{max-width:900px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.hero h1{margin:0 0 6px;font:700 clamp(26px,4.5vw,42px) Fredoka,sans-serif}.hero p{margin:0;font-size:18px}
+main{max-width:900px;margin:auto;padding:24px 16px 60px}
+#prog{display:flex;gap:8px;list-style:none;padding:0;margin:0 0 18px}
+#prog li{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border:3px solid var(--ink);border-radius:12px;background:#fff;font:600 15px Fredoka,sans-serif;opacity:.4}
+#prog li svg{width:30px;height:30px}
+#prog li.done{opacity:1;cursor:pointer}
+#prog li.on{opacity:1;background:var(--yel);box-shadow:3px 3px 0 var(--ink)}
+.stage{background:#fff;border:3px solid var(--ink);border-radius:16px;box-shadow:6px 6px 0 var(--ink);padding:20px}
+.stage h2{margin:0;font:700 28px Fredoka,sans-serif}
+#tip{margin:4px 0 16px;font-size:17px;color:#444}
+.drop{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px;border:3px dashed #bbb;border-radius:14px;cursor:pointer;text-align:center;transition:background .15s}
+.drop:hover,.stage.over .drop{background:#fff6cc;border-color:var(--ink)}
+.drop b{font:600 20px Fredoka,sans-serif}.drop em{color:#777;font-style:normal}
+canvas{width:100%;max-height:60vh;object-fit:contain;border-radius:12px;display:block;cursor:crosshair;touch-action:none;border:3px solid var(--ink);background:#eee}
+.ctl{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px;font-weight:700}
+#msg{font-size:17px}.ok{color:var(--green)}
+.nav{display:flex;justify-content:space-between;align-items:center;margin-top:20px;gap:12px}
+input[type=number],input[type=text]{font:inherit;padding:6px 8px;border:3px solid var(--ink);border-radius:8px}
+button{font:600 16px Fredoka,sans-serif;padding:9px 18px;border:3px solid var(--ink);border-radius:10px;background:var(--yel);color:var(--ink);cursor:pointer;box-shadow:3px 3px 0 var(--ink);transition:transform .08s,box-shadow .08s}
+button:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+button:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+button:disabled{background:#ddd;color:#888;cursor:not-allowed;transform:none;box-shadow:3px 3px 0 var(--ink)}
+#next{background:var(--red);color:#fff;font-size:19px}#dl{background:var(--green);color:#fff;font-size:19px}
+.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.preset{background:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px}
+.preset svg{width:64px;height:64px}.preset small{font:400 14px Nunito,sans-serif}
+.preset.on{background:var(--yel)}
+#info{margin:14px 0 0;font-size:17px}.range{margin:0 0 12px;font-size:16px}
+.page{background:#e3ecf6;border:3px solid var(--ink);border-radius:16px;padding:16px}
+.phead{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+#pnum,#pn{font:700 64px/1 Fredoka,sans-serif;min-width:60px}
+.cover{font-size:40px}
+#callout,.call{background:#fff;border:3px solid var(--ink);border-radius:10px;padding:8px 14px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;font:600 17px Fredoka,sans-serif}
+#callout:empty,.call:empty{display:none}
+.part{display:flex;flex-direction:column;align-items:center;gap:2px;font:700 17px Fredoka,sans-serif}
+.part small{font:400 12px Nunito,sans-serif;color:#555}
+.parts{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:14px;margin-top:14px;background:#fff;border:3px solid var(--ink);border-radius:10px;padding:14px}
+.page #view3d{margin-top:12px;background:transparent;box-shadow:none;border:0}
+.pager{display:flex;gap:12px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap}
+#printArea{display:none}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.choice{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 16px;background:#fff;text-align:center;font:400 16px Nunito,sans-serif}
+.choice b{font:700 22px Fredoka,sans-serif}.choice svg{width:72px;height:72px}.choice:hover{background:#fff6cc}
+#upl #view3d{margin-top:0}
+@media(max-width:560px){.choices{grid-template-columns:1fr}}
+.ex{position:relative;display:inline-block;margin-left:6px;color:var(--blue);font-weight:700;cursor:help;text-decoration:underline dotted}
+.pop{display:none;position:absolute;left:0;top:130%;z-index:5;width:min(300px,80vw);background:#fff;border:3px solid var(--ink);border-radius:12px;box-shadow:5px 5px 0 var(--ink);padding:8px;color:var(--ink);font-weight:400;font-size:14px}
+.pop img{width:100%;border-radius:8px;display:block}.pop small{display:block;margin-top:6px}
+.ex:hover .pop,.ex:focus .pop{display:block}
+@media print{body>*:not(#printArea){display:none!important}#printArea{display:block}.ppage{page-break-after:always;padding:10px}.ppage img{width:100%;margin-top:10px}}
+#view3d{height:420px;margin-top:14px;border:3px solid var(--ink);border-radius:14px;overflow:hidden;background:linear-gradient(#cfe9ff,#fffdf5)}
+[hidden]{display:none!important}
+@media(max-width:560px){#prog li span{display:none}.presets{grid-template-columns:1fr}}
+</style></head><body>
+<header><div class="bar"><div class="logo">BrickSnap</div><span class="tag">Snap it. Brick it. Print it.</span></div></header>
+<section class="hero"><div class="hin"><div><h1>Turn any object into printable bricks</h1><p>3 photos in, a 3D-printable brick model out.</p></div><div id="heroArt"></div></div></section>
+<main>
+<ol id="prog"></ol>
+<section class="stage" id="stage">
+ <h2 id="title"></h2><p id="tip"></p>
+ <div id="choose" class="choices" hidden>
+  <button class="choice" data-m="photo"><span id="chPhoto"></span><b>From photos</b><span>Snap 3 photos of a real object. BrickSnap works out its shape.</span></button>
+  <button class="choice" data-m="model"><span id="chModel"></span><b>Upload a 3D model</b><span>Have an STL, OBJ or GLB file? It gets sliced into bricks exactly.</span></button>
+ </div>
+ <div id="upl" hidden><div id="v3up"></div>
+  <div class="ctl"><label>Real height <input type="number" id="mH" min="5" style="width:80px"> mm</label><button id="turn">↻ Stand it another way</button><label>Colour <select id="mCol"></select></label><button id="chgM">Change model</button></div>
+  <p id="mInfo"></p></div>
+ <label class="drop" id="drop"><div id="dropArt"></div><b id="dropTxt">Click to choose a photo</b><em>or drag it here</em><input type="file" id="file" accept="image/*" hidden></label>
+ <div id="photo" hidden><canvas id="cv"></canvas><div class="ctl" id="ctl"></div></div>
+ <div id="build" hidden>
+  <p class="range">Brick sizes go from <b>8 mm</b> (most detail) to <b>16 mm</b> (chunkiest).</p>
+  <div class="presets" id="presets"></div>
+  <div id="info"></div>
+  <div id="v3build"><div id="view3d"></div></div>
+ </div>
+ <div id="manual" hidden>
+  <div class="page"><div class="phead"><div id="pnum"></div><div id="callout"></div></div><div id="pageBody"></div><div id="v3man"></div></div>
+  <div class="pager"><button id="prevP">◀</button><b id="pageTxt"></b><button id="nextP">▶</button><button id="print">🖨 Print or save as PDF</button></div>
+ </div>
+ <div class="nav"><button id="back">← Back</button><span><label id="nameBox" hidden>Name <input type="text" id="name" value="my-object" style="width:130px"></label> <button id="dl" hidden>⬇ Download STL</button><button id="next">Next →</button></span></div>
+</section>
+</main>
+<div id="printArea"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/3MFLoader.js"></script>
+<script>
+const $=id=>document.getElementById(id),cv=$('cv');
+const P={front:{},side:{},top:{},back:{},bottom:{}},OPT=['back','bottom']; // back and bottom photos only improve colours, so they can be skipped
+let step=0,ruler=[],cm=10,drag=null,detail=1,stl;
+
+// ---------- illustrations ----------
+const ICON=p=>`<svg viewBox="0 0 44 44" fill="none" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round">${p}</svg>`;
+const CAM='<rect x="4" y="12" width="36" height="26" rx="5" fill="#e3000b"/><rect x="14" y="7" width="14" height="6" rx="2" fill="#e3000b"/><circle cx="22" cy="25" r="8" fill="#fff"/>';
+const RUL='<rect x="3" y="15" width="38" height="14" rx="2" fill="#00a650"/><path d="M10 15v6M17 15v4M24 15v6M31 15v4"/>';
+const BRK='<rect x="9" y="8" width="8" height="6" rx="1" fill="#006cb7"/><rect x="27" y="8" width="8" height="6" rx="1" fill="#006cb7"/><rect x="4" y="14" width="36" height="22" rx="3" fill="#006cb7"/>';
+const BOOK='<path d="M4 9h15a3 3 0 0 1 3 3v25a3 3 0 0 0-3-3H4z" fill="#ffcf00"/><path d="M40 9H25a3 3 0 0 0-3 3v25a3 3 0 0 1 3-3h15z" fill="#ffcf00"/>';
+$('heroArt').innerHTML='<svg viewBox="0 0 200 160" width="200">'+[[20,110,160,'#e3000b'],[40,70,80,'#ffcf00'],[120,70,60,'#00a650'],[60,30,80,'#006cb7']].map(([x,y,w,c])=>{
+  let s='';for(let i=x+8;i<x+w-12;i+=20)s+=`<rect x="${i}" y="${y-8}" width="12" height="9" rx="2" fill="${c}" stroke="#1b1b1b" stroke-width="3"/>`;
+  return s+`<rect x="${x}" y="${y}" width="${w}" height="40" rx="4" fill="${c}" stroke="#1b1b1b" stroke-width="3"/>`;
+}).join('')+'</svg>';
+// cube with the face to photograph highlighted, and a camera pointing at it
+function cube(face){
+  const f=n=>n==face?'#ffcf00':'#e9e9e9',cam={front:[8,48],side:[92,40],top:[50,2],back:[92,4],bottom:[44,76]}[face];
+  return `<svg viewBox="0 0 120 94" width="210"><g stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round"><path d="M40 40h30l12-12H52z" fill="${f('top')}"/><path d="M70 40l12-12v30L70 70z" fill="${f('side')}"/><rect x="40" y="40" width="30" height="30" fill="${f('front')}"/></g>`+
+    `<g transform="translate(${cam})"><rect width="22" height="15" rx="3" fill="#1b1b1b"/><rect x="6" y="-4" width="8" height="5" fill="#1b1b1b"/><circle cx="11" cy="7.5" r="4.5" fill="#fff"/></g></svg>`;
+}
+// a circle drawn with n×n bricks, to show what each detail level looks like
+const pixCircle=n=>{let s='';const c=n/2,w=60/n;for(let y=0;y<n;y++)for(let x=0;x<n;x++)if((x+.5-c)**2+(y+.5-c)**2<=c*c)s+=`<rect x="${x*w}" y="${y*w}" width="${w}" height="${w}" fill="#006cb7" stroke="#fff" stroke-width=".6"/>`;return`<svg viewBox="0 0 60 60">${s}</svg>`};
+
+const PHOTO_STEPS=[
+  ['front','Front',CAM,'Photo 1: the front','Put a ruler next to the object on a plain background. Hold the camera straight on. See-through objects (like a clear bottle) won\'t work.'],
+  ['ruler','Ruler',RUL,'Measure the ruler','This tells BrickSnap how big the object really is.'],
+  ['side','Side',CAM,'Photo 2: the right side','Move to the right of the object and hold the camera straight on.'],
+  ['top','Top',CAM,'Photo 3: the top','Hold the camera straight above, with the front of the object at the bottom of the photo.'],
+  ['back','Back',CAM,'Photo 4 (optional): the back','Go behind the object and shoot straight on. Skip this if the back looks like the front.'],
+  ['bottom','Bottom',CAM,'Photo 5 (optional): the bottom','Roll the object over sideways and shoot from above, front still at the bottom of the photo. Skip if the bottom is plain.'],
+  ['build','Build',BRK,'Build your bricks','Pick a brick size. Every brick has studs on top and snaps onto the bricks below it.'],
+  ['manual','Manual',BOOK,'Building instructions','Print the bricks, then follow the book one layer at a time.']];
+const CUBE='<path d="M22 4l17 9v18l-17 9-17-9V13z" fill="#00a650"/><path d="M5 13l17 9 17-9M22 22v18"/>';
+const MODEL_STEPS=[['upload','Model',CUBE,'Upload your 3D model','An STL, OBJ or GLB file. It gets sliced into bricks that snap together.'],...PHOTO_STEPS.slice(-2)];
+let STEPS=PHOTO_STEPS,mode=null; // mode: 'photo' or 'model', null = still choosing
+$('chPhoto').innerHTML=ICON(CAM);$('chModel').innerHTML=ICON(CUBE);
+const key=()=>STEPS[step][0], photoOf=k=>P[k=='ruler'?'front':k];
+const ready=i=>{const k=STEPS[i][0];return k=='upload'?!!MODEL:k=='ruler'?ruler.length==2&&cm>0:!(k in P)||OPT.includes(k)||!!P[k].M};
+const canGo=i=>{for(let j=0;j<i;j++)if(!ready(j))return false;return true};
+
+// ---------- image processing ----------
+const dist=(d,i,c)=>Math.hypot(d[i]-c[0],d[i+1]-c[1],d[i+2]-c[2]);
+function otsu(v){ // best split between "background" and "object" colour differences
+  const h=new Float64Array(443);let sum=0;for(const x of v){h[x|0]++;sum+=x|0}
+  let sB=0,wB=0,best=0,t=30;
+  for(let i=0;i<443;i++){wB+=h[i];if(!wB)continue;const wF=v.length-wB;if(!wF)break;sB+=i*h[i];
+    const b=wB*wF*(sB/wB-(sum-sB)/wF)**2;if(b>best){best=b;t=i}}
+  return Math.max(t,12);
+}
+// pixels in a box that differ from the box's edge colour
+function seg(p,X0,Y0,X1,Y1,off){
+  const W=X1-X0+1,H=Y1-Y0+1,d=p.data,c=[0,0,0],at=(x,y)=>((y+Y0)*p.w+x+X0)*4;let n=0;
+  const add=i=>{c[0]+=d[i];c[1]+=d[i+1];c[2]+=d[i+2];n++};
+  for(let x=0;x<W;x++){add(at(x,0));add(at(x,H-1))}for(let y=0;y<H;y++){add(at(0,y));add(at(W-1,y))}
+  c[0]/=n;c[1]/=n;c[2]/=n;
+  const v=new Float32Array(W*H);for(let y=0;y<H;y++)for(let x=0;x<W;x++)v[y*W+x]=dist(d,at(x,y),c);
+  const t=Math.max(5,otsu(v)-off),b=new Uint8Array(W*H);for(let i=0;i<b.length;i++)b[i]=v[i]>t;
+  return{b,W,H};
+}
+// guess the object's box: the biggest blob in the photo, plus any big pieces touching it
+function autoBox(p){
+  const{b,W,H}=seg(p,0,0,p.w-1,p.h-1,0),lab=new Int32Array(W*H),st=new Int32Array(W*H),comps=[];
+  for(let s=0;s<W*H;s++){if(!b[s]||lab[s])continue;
+    const c=[0,W,H,0,0],id=comps.length+1;let sp=0;st[sp++]=s;lab[s]=id;
+    while(sp){const i=st[--sp],x=i%W,y=i/W|0;c[0]++;c[1]=Math.min(c[1],x);c[2]=Math.min(c[2],y);c[3]=Math.max(c[3],x);c[4]=Math.max(c[4],y);
+      for(const j of[x>0?i-1:-1,x<W-1?i+1:-1,i-W,i+W])if(j>=0&&j<W*H&&b[j]&&!lab[j]){lab[j]=id;st[sp++]=j}}
+    comps.push(c)}
+  if(!comps.length)return null;
+  const big=comps.reduce((a,c)=>c[0]>a[0]?c:a),m=(big[3]-big[1])*.1,box=big.slice();
+  for(const c of comps)if(c[0]>big[0]*.02&&c[1]<big[3]+m&&c[3]>big[1]-m&&c[2]<big[4]+m&&c[4]>big[2]-m){box[1]=Math.min(box[1],c[1]);box[2]=Math.min(box[2],c[2]);box[3]=Math.max(box[3],c[3]);box[4]=Math.max(box[4],c[4])}
+  const pad=10;return[[Math.max(0,box[1]-pad),Math.max(0,box[2]-pad)],[Math.min(W-1,box[3]+pad),Math.min(H-1,box[4]+pad)]];
+}
+// the object's outline inside the box (holes filled in), cropped tight
+function mask(p){
+  if(!p.rect)return null;
+  const cl=(a,m)=>Math.max(0,Math.min(m-1,a|0)),[[a,b0],[c,d]]=p.rect;
+  const X0=cl(Math.min(a,c),p.w),X1=cl(Math.max(a,c),p.w),Y0=cl(Math.min(b0,d),p.h),Y1=cl(Math.max(b0,d),p.h);
+  if(X1-X0<8||Y1-Y0<8)return null;
+  const{b,W,H}=seg(p,X0,Y0,X1,Y1,p.adj||0),out=new Uint8Array(W*H),st=new Int32Array(W*H);let sp=0;
+  const push=i=>{if(!b[i]&&!out[i]){out[i]=1;st[sp++]=i}};
+  for(let x=0;x<W;x++){push(x);push((H-1)*W+x)}for(let y=0;y<H;y++){push(y*W);push(y*W+W-1)}
+  while(sp){const i=st[--sp],x=i%W;if(x>0)push(i-1);if(x<W-1)push(i+1);if(i>=W)push(i-W);if(i<W*H-W)push(i+W)}
+  const col=new Uint32Array(W),row=new Uint32Array(H);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(!out[y*W+x]){col[x]++;row[y]++}
+  const cm_=Math.max(2,H*.02),rm=Math.max(2,W*.02);let x0=0,x1=W-1,y0=0,y1=H-1;
+  while(x0<W&&col[x0]<cm_)x0++;while(x1>x0&&col[x1]<cm_)x1--;while(y0<H&&row[y0]<rm)y0++;while(y1>y0&&row[y1]<rm)y1--;
+  if(x0>=x1||y0>=y1)return null;
+  const w=x1-x0+1,h=y1-y0+1,m=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)m[y*w+x]=!out[(y+y0)*W+x+x0];
+  return{m,w,h,ox:X0+x0,oy:Y0+y0};
+}
+
+// ---------- screens ----------
+function render(){
+  $('choose').hidden=!!mode;$('prog').hidden=!mode;
+  if(!mode){
+    $('title').textContent='How do you want to start?';$('tip').textContent='Pick one. You can come back here with ← Back.';
+    ['drop','photo','build','manual','upl','next','dl','nameBox'].forEach(id=>$(id).hidden=true);$('back').style.visibility='hidden';return;
+  }
+  const[k,,,t,tip]=STEPS[step],p=photoOf(k);
+  $('file').accept=mode=='model'?'.stl,.obj,.glb,.3mf':'image/*';
+  $('dropTxt').textContent=mode=='model'?'Click to choose a 3D model':'Click to choose a photo';
+  $('upl').hidden=!(k=='upload'&&MODEL);
+  if(modelMesh)modelMesh.visible=k=='upload';
+  if(k=='upload'&&!MODEL)$('dropArt').innerHTML=ICON(CUBE).replace('<svg','<svg width="90"');
+  if(k=='upload'&&MODEL){
+    $('mH').value=MODEL.h;$('mCol').innerHTML=PAL.map((c,i)=>`<option value="${i}" ${i==MODEL.ci?'selected':''}>${c[0]}</option>`).join('');
+    $('mH').oninput=e=>{if(+e.target.value>=5){MODEL.h=+e.target.value;pages=[];showModel()}};
+    $('turn').onclick=()=>{MODEL.turn=(MODEL.turn+1)%3;orient();pages=[];showModel()};
+    $('mCol').onchange=e=>{MODEL.ci=+e.target.value;pages=[];showModel()};
+    $('chgM').onclick=()=>$('file').click();
+    place3d('v3up');showModel();
+  }
+  $('title').textContent=t;$('tip').textContent=tip;
+  const EX={front:['sample-photos/real-ds4-top-with-ruler.png','✓ Plain paper background ✓ Ruler right next to it ✓ Whole object in the photo<br><i>Photo: Sebastiaan Broekhoven, CC BY-SA 4.0. Ruler added.</i>'],
+    side:['sample-photos/controller-2-side.png','✓ Shot from the right side ✓ Camera level with the object'],
+    top:['sample-photos/controller-3-top.png','✓ Camera straight above ✓ Front of the object at the bottom'],
+    back:['sample-photos/controller-4-back.png','✓ Straight on from behind ✓ Same distance as the front'],
+    bottom:['sample-photos/controller-5-bottom.png','✓ Rolled over sideways ✓ Front still at the bottom of the photo']};
+  if(EX[k])$('tip').insertAdjacentHTML('beforeend',` <span class="ex" tabindex="0">📷 See a good photo<span class="pop"><img src="${EX[k][0]}" alt="Example photo"><small>${EX[k][1]}</small></span></span>`);
+  $('prog').innerHTML=STEPS.map((s,i)=>`<li class="${i==step?'on':canGo(i)?'done':''}" data-i="${i}">${ICON(s[2])}<span>${s[1]}</span></li>`).join('');
+  $('drop').hidden=!((p&&!p.img&&k!='ruler')||(k=='upload'&&!MODEL));
+  $('photo').hidden=!(p&&p.img);
+  $('build').hidden=k!='build';$('manual').hidden=k!='manual';
+  $('dl').hidden=$('nameBox').hidden=!(k=='build'||k=='manual');
+  $('next').hidden=k=='manual';
+  $('back').style.visibility='visible';
+  if(p&&!p.img)$('dropArt').innerHTML=cube(k=='ruler'?'front':k);
+  if(k=='ruler'&&!p.img)$('tip').textContent='Add the front photo first.';
+  if(p&&p.img){
+    $('ctl').innerHTML=k=='ruler'
+      ?`<label>Distance between your clicks: <input type="number" id="cm" value="${cm}" min="0.5" step="0.5" style="width:70px"> cm</label><span id="msg"></span>`
+      :`<span id="msg"></span><span style="margin-left:auto">Outline: smaller <input type="range" id="adj" min="-40" max="40" value="${p.adj||0}"> bigger</span><button id="chg">Change photo</button>`;
+    if(k=='ruler')$('cm').oninput=e=>{cm=+e.target.value;draw();status()};
+    else{$('adj').oninput=e=>{p.adj=+e.target.value;p.M=mask(p);draw();status()};$('chg').onclick=()=>$('file').click()}
+    draw();
+  }
+  if(k=='build'){place3d('v3build');build()}
+  if(k=='manual'){place3d('v3man');if(!pages.length)build();showPage(0)}
+  status();
+}
+function status(){
+  const k=key(),p=photoOf(k),m=$('msg');$('next').disabled=!ready(step);
+  $('next').textContent=OPT.includes(k)&&!P[k].M?'Skip →':'Next →';
+  if(!m||!(k in P||k=='ruler'))return;
+  if(k=='ruler')m.innerHTML=['👉 Click the <b>0</b> mark on the ruler',`👉 Now click the <b>${cm} cm</b> mark`,'<span class="ok">✓ Measured!</span> Click again to redo.'][ruler.length];
+  else m.innerHTML=p.M?'<span class="ok">✓ Found it!</span> Wrong? Drag a new box around the object.':'👉 Drag a box around the object.';
+}
+function draw(){
+  const k=key(),p=photoOf(k);if(!p||!p.img)return;
+  if(cv.width!=p.w||cv.height!=p.h){cv.width=p.w;cv.height=p.h}
+  const x=cv.getContext('2d'),lw=Math.max(2,p.w/250);x.drawImage(p.img,0,0,p.w,p.h);
+  if(k=='ruler'){
+    x.lineWidth=lw;x.strokeStyle='#e3000b';
+    if(ruler.length==2){x.beginPath();x.moveTo(...ruler[0]);x.lineTo(...ruler[1]);x.stroke()}
+    ruler.forEach((q,i)=>{x.beginPath();x.arc(q[0],q[1],lw*3,0,7);x.fillStyle='#e3000b';x.fill();x.strokeStyle='#fff';x.stroke();
+      x.font=`700 ${lw*8}px Fredoka`;x.fillStyle='#1b1b1b';x.fillText(i?cm+' cm':'0',q[0]+lw*4,q[1]-lw*4)});
+    return;
+  }
+  const M=p.M;
+  if(M){ // fade the background so the object stands out in its own colours
+    x.fillStyle='rgba(255,255,255,.7)';x.fillRect(0,0,p.w,p.h);
+    const id=x.getImageData(M.ox,M.oy,M.w,M.h);
+    for(let y=0;y<M.h;y++)for(let i=0;i<M.w;i++)if(M.m[y*M.w+i]){const s=((y+M.oy)*p.w+i+M.ox)*4,d=(y*M.w+i)*4;id.data[d]=p.data[s];id.data[d+1]=p.data[s+1];id.data[d+2]=p.data[s+2]}
+    x.putImageData(id,M.ox,M.oy);
+  }
+  if(p.rect){const[[a,b],[c,d]]=p.rect;x.setLineDash([lw*4,lw*3]);x.strokeStyle='#006cb7';x.lineWidth=lw;x.strokeRect(a,b,c-a,d-b);x.setLineDash([])}
+}
+function load(f){
+  if(!mode)return;
+  if(mode=='model')return loadModel(f);
+  const k=key();if(!(k in P)||!f||!f.type.startsWith('image/'))return;
+  const im=new Image();
+  im.onload=()=>{
+    const p=P[k],s=Math.min(1,900/Math.max(im.width,im.height)),oc=document.createElement('canvas');
+    p.w=oc.width=im.width*s|0;p.h=oc.height=im.height*s|0;
+    const o=oc.getContext('2d');o.drawImage(im,0,0,p.w,p.h);p.data=o.getImageData(0,0,p.w,p.h).data;
+    p.img=im;p.adj=0;p.rect=autoBox(p);p.M=mask(p);if(k=='front')ruler=[];
+    render();
+  };
+  im.src=URL.createObjectURL(f);
+}
+// ---------- uploaded 3D model ----------
+let MODEL=null,modelMesh=null;
+function loadModel(f){
+  if(!f)return;const ext=f.name.split('.').pop().toLowerCase(),rd=new FileReader();
+  const fail=why=>{$('tip').innerHTML=`<b style="color:var(--red)">⚠️ ${why||`Couldn't read "${f.name}".`}</b> BrickSnap reads STL, OBJ, GLB and 3MF files.`};
+  if(!['stl','obj','glb','3mf'].includes(ext))return fail(`".${ext}" files aren't supported yet.`);
+  $('tip').textContent=`Reading ${f.name}…`;
+  rd.onload=()=>{try{
+    if(ext=='3mf')setModel(tris(new THREE.ThreeMFLoader().parse(rd.result)),false); // 3MF is Z-up like STL
+    else if(ext=='stl')setModel(new THREE.STLLoader().parse(rd.result).attributes.position.array,false); // STL files are usually Z-up
+    else if(ext=='obj')setModel(tris(new THREE.OBJLoader().parse(new TextDecoder().decode(rd.result))),true);
+    else new THREE.GLTFLoader().parse(rd.result,'',g=>setModel(tris(g.scene),true),e=>fail(`Couldn't read "${f.name}" (${e.message||e}).`));
+  }catch(e){console.error(e);fail(`Couldn't read "${f.name}" (${e.message}).`)}};
+  rd.readAsArrayBuffer(f);
+}
+// every triangle of every mesh in a loaded scene, as one flat list of x,y,z
+function tris(obj){
+  obj.updateMatrixWorld(true);const parts=[];
+  obj.traverse(m=>{if(m.isMesh)parts.push((m.geometry.index?m.geometry.toNonIndexed():m.geometry.clone()).applyMatrix4(m.matrixWorld).attributes.position.array)});
+  const r=new Float32Array(parts.reduce((a,p)=>a+p.length,0));let o=0;parts.forEach(p=>{r.set(p,o);o+=p.length});return r;
+}
+function setModel(pos,yUp){
+  if(!pos.length){$('tip').innerHTML='<b style="color:var(--red)">⚠️ That file has no 3D shape in it.</b> Try exporting it again as STL.';return}
+  const b=new Float32Array(pos.length);
+  for(let i=0;i<pos.length;i+=3){b[i]=pos[i];b[i+1]=yUp?-pos[i+2]:pos[i+1];b[i+2]=yUp?pos[i+1]:pos[i+2]}
+  MODEL={base:b,turn:0,ci:MODEL?MODEL.ci:1};orient(); // light grey shows the shape best
+  // most files are in mm; one that's tiny or huge has no real size, so start it at 20 cm tall
+  const h=MODEL.size[2];MODEL.guessed=!(h>=10&&h<=500);MODEL.h=MODEL.guessed?200:Math.round(h);
+  pages=[];render();
+}
+// turn the model so another side points up, then move it so it starts at 0,0,0
+function orient(){
+  const b=MODEL.base,T=MODEL.turn,t=new Float32Array(b.length),lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];
+  for(let i=0;i<b.length;i+=3){let x=b[i],y=b[i+1],z=b[i+2];
+    if(T==1)[y,z]=[-z,y];else if(T==2)[x,z]=[z,-x];
+    t[i]=x;t[i+1]=y;t[i+2]=z;for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],t[i+k]);hi[k]=Math.max(hi[k],t[i+k])}}
+  for(let i=0;i<t.length;i++)t[i]-=lo[i%3];
+  MODEL.tri=t;MODEL.size=hi.map((v,k)=>v-lo[k]);
+}
+function showModel(){
+  if(!R)init3d();size3d();layers.forEach(g=>g.visible=false);
+  if(modelMesh){scene.remove(modelMesh);modelMesh.geometry.dispose()}
+  const k=MODEL.h/MODEL.size[2],geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(MODEL.tri,3));geo.computeVertexNormals();
+  modelMesh=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({color:new THREE.Color(...PAL[MODEL.ci].slice(1).map(v=>v/255)),side:THREE.DoubleSide}));
+  modelMesh.scale.setScalar(k);modelMesh.position.set(-MODEL.size[0]*k/2,-MODEL.size[1]*k/2,0);scene.add(modelMesh);
+  const sz=Math.max(...MODEL.size)*k;ctl.target.set(0,0,MODEL.size[2]*k/2);cam.position.set(sz*.9,-sz*1.5,sz*1.2);
+  $('mInfo').innerHTML=(MODEL.guessed?'<b>This file doesn\'t say how big it is, so it starts at 200 mm tall.</b> Change it above.<br>':'')+
+    `${MODEL.size.map(v=>(v*k).toFixed(0)).join(' × ')} mm (wide × deep × tall) · ${(MODEL.tri.length/9).toLocaleString()} triangles. Drag to spin it.<br>`+
+    `With the smallest bricks that's <b>${Math.round(MODEL.size[0]*k/8)} studs wide and ${Math.round(MODEL.h/9.6)} layers tall</b>. Taller means more detail, but more bricks to print.`;
+}
+// fill the grid in two passes, which works even for scans with holes in their surface:
+// 1) mark every cell the surface passes through, 2) flood in from the edges; cells the flood can't reach are inside
+function voxelize(G,nx,ny,nz){
+  const T=MODEL.tri,[sx,sy,sz]=MODEL.size,ux=sx/nx,uy=sy/ny,uz=sz/nz,cl=(v,n)=>Math.min(n-1,Math.max(0,v|0));
+  const mark=(x,y,z)=>{G[cl(x/ux,nx)+nx*(cl(y/uy,ny)+ny*cl(z/uz,nz))]=1};
+  for(let i=0;i<T.length;i+=9){
+    const a=[T[i],T[i+1],T[i+2]],b=[T[i+3],T[i+4],T[i+5]],c=[T[i+6],T[i+7],T[i+8]];
+    // dots spaced under half a cell apart across the triangle
+    const len=(p,q)=>Math.hypot((p[0]-q[0])/ux,(p[1]-q[1])/uy,(p[2]-q[2])/uz),n=Math.ceil(2*Math.max(len(a,b),len(a,c),len(b,c)))+1;
+    for(let s=0;s<=n;s++)for(let t=0;s+t<=n;t++){const u=s/n,v=t/n;mark(a[0]+(b[0]-a[0])*u+(c[0]-a[0])*v,a[1]+(b[1]-a[1])*u+(c[1]-a[1])*v,a[2]+(b[2]-a[2])*u+(c[2]-a[2])*v)}
+  }
+  const out=new Uint8Array(G.length),st=new Int32Array(G.length);let sp=0;
+  const push=i=>{if(!G[i]&&!out[i]){out[i]=1;st[sp++]=i}};
+  for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)if(!x||!y||!z||x==nx-1||y==ny-1||z==nz-1)push(x+nx*(y+ny*z));
+  while(sp){const i=st[--sp],x=i%nx,y=(i/nx|0)%ny,z=i/(nx*ny)|0;
+    if(x>0)push(i-1);if(x<nx-1)push(i+1);if(y>0)push(i-nx);if(y<ny-1)push(i+nx);if(z>0)push(i-nx*ny);if(z<nz-1)push(i+nx*ny)}
+  for(let i=0;i<G.length;i++)if(!out[i])G[i]=1;
+}
+$('choose').onclick=e=>{const b=e.target.closest('.choice');if(!b)return;mode=b.dataset.m;STEPS=mode=='model'?MODEL_STEPS:PHOTO_STEPS;step=0;pages=[];render()};
+
+$('file').onchange=e=>{load(e.target.files[0]);e.target.value=''};
+const stage=$('stage');
+stage.ondragover=e=>{e.preventDefault();stage.classList.add('over')};
+stage.ondragleave=()=>stage.classList.remove('over');
+stage.ondrop=e=>{e.preventDefault();stage.classList.remove('over');load(e.dataTransfer.files[0])};
+$('next').onclick=()=>{if(ready(step)){step++;render()}};
+$('back').onclick=()=>{if(step==0)mode=null;else step--;render()};
+$('prog').onclick=e=>{const li=e.target.closest('li');if(li&&canGo(+li.dataset.i)){step=+li.dataset.i;render()}};
+
+const pos=e=>{const r=cv.getBoundingClientRect(),s=Math.max(cv.width/r.width,cv.height/r.height),ox=(r.width-cv.width/s)/2,oy=(r.height-cv.height/s)/2;return[(e.clientX-r.left-ox)*s,(e.clientY-r.top-oy)*s]};
+cv.onpointerdown=e=>{
+  if(key()=='ruler'){if(ruler.length==2)ruler=[];ruler.push(pos(e));draw();status();return}
+  drag=pos(e);cv.setPointerCapture(e.pointerId);
+};
+cv.onpointermove=e=>{if(!drag)return;const p=P[key()];p.rect=[drag,pos(e)];p.M=null;draw()};
+cv.onpointerup=()=>{if(!drag)return;drag=null;const p=P[key()];p.M=mask(p);draw();status()};
+
+// ---------- 3D ----------
+let R,scene,cam,ctl,mesh;
+function init3d(){
+  const el=$('view3d');R=new THREE.WebGLRenderer({antialias:true,alpha:true});el.append(R.domElement);
+  scene=new THREE.Scene();scene.add(new THREE.HemisphereLight(0xffffff,0x666666,1.1));
+  const sun=new THREE.DirectionalLight(0xffffff,.5);sun.position.set(1,-2,3);scene.add(sun);
+  cam=new THREE.PerspectiveCamera(45,1,1,20000);cam.up.set(0,0,1);ctl=new THREE.OrbitControls(cam,R.domElement);
+  (function loop(){requestAnimationFrame(loop);ctl.update();R.render(scene,cam)})();
+  addEventListener('resize',size3d);
+}
+function size3d(){const el=$('view3d');R.setSize(el.clientWidth,el.clientHeight);cam.aspect=el.clientWidth/el.clientHeight;cam.updateProjectionMatrix()}
+
+// brick colours every cell is snapped to, so the parts list stays short
+const PAL=[['White',242,243,242],['Light grey',160,165,169],['Dark grey',99,95,98],['Black',33,37,43],['Red',196,40,28],['Dark red',123,46,47],
+  ['Orange',218,133,65],['Yellow',245,205,48],['Tan',215,197,154],['Brown',105,64,40],['Lime',164,189,71],['Green',40,127,70],
+  ['Blue',13,105,172],['Light blue',110,153,202],['Dark blue',32,58,86],['Purple',107,50,124],['Pink',228,173,200]];
+const nearest=(r,g,b)=>{let bi=0,bd=1e9;PAL.forEach((p,i)=>{const d=2*(r-p[1])**2+4*(g-p[2])**2+3*(b-p[3])**2;if(d<bd){bd=d;bi=i}});return bi};
+const css=ci=>`rgb(${PAL[ci].slice(1)})`;
+const brickSVG=(w,d,ci)=>{const W=Math.max(w,d),D=Math.min(w,d),u=14;let s='';
+  for(let i=0;i<W;i++)for(let j=0;j<D;j++)s+=`<circle cx="${2+(i+.5)*u}" cy="${2+(j+.5)*u}" r="4.2" fill="${css(ci)}" stroke="rgba(0,0,0,.4)"/>`;
+  return`<svg width="${W*u+4}" height="${D*u+4}"><rect x="2" y="2" width="${W*u}" height="${D*u}" rx="2" fill="${css(ci)}" stroke="#1b1b1b" stroke-width="1.5"/>${s}</svg>`};
+const partsHTML=list=>{const m={};list.forEach(b=>{const k=`${Math.min(b.w,b.d)}|${Math.max(b.w,b.d)}|${b.ci}`;m[k]=(m[k]||0)+1});
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,n])=>{const[a,b,ci]=k.split('|').map(Number);
+    return`<div class="part">${brickSVG(b,a,ci)}<span>${n}×</span><small>${a}×${b} ${PAL[ci][0].toLowerCase()}</small></div>`}).join('')};
+
+let bricks=[],layers=[],mats={},pages=[],page=0,sizeTxt='';
+function build(){
+  let Wmm,Dmm,Hmm,Dtop;
+  if(mode=='model'){const k=MODEL.h/MODEL.size[2];[Wmm,Dmm,Hmm]=MODEL.size.map(v=>v*k);Dtop=Dmm}
+  else{
+    const F=P.front.M,S=P.side.M,T=P.top.M,s=cm*10/Math.hypot(ruler[1][0]-ruler[0][0],ruler[1][1]-ruler[0][1]); // mm per pixel
+    Wmm=F.w*s;Hmm=F.h*s;Dmm=S.w*Hmm/S.h;Dtop=T.h*Wmm/T.w;
+  }
+  // [name, stud spacing mm, picture detail]. Bricks are 1.2× as tall as the stud spacing.
+  const SIZES=[['Small',8,12],['Medium',12,8],['Large',16,5]];
+  const dims=Pt=>[Wmm/Pt,Dmm/Pt,Hmm/(Pt*1.2)].map(v=>Math.max(1,Math.round(v)));
+  $('presets').innerHTML=SIZES.map(([t,Pt,v],i)=>{const[a,b,c]=dims(Pt);return`<button class="preset ${i==detail?'on':''}" data-i="${i}">${pixCircle(v)}${t} · ${Pt} mm<small>${a}×${b} studs, ${c} layers</small></button>`}).join('');
+  $('presets').onclick=e=>{const b=e.target.closest('.preset');if(b){detail=+b.dataset.i;build()}};
+  const Pt=SIZES[detail][1],bh=Pt*1.2,[nx,ny,nz]=dims(Pt);
+  if(nx*ny*nz>40000){$('info').textContent='That is a very big build. Pick bigger bricks.';return}
+
+  const G=new Uint8Array(nx*ny*nz),gi=(x,y,z)=>x+nx*(y+ny*z);
+  const g=(x,y,z)=>x>=0&&y>=0&&z>=0&&x<nx&&y<ny&&z<nz&&G[gi(x,y,z)];
+  if(mode=='model')voxelize(G,nx,ny,nz);
+  else{ // a cell is filled only where all 3 photos show the object
+    const F=P.front.M,S=P.side.M,T=P.top.M,on=(M,u,v)=>M.m[Math.min(M.h-1,v*M.h|0)*M.w+Math.min(M.w-1,u*M.w|0)];
+    for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+      const fx=(x+.5)/nx,fy=(y+.5)/ny,fz=(z+.5)/nz;
+      if(on(F,fx,1-fz)&&on(S,fy,1-fz)&&on(T,fx,1-fy))G[gi(x,y,z)]=1;
+    }
+  }
+  // each visible cell takes the most common brick colour in its patch of the photo that sees it
+  const vote=(k,a0,a1,b0,b1)=>{const p=P[k],M=p.M,c={};let best=-1;
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++){const mx=Math.min(M.w-1,(a0+(a1-a0)*(i+.5)/4)*M.w|0),my=Math.min(M.h-1,(b0+(b1-b0)*(j+.5)/4)*M.h|0);
+      if(!M.m[my*M.w+mx])continue;const q=((M.oy+my)*p.w+M.ox+mx)*4,n=nearest(p.data[q],p.data[q+1],p.data[q+2]);c[n]=(c[n]||0)+1;if(best<0||c[n]>c[best])best=n}
+    return best};
+  const C=new Int8Array(G.length).fill(-1),tally={};
+  if(mode=='model'){C.fill(MODEL.ci);tally[MODEL.ci]=1} // uploaded models are one colour
+  else for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){if(!G[gi(x,y,z)])continue;
+    const u0=x/nx,u1=(x+1)/nx,w0=y/ny,w1=(y+1)/ny,h0=1-(z+1)/nz,h1=1-z/nz;
+    // back and bottom photos are mirrored left-to-right; without them, the front and top photos stand in
+    const has=k=>!!P[k].M;
+    const c=!g(x,y,z+1)?vote('top',u0,u1,1-w1,1-w0)
+      :!g(x,y-1,z)?vote('front',u0,u1,h0,h1)
+      :!g(x,y+1,z)?(has('back')?vote('back',1-u1,1-u0,h0,h1):vote('front',u0,u1,h0,h1))
+      :!g(x-1,y,z)||!g(x+1,y,z)?vote('side',w0,w1,h0,h1)
+      :!g(x,y,z-1)?(has('bottom')?vote('bottom',1-u1,1-u0,1-w1,1-w0):vote('top',u0,u1,1-w1,1-w0)):-1;
+    C[gi(x,y,z)]=c;if(c>=0)tally[c]=(tally[c]||0)+1}
+  const main=+Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0]||0; // hidden inside bricks get the main colour
+  // join same-colour cells into the biggest bricks that fit; turn them every other layer so the layers lock together
+  const SH=[[4,2],[2,4],[3,2],[2,3],[2,2],[4,1],[1,4],[3,1],[1,3],[2,1],[1,2],[1,1]],used=new Uint8Array(G.length);bricks=[];
+  for(let z=0;z<nz;z++){const sh=z%2?SH.map(([a,b])=>[b,a]):SH;
+    for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const i0=gi(x,y,z);if(!G[i0]||used[i0])continue;const ci=C[i0];
+      for(const[w,d]of sh){let ok=true;
+        for(let j=0;j<d&&ok;j++)for(let k=0;k<w&&ok;k++){const i=gi(x+k,y+j,z);ok=x+k<nx&&y+j<ny&&G[i]&&!used[i]&&(C[i]==ci||C[i]==-1)}
+        if(ok){for(let j=0;j<d;j++)for(let k=0;k<w;k++)used[gi(x+k,y+j,z)]=1;bricks.push({x,y,z,w,d,ci:ci<0?main:ci});break}}}}
+  if(!bricks.length){$('info').textContent='No bricks fit. Try smaller bricks, or check the outlines.';return}
+
+  // ----- printable kit (STL, mm) -----
+  // 0.2 mm gap around each brick; studs fit snugly between the walls and the tubes underneath
+  const gap=.2,sd=Pt*.6,sh=Math.max(1.7,Pt*.2),t=(Pt-gap-sd-.2)/2,tr=Pt*Math.SQRT1_2-sd/2-.1;
+  const tris=[];let OX=0,OY=0;
+  const tri=(a,b,c)=>{const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]],n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],l=Math.hypot(...n)||1;
+    tris.push(n[0]/l,n[1]/l,n[2]/l);for(const p of[a,b,c])tris.push(p[0]+OX,p[1]+OY,p[2])};
+  const quad=(a,b,c,d)=>{tri(a,b,c);tri(a,c,d)};
+  const FACES=[[[1,0,0],[1,1,0],[1,1,1],[1,0,1]],[[0,0,0],[0,0,1],[0,1,1],[0,1,0]],[[0,1,0],[0,1,1],[1,1,1],[1,1,0]],
+    [[0,0,0],[1,0,0],[1,0,1],[0,0,1]],[[0,0,1],[1,0,1],[1,1,1],[0,1,1]],[[0,0,0],[0,1,0],[1,1,0],[1,0,0]]];
+  const box=(x0,y0,z0,x1,y1,z1,flip)=>FACES.forEach((f,i)=>{if(i==5)return; // no bottom
+    const q=f.map(p=>[p[0]?x1:x0,p[1]?y1:y0,p[2]?z1:z0]);flip?quad(q[3],q[2],q[1],q[0]):quad(...q)});
+  const cyl=(cx,cy,r,z0,z1)=>{const N=16,p=k=>[cx+r*Math.cos(k*Math.PI*2/N),cy+r*Math.sin(k*Math.PI*2/N)];
+    for(let k=0;k<N;k++){const a=p(k),b=p(k+1);quad([...a,z0],[...b,z0],[...b,z1],[...a,z1]);tri([cx,cy,z1],[...a,z1],[...b,z1]);tri([cx,cy,z0],[...b,z0],[...a,z0])}};
+  const brickGeo=(w,d)=>{const X=w*Pt-gap,Y=d*Pt-gap;
+    box(0,0,0,X,Y,bh,false);              // outside
+    box(t,t,0,X-t,Y-t,bh-t,true);         // hollow underneath
+    const Co=[[0,0],[X,0],[X,Y],[0,Y]],c=[[t,t],[X-t,t],[X-t,Y-t],[t,Y-t]];
+    for(let i=0;i<4;i++){const j=(i+1)%4;quad([...Co[i],0],[...c[i],0],[...c[j],0],[...Co[j],0])} // bottom rim
+    for(let i=0;i<w;i++)for(let j=0;j<d;j++)cyl((i+.5)*Pt-gap/2,(j+.5)*Pt-gap/2,sd/2,bh-.1,bh+sh);   // studs
+    for(let i=1;i<w;i++)for(let j=1;j<d;j++)cyl(i*Pt-gap/2,j*Pt-gap/2,tr,0,bh-t+.1);               // tubes
+  };
+  // lay every brick out flat, studs up, in rows about a print bed wide, grouped by colour
+  let px=0,py=0,rowD=0;
+  [...bricks].sort((a,b)=>a.ci-b.ci).forEach(b=>{const X=b.w*Pt,Y=b.d*Pt;if(px+X>200){px=0;py+=rowD+3;rowD=0}OX=px;OY=py;brickGeo(b.w,b.d);px+=X+3;rowD=Math.max(rowD,Y)});
+  const n=tris.length/12,dv=new DataView(new ArrayBuffer(84+50*n));dv.setUint32(80,n,true);
+  for(let i=0,o=84;i<n;i++,o+=50)for(let j=0;j<12;j++)dv.setFloat32(o+j*4,tris[i*12+j],true);
+  stl=dv.buffer;
+
+  // ----- 3D model: one group per layer, one mesh per colour -----
+  if(!R)init3d();size3d();
+  layers.forEach(gr=>scene.remove(gr));layers=[];
+  const boxG=new THREE.BoxGeometry(1,1,1),studG=new THREE.CylinderGeometry(sd/2,sd/2,sh,16);studG.rotateX(Math.PI/2);
+  const m=new THREE.Matrix4(),cx=nx*Pt/2,cy=ny*Pt/2;
+  for(let z=0;z<nz;z++){const gr=new THREE.Group(),byCol={};
+    bricks.filter(b=>b.z==z).forEach(b=>(byCol[b.ci]=byCol[b.ci]||[]).push(b));
+    for(const[ci,list]of Object.entries(byCol)){
+      const bm=new THREE.InstancedMesh(boxG,mat(+ci),list.length),sm=new THREE.InstancedMesh(studG,mat(+ci),list.reduce((a,b)=>a+b.w*b.d,0));let si=0;
+      list.forEach((b,i)=>{
+        bm.setMatrixAt(i,m.makeScale(b.w*Pt-gap*3,b.d*Pt-gap*3,bh-gap*3).setPosition((b.x+b.w/2)*Pt-cx,(b.y+b.d/2)*Pt-cy,(z+.5)*bh));
+        for(let j=0;j<b.d;j++)for(let k=0;k<b.w;k++)sm.setMatrixAt(si++,m.makeTranslation((b.x+k+.5)*Pt-cx,(b.y+j+.5)*Pt-cy,(z+1)*bh+sh/2-.3));
+      });
+      bm.userData.ci=sm.userData.ci=+ci;gr.add(bm,sm);
+    }
+    scene.add(gr);layers.push(gr);
+  }
+  const W=nx*Pt,D=ny*Pt,H=nz*bh,sz=Math.max(W,D,H);
+  ctl.target.set(0,0,H/2);cam.position.set(sz*.9,-sz*1.5,H/2+sz*.9);
+  view(nz-1,false);
+  sizeTxt=`${W.toFixed(0)} × ${D.toFixed(0)} × ${H.toFixed(0)} mm`;
+  pages=['cover','parts',...layers.map((_,z)=>z).filter(z=>bricks.some(b=>b.z==z))];
+  const warn=Math.abs(Dtop-Dmm)>Dmm*.25?`<br>⚠️ The side and top photos disagree on depth (${Dmm.toFixed(0)} vs ${Dtop.toFixed(0)} mm). Try retaking them straight on.`:'';
+  $('info').innerHTML=`<b>${sizeTxt}</b> (wide × deep × tall) · <b>${bricks.length} bricks</b> in ${Object.keys(tally).length} colour${Object.keys(tally).length>1?'s':''}. Drag the model to spin it.`+warn;
+}
+function mat(ci,faded){const k=ci+(faded?'f':'');
+  if(!mats[k]){const c=new THREE.Color(PAL[ci][1]/255,PAL[ci][2]/255,PAL[ci][3]/255);
+    mats[k]=new THREE.MeshLambertMaterial(faded?{color:c,transparent:true,opacity:.18,depthWrite:false}:{color:c})} // earlier layers go see-through
+  return mats[k]}
+// show layers up to `upTo`; with `fade`, earlier layers go pale so the new bricks stand out
+function view(upTo,fade){layers.forEach((gr,z)=>{gr.visible=z<=upTo;gr.children.forEach(o=>o.material=mat(o.userData.ci,fade&&z<upTo))})}
+function place3d(slot){$(slot).append($('view3d'));if(R)size3d()}
+
+// ---------- instruction book ----------
+function showPage(i){
+  page=i;const pg=pages[i];let num,call='',body='';
+  if(pg=='cover'){num=`<span class="cover">${$('name').value.trim()||'My model'}</span>`;call=`<b>${bricks.length} bricks</b><span>${sizeTxt}</span>`;view(layers.length-1,false)}
+  else if(pg=='parts'){num='Parts';body=`<div class="parts">${partsHTML(bricks)}</div>`}
+  else{num=i-1;call=partsHTML(bricks.filter(b=>b.z==pg));view(pg,true)}
+  $('pnum').innerHTML=num;$('callout').innerHTML=call;$('pageBody').innerHTML=body;
+  $('view3d').hidden=pg=='parts';
+  $('pageTxt').textContent=`Page ${i+1} of ${pages.length}`;
+  $('prevP').disabled=i==0;$('nextP').disabled=i==pages.length-1;
+}
+$('prevP').onclick=()=>showPage(page-1);
+$('nextP').onclick=()=>showPage(page+1);
+$('print').onclick=()=>{
+  const keep=page,out=[];
+  for(let i=0;i<pages.length;i++){showPage(i);let img='';
+    if(pages[i]!='parts'){R.render(scene,cam);img=`<img src="${R.domElement.toDataURL()}">`}
+    out.push(`<section class="ppage"><div class="phead"><div id="pn">${$('pnum').innerHTML}</div><div class="call">${$('callout').innerHTML}</div></div>${$('pageBody').innerHTML}${img}</section>`)}
+  showPage(keep);$('printArea').innerHTML=out.join('');print();
+};
+$('dl').onclick=()=>{
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([stl],{type:'model/stl'}));
+  a.download=($('name').value.trim()||'object').replace(/[^\w-]+/g,'_')+'_brick-kit.stl';a.click();
+};
+render();
+</script>
+</body></html>
