@@ -1,6 +1,7 @@
 # The project has no licence, and the photo credits are incomplete
 - status: open
 - owner: nobody
+- stage: 1
 
 The repository is public but has no LICENSE file, so legally nobody (including teammates) has permission to
 reuse the code. Choosing a licence is a decision for the people in the group, so it needs a proposal.
@@ -15,6 +16,10 @@ Photo credits in `README.md`:
 
 Done when there is a LICENSE file the group agreed on and every third-party photo has author, source link,
 licence, and a note of what was changed.
+
+Also needed now that the project uses real part data: credit the LDraw parts library (CC BY 2.0) wherever its
+data is used, and put the LEGO Fair Play disclaimer from `docs/VISION.md` in the README and on the viewer page.
+This task needs no engine code and can start now.
 
 ## Notes
 Found in the 2026-11-15 code review. Whoever added the photos (Omar) will know the source pages.

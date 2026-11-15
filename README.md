@@ -1,5 +1,12 @@
 # BrickSnap
 
+> **Where this is going.** This page describes the first prototype. The project is being rebuilt to turn any
+> object or 3D model into a brick set of real LEGO® parts that looks designed and works, with an AI acting as
+> art director. Read [`docs/VISION.md`](docs/VISION.md) for the goal, [`docs/ROADMAP.md`](docs/ROADMAP.md) for
+> the order of work, and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it is built.
+>
+> LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.
+
 Turn a real object (phone-sized up to 3D-printer-sized) into a kit of snap-together, 3D-printable bricks, with a step-by-step instruction booklet.
 
 Two ways in:
@@ -37,7 +44,7 @@ One-time setup: you need to be a collaborator on the GitHub repository, with git
 | `sample-photos/` | Test photo sets (house, controller, duck, bottles) with rulers. Originals for the real photos are in the `*-original/` folders. |
 | `sample-models/pawn.stl` | A small test model (chess pawn, 42.5 mm). |
 | `tools/` | PowerShell scripts that generated the sample photos and model, plus `serve.ps1` (Windows). `check.mjs` is the check agents run before pushing. |
-| `AGENTS.md`, `CLAUDE.md`, `docs/` | Rules for the AI agents, open tasks, and recorded decisions. |
+| `AGENTS.md`, `CLAUDE.md`, `docs/` | Rules for the AI agents, the vision, roadmap and architecture, open tasks, and recorded decisions. |
 
 ## How it works (short version)
 
