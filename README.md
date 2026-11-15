@@ -18,6 +18,17 @@ If a browser blocks something when opened as a file, run the tiny local server a
 powershell -ExecutionPolicy Bypass -File tools\serve.ps1
 ```
 
+## Working on it as a team
+
+Everyone works through an AI coding agent (Claude Code, Codex, Cursor, and so on). Open this folder in your agent and say what you want in plain words. The agent follows [`AGENTS.md`](AGENTS.md), which keeps everybody's work in sync:
+
+- At the start of a session it pulls the latest version and tells you what your teammates changed.
+- **Tasks** live in [`docs/tasks/`](docs/tasks): what is open and who is on what. Ask "what's open?" or "add this to the list".
+- **Decisions** live in [`docs/decisions/`](docs/decisions). Big changes are written up as a proposal first, and your agent will ask for your opinion on your teammates' proposals.
+- When it finishes, it checks the app still works and pushes, so nothing sits on only one person's computer.
+
+One-time setup: you need to be a collaborator on the GitHub repository, with git signed in on your computer.
+
 ## Layout
 
 | Path | What it is |
@@ -25,7 +36,8 @@ powershell -ExecutionPolicy Bypass -File tools\serve.ps1
 | `index.html` | The whole app: HTML, CSS and JS in one file. three.js r128 and its loaders come from a CDN. |
 | `sample-photos/` | Test photo sets (house, controller, duck, bottles) with rulers. Originals for the real photos are in the `*-original/` folders. |
 | `sample-models/pawn.stl` | A small test model (chess pawn, 42.5 mm). |
-| `tools/` | PowerShell scripts that generated the sample photos and model, plus `serve.ps1`. |
+| `tools/` | PowerShell scripts that generated the sample photos and model, plus `serve.ps1` (Windows). `check.mjs` is the check agents run before pushing. |
+| `AGENTS.md`, `CLAUDE.md`, `docs/` | Rules for the AI agents, open tasks, and recorded decisions. |
 
 ## How it works (short version)
 
