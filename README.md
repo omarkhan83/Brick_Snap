@@ -33,9 +33,12 @@ comparing the model with the build (`renders/compare.png`), and the check report
 | `bricksnap check PROJECT` | Check the saved build again and list every weak spot |
 | `bricksnap ops PROJECT edits.json --build` | Apply edit operations by hand |
 | `bricksnap design PROJECT` | Let the AI designer improve it. The only command that sends anything off your computer |
+| `bricksnap design PROJECT "add a red collar"` | Ask the designer for one change to a model it has already designed |
+| `bricksnap design PROJECT --best-of 3` | Design it three times and let a second AI, which cannot tell which is which, keep the best |
 | `bricksnap render PROJECT` | Write the comparison picture. With `--rough`: your model, the plain conversion, and the finished build |
 | `bricksnap view PROJECT` | Open the 3D viewer |
 | `bricksnap export PROJECT` | Write the LDraw file, a parts list (`parts.csv`), and a BrickLink wanted list (`wanted_list.xml`) |
+| `bricksnap instructions PROJECT` | Write an instruction booklet (`instructions.pdf` and `.html`): the parts, then one page per building step |
 | `bricksnap bench` | Build every test model and print the scorecard: how we tell whether a change helped |
 
 ## Working on it as a team

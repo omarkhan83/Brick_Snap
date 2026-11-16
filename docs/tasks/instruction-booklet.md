@@ -16,3 +16,8 @@ has not seen the model, and a copy of it is in that sample folder.
 The contract is the opening comment of `bricksnap/instructions.py`. Following a booklet to the end with
 real parts needs a person and the parts; until then, a person reading it page by page against the 3D
 viewer's step slider is the check.
+
+2026-11-16, Alec-42's agent: built, reviewed, and on `main`; `uv run bricksnap instructions PROJECT`
+writes both files. `samples/projects/cat-designed/instructions.pdf` is the cat's booklet (37 pages, 33
+steps; the web-page version is made by the same command). Left before this task is closed: a person
+reading it page by page, and ideally building from it.
