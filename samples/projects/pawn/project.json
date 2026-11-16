@@ -1,0 +1,9 @@
+{
+ "name": "pawn",
+ "seed": "seed.stl",
+ "seed_original_name": "pawn.stl",
+ "studs": 16,
+ "up": null,
+ "hollow": false,
+ "brief": null
+}
