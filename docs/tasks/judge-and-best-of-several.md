@@ -1,6 +1,6 @@
 # A judge that picks the best of several designs
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-16)
 - stage: 3
 
 Two runs of the designer on the same model give different results, and some are clearly better. Run the
@@ -16,3 +16,4 @@ judge's reasons are saved in the project, and on the cat and the duck a person a
 Lives in `bricksnap/designer/`. The judge runs through the same clean-room runner with its own prompt and
 no edit tools. Each run uses the user's Claude Code subscription; ask before running it, and say how many
 runs a command will start.
+The contract is the opening comment of `bricksnap/designer/judge.py`.

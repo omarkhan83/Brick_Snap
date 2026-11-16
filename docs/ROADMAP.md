@@ -49,6 +49,7 @@ part and colour pairs that exist.
 
 - A web app on a server that runs on your own computer: choose a model, see the plain conversion next to
   the designed build, start the designer, type a change, download the files (`docs/tasks/web-app.md`).
+- An instruction booklet made from our own steps and pictures (`docs/tasks/instruction-booklet.md`).
 - The same models through BrickLink Studio's sculpture import, pictured next to ours.
 - Saved example projects in `samples/projects/` so nothing depends on a live run.
 - A walkthrough script. Polish: error messages, README, licence and credits, Fair Play wording.
@@ -75,9 +76,8 @@ on the engine and can be done at any time.
 
 ## If something has to be dropped
 
-Drop in this order: our own instruction booklet (Studio makes one from our file); the judge and
-best-of-several; a hosted copy of the web app (one that runs on your own computer is enough to show it);
-printable STL output. What is never dropped: the result has to work well. That is the challenge.
+Drop in this order: the judge and best-of-several; a hosted copy of the web app (one that runs on your
+own computer is enough to show it); printable STL output. What is never dropped: the result has to work well. That is the challenge.
 
 ## Lanes
 
