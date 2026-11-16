@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrickSnap Viewer</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/viewer/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "/viewer/vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "/viewer/vendor/OrbitControls.js"
+  }
+}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <div class="brand" aria-hidden="true">
+      <svg viewBox="0 0 44 36" width="44" height="36">
+        <rect x="8" y="3" width="9" height="7" rx="2" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+        <rect x="27" y="3" width="9" height="7" rx="2" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+        <rect x="3" y="10" width="38" height="23" rx="4" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+      </svg>
+    </div>
+    <div class="titles">
+      <span class="kicker">BrickSnap viewer</span>
+      <h1 id="name">Loading…</h1>
+    </div>
+    <div class="chips">
+      <span class="chip" id="count">– parts</span>
+      <span class="chip report" id="report">Loading the model…</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="card viewcard">
+    <div id="view" class="view" aria-label="3D view of the model. Drag to turn it, scroll to zoom, right-drag to move it."></div>
+    <p id="notice" class="notice" hidden></p>
+    <p class="hint">Drag to turn · scroll to zoom · right-drag to move</p>
+  </section>
+
+  <section class="card steps" aria-label="Building steps">
+    <button id="prev" type="button" title="Previous step (left arrow)">◀ Back</button>
+    <div class="slider">
+      <label for="step" id="stepLabel">All steps</label>
+      <input id="step" type="range" min="1" max="1" value="1" step="1">
+    </div>
+    <button id="next" type="button" title="Next step (right arrow)">Next ▶</button>
+    <button id="all" type="button" class="allbtn" aria-pressed="true">All</button>
+  </section>
+</main>
+
+<footer class="foot">
+  <p id="trademark">LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.</p>
+</footer>
+
+<script type="module" src="/viewer/viewer.js"></script>
+</body>
+</html>
