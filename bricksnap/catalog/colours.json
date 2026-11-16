@@ -1,0 +1,1082 @@
+[
+ {
+  "ldraw_code": 15,
+  "name": "White",
+  "rgb": "#F4F4F4",
+  "bricklink_id": 1,
+  "bricklink_name": "White",
+  "rebrickable_id": 15,
+  "rebrickable_name": "White",
+  "lego_id": "1 / 426 - White",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 19 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 1 == LDConfig LEGOID 1": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 0,
+  "name": "Black",
+  "rgb": "#1B2A34",
+  "bricklink_id": 11,
+  "bricklink_name": "Black",
+  "rebrickable_id": 0,
+  "rebrickable_name": "Black",
+  "lego_id": "26 - Black",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1957,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 39 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 26 == LDConfig LEGOID 26": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 4,
+  "name": "Red",
+  "rgb": "#B40000",
+  "bricklink_id": 5,
+  "bricklink_name": "Red",
+  "rebrickable_id": 4,
+  "rebrickable_name": "Red",
+  "lego_id": "21 - Bright Red",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 35 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 21 == LDConfig LEGOID 21": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 1,
+  "name": "Blue",
+  "rgb": "#1E5AA8",
+  "bricklink_id": 7,
+  "bricklink_name": "Blue",
+  "rebrickable_id": 1,
+  "rebrickable_name": "Blue",
+  "lego_id": "23 - Bright Blue",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 38 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 23 == LDConfig LEGOID 23": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 14,
+  "name": "Yellow",
+  "rgb": "#FAC80A",
+  "bricklink_id": 3,
+  "bricklink_name": "Yellow",
+  "rebrickable_id": 14,
+  "rebrickable_name": "Yellow",
+  "lego_id": "24 - Bright Yellow",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 46 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 24 == LDConfig LEGOID 24": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 2,
+  "name": "Green",
+  "rgb": "#00852B",
+  "bricklink_id": 6,
+  "bricklink_name": "Green",
+  "rebrickable_id": 2,
+  "rebrickable_name": "Green",
+  "lego_id": "28 - Dark Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 43 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 28 == LDConfig LEGOID 28": true
+  },
+  "num_parts_available": 49
+ },
+ {
+  "ldraw_code": 71,
+  "name": "Light_Bluish_Grey",
+  "rgb": "#969696",
+  "bricklink_id": 86,
+  "bricklink_name": "Light Bluish Gray",
+  "rebrickable_id": 71,
+  "rebrickable_name": "Light Bluish Gray",
+  "lego_id": "194 - Medium Stone Grey",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2002,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 26 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 194 == LDConfig LEGOID 194": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 72,
+  "name": "Dark_Bluish_Grey",
+  "rgb": "#646464",
+  "bricklink_id": 85,
+  "bricklink_name": "Dark Bluish Gray",
+  "rebrickable_id": 72,
+  "rebrickable_name": "Dark Bluish Gray",
+  "lego_id": "199 - Dark Stone Grey",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1999,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 13 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 199 == LDConfig LEGOID 199": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 70,
+  "name": "Reddish_Brown",
+  "rgb": "#5F3109",
+  "bricklink_id": 88,
+  "bricklink_name": "Reddish Brown",
+  "rebrickable_id": 70,
+  "rebrickable_name": "Reddish Brown",
+  "lego_id": "192 - Reddish Brown",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2003,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 13 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 192 == LDConfig LEGOID 192": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 19,
+  "name": "Tan",
+  "rgb": "#D7BA8C",
+  "bricklink_id": 2,
+  "bricklink_name": "Tan",
+  "rebrickable_id": 19,
+  "rebrickable_name": "Tan",
+  "lego_id": "5 - Brick Yellow",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1982,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 29 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 5 == LDConfig LEGOID 5": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 28,
+  "name": "Dark_Tan",
+  "rgb": "#897D62",
+  "bricklink_id": 69,
+  "bricklink_name": "Dark Tan",
+  "rebrickable_id": 28,
+  "rebrickable_name": "Dark Tan",
+  "lego_id": "138 - Sand Yellow",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2000,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 25 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 138 == LDConfig LEGOID 138": true
+  },
+  "num_parts_available": 45
+ },
+ {
+  "ldraw_code": 25,
+  "name": "Orange",
+  "rgb": "#D67923",
+  "bricklink_id": 4,
+  "bricklink_name": "Orange",
+  "rebrickable_id": 25,
+  "rebrickable_name": "Orange",
+  "lego_id": "106 - Bright Orange",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1998,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 45 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 106 == LDConfig LEGOID 106": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 320,
+  "name": "Dark_Red",
+  "rgb": "#720012",
+  "bricklink_id": 59,
+  "bricklink_name": "Dark Red",
+  "rebrickable_id": 320,
+  "rebrickable_name": "Dark Red",
+  "lego_id": "154 - New Dark Red",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2001,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 14 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 154 == LDConfig LEGOID 154": true
+  },
+  "num_parts_available": 50
+ },
+ {
+  "ldraw_code": 272,
+  "name": "Dark_Blue",
+  "rgb": "#19325A",
+  "bricklink_id": 63,
+  "bricklink_name": "Dark Blue",
+  "rebrickable_id": 272,
+  "rebrickable_name": "Dark Blue",
+  "lego_id": "140 / 428 - Earth Blue",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1999,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 18 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 140 == LDConfig LEGOID 140": true
+  },
+  "num_parts_available": 47
+ },
+ {
+  "ldraw_code": 27,
+  "name": "Lime",
+  "rgb": "#A5CA18",
+  "bricklink_id": 34,
+  "bricklink_name": "Lime",
+  "rebrickable_id": 27,
+  "rebrickable_name": "Lime",
+  "lego_id": "119 - Bright Yellowish Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1998,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 40 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 119 == LDConfig LEGOID 119": true
+  },
+  "num_parts_available": 49
+ },
+ {
+  "ldraw_code": 29,
+  "name": "Bright_Pink",
+  "rgb": "#FF9ECD",
+  "bricklink_id": 104,
+  "bricklink_name": "Bright Pink",
+  "rebrickable_id": 29,
+  "rebrickable_name": "Bright Pink",
+  "lego_id": "222 - Light Purple",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2003,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 31 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 222 == LDConfig LEGOID 222": true
+  },
+  "num_parts_available": 47
+ },
+ {
+  "ldraw_code": 5,
+  "name": "Dark_Pink",
+  "rgb": "#D3359D",
+  "bricklink_id": 47,
+  "bricklink_name": "Dark Pink",
+  "rebrickable_id": 5,
+  "rebrickable_name": "Dark Pink",
+  "lego_id": "221 - Bright Purple",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2003,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 60 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 221 == LDConfig LEGOID 221": true
+  },
+  "num_parts_available": 44
+ },
+ {
+  "ldraw_code": 322,
+  "name": "Medium_Azure",
+  "rgb": "#68C3E2",
+  "bricklink_id": 156,
+  "bricklink_name": "Medium Azure",
+  "rebrickable_id": 322,
+  "rebrickable_name": "Medium Azure",
+  "lego_id": "322 - Medium Azur",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2012,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 65 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 322 == LDConfig LEGOID 322": true
+  },
+  "num_parts_available": 43
+ },
+ {
+  "ldraw_code": 321,
+  "name": "Dark_Azure",
+  "rgb": "#469BC3",
+  "bricklink_id": 153,
+  "bricklink_name": "Dark Azure",
+  "rebrickable_id": 321,
+  "rebrickable_name": "Dark Azure",
+  "lego_id": "321 - Dark Azur",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2011,
+   2027
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 65 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 321 == LDConfig LEGOID 321": true
+  },
+  "num_parts_available": 46
+ },
+ {
+  "ldraw_code": 191,
+  "name": "Bright_Light_Orange",
+  "rgb": "#FCAC00",
+  "bricklink_id": 110,
+  "bricklink_name": "Bright Light Orange",
+  "rebrickable_id": 191,
+  "rebrickable_name": "Bright Light Orange",
+  "lego_id": "191 - Flame Yellowish Orange",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2003,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 63 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 191 == LDConfig LEGOID 191": true
+  },
+  "num_parts_available": 45
+ },
+ {
+  "ldraw_code": 288,
+  "name": "Dark_Green",
+  "rgb": "#00451A",
+  "bricklink_id": 80,
+  "bricklink_name": "Dark Green",
+  "rebrickable_id": 288,
+  "rebrickable_name": "Dark Green",
+  "lego_id": "141 - Earth Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1999,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 34 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 141 == LDConfig LEGOID 141": true
+  },
+  "num_parts_available": 45
+ },
+ {
+  "ldraw_code": 378,
+  "name": "Sand_Green",
+  "rgb": "#708E7C",
+  "bricklink_id": 48,
+  "bricklink_name": "Sand Green",
+  "rebrickable_id": 378,
+  "rebrickable_name": "Sand Green",
+  "lego_id": "151 - Sand Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2000,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 82 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 151 == LDConfig LEGOID 151": true
+  },
+  "num_parts_available": 45
+ },
+ {
+  "ldraw_code": 330,
+  "name": "Olive_Green",
+  "rgb": "#77774E",
+  "bricklink_id": 155,
+  "bricklink_name": "Olive Green",
+  "rebrickable_id": 326,
+  "rebrickable_name": "Olive Green",
+  "lego_id": "330 - Olive Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2010,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 52 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 330 == LDConfig LEGOID 330": true
+  },
+  "num_parts_available": 39
+ },
+ {
+  "ldraw_code": 84,
+  "name": "Medium_Nougat",
+  "rgb": "#AA7D55",
+  "bricklink_id": 150,
+  "bricklink_name": "Medium Nougat",
+  "rebrickable_id": 84,
+  "rebrickable_name": "Medium Nougat",
+  "lego_id": "312 - Medium Nougat",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2010,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 0 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 312 == LDConfig LEGOID 312": true
+  },
+  "num_parts_available": 45
+ },
+ {
+  "ldraw_code": 92,
+  "name": "Nougat",
+  "rgb": "#BB805A",
+  "bricklink_id": 28,
+  "bricklink_name": "Nougat",
+  "rebrickable_id": 92,
+  "rebrickable_name": "Nougat",
+  "lego_id": "18 - Nougat",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1979,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 30 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 18 == LDConfig LEGOID 18": true
+  },
+  "num_parts_available": 30
+ },
+ {
+  "ldraw_code": 78,
+  "name": "Light_Nougat",
+  "rgb": "#FFC995",
+  "bricklink_id": 90,
+  "bricklink_name": "Light Nougat",
+  "rebrickable_id": 78,
+  "rebrickable_name": "Light Nougat",
+  "lego_id": "283 - Light Nougat",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2004,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 34 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 283 == LDConfig LEGOID 283": true
+  },
+  "num_parts_available": 38
+ },
+ {
+  "ldraw_code": 484,
+  "name": "Dark_Orange",
+  "rgb": "#91501C",
+  "bricklink_id": 68,
+  "bricklink_name": "Dark Orange",
+  "rebrickable_id": 484,
+  "rebrickable_name": "Dark Orange",
+  "lego_id": "38 - Dark Orange",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1994,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 37 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 38 == LDConfig LEGOID 38": true
+  },
+  "num_parts_available": 44
+ },
+ {
+  "ldraw_code": 308,
+  "name": "Dark_Brown",
+  "rgb": "#352100",
+  "bricklink_id": 120,
+  "bricklink_name": "Dark Brown",
+  "rebrickable_id": 308,
+  "rebrickable_name": "Dark Brown",
+  "lego_id": "308 - Dark Brown",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2007,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 0 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 308 == LDConfig LEGOID 308": true
+  },
+  "num_parts_available": 37
+ },
+ {
+  "ldraw_code": 226,
+  "name": "Bright_Light_Yellow",
+  "rgb": "#FFEC6C",
+  "bricklink_id": 103,
+  "bricklink_name": "Bright Light Yellow",
+  "rebrickable_id": 226,
+  "rebrickable_name": "Bright Light Yellow",
+  "lego_id": "226 / 427 - Cool Yellow",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2004,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 50 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 226 == LDConfig LEGOID 226": true
+  },
+  "num_parts_available": 39
+ },
+ {
+  "ldraw_code": 73,
+  "name": "Medium_Blue",
+  "rgb": "#7396C8",
+  "bricklink_id": 42,
+  "bricklink_name": "Medium Blue",
+  "rebrickable_id": 73,
+  "rebrickable_name": "Medium Blue",
+  "lego_id": "102 - Medium Blue",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1997,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 32 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 102 == LDConfig LEGOID 102": true
+  },
+  "num_parts_available": 47
+ },
+ {
+  "ldraw_code": 212,
+  "name": "Bright_Light_Blue",
+  "rgb": "#9DC3F7",
+  "bricklink_id": 105,
+  "bricklink_name": "Bright Light Blue",
+  "rebrickable_id": 212,
+  "rebrickable_name": "Bright Light Blue",
+  "lego_id": "212 - Light Royal Blue",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2004,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 14 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 212 == LDConfig LEGOID 212": true
+  },
+  "num_parts_available": 42
+ },
+ {
+  "ldraw_code": 379,
+  "name": "Sand_Blue",
+  "rgb": "#70819A",
+  "bricklink_id": 55,
+  "bricklink_name": "Sand Blue",
+  "rebrickable_id": 379,
+  "rebrickable_name": "Sand Blue",
+  "lego_id": "135 - Sand Blue",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2001,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 22 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 135 == LDConfig LEGOID 135": true
+  },
+  "num_parts_available": 43
+ },
+ {
+  "ldraw_code": 85,
+  "name": "Medium_Lilac",
+  "rgb": "#441A91",
+  "bricklink_id": 89,
+  "bricklink_name": "Dark Purple",
+  "rebrickable_id": 85,
+  "rebrickable_name": "Dark Purple",
+  "lego_id": "268 - Medium Lilac",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2000,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 28 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": false,
+   "LEGO id SetDB 268 == LDConfig LEGOID 268": true
+  },
+  "num_parts_available": 46
+ },
+ {
+  "ldraw_code": 30,
+  "name": "Medium_Lavender",
+  "rgb": "#A06EB9",
+  "bricklink_id": 157,
+  "bricklink_name": "Medium Lavender",
+  "rebrickable_id": 30,
+  "rebrickable_name": "Medium Lavender",
+  "lego_id": "324 - Medium Lavender",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2011,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 16 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 324 == LDConfig LEGOID 324": true
+  },
+  "num_parts_available": 43
+ },
+ {
+  "ldraw_code": 31,
+  "name": "Lavender",
+  "rgb": "#CDA4DE",
+  "bricklink_id": 154,
+  "bricklink_name": "Lavender",
+  "rebrickable_id": 31,
+  "rebrickable_name": "Lavender",
+  "lego_id": "325 - Lavender",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   2011,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 55 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 325 == LDConfig LEGOID 325": true
+  },
+  "num_parts_available": 41
+ },
+ {
+  "ldraw_code": 10,
+  "name": "Bright_Green",
+  "rgb": "#58AB41",
+  "bricklink_id": 36,
+  "bricklink_name": "Bright Green",
+  "rebrickable_id": 10,
+  "rebrickable_name": "Bright Green",
+  "lego_id": "37 - Bright Green",
+  "transparent": false,
+  "alpha": null,
+  "rebrickable_years": [
+   1949,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 20 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 37 == LDConfig LEGOID 37": true
+  },
+  "num_parts_available": 42
+ },
+ {
+  "ldraw_code": 47,
+  "name": "Trans_Clear",
+  "rgb": "#FCFCFC",
+  "bricklink_id": 12,
+  "bricklink_name": "Trans-Clear",
+  "rebrickable_id": 47,
+  "rebrickable_name": "Trans-Clear",
+  "lego_id": "40 - Transparent",
+  "transparent": true,
+  "alpha": 128,
+  "rebrickable_years": [
+   1954,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 0 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 40 == LDConfig LEGOID 40": true
+  },
+  "num_parts_available": 37
+ },
+ {
+  "ldraw_code": 36,
+  "name": "Trans_Red",
+  "rgb": "#C91A09",
+  "bricklink_id": 17,
+  "bricklink_name": "Trans-Red",
+  "rebrickable_id": 36,
+  "rebrickable_name": "Trans-Red",
+  "lego_id": "41 - Transparent Red",
+  "transparent": true,
+  "alpha": 128,
+  "rebrickable_years": [
+   1969,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 0 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 41 == LDConfig LEGOID 41": true
+  },
+  "num_parts_available": 30
+ },
+ {
+  "ldraw_code": 43,
+  "name": "Trans_Light_Blue",
+  "rgb": "#AEE9EF",
+  "bricklink_id": 15,
+  "bricklink_name": "Trans-Light Blue",
+  "rebrickable_id": 41,
+  "rebrickable_name": "Trans-Light Blue",
+  "lego_id": "42 - Transparent Light Blue",
+  "transparent": true,
+  "alpha": 128,
+  "rebrickable_years": [
+   1985,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 7 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 42 == LDConfig LEGOID 42": true
+  },
+  "num_parts_available": 34
+ },
+ {
+  "ldraw_code": 46,
+  "name": "Trans_Yellow",
+  "rgb": "#F5CD2F",
+  "bricklink_id": 19,
+  "bricklink_name": "Trans-Yellow",
+  "rebrickable_id": 46,
+  "rebrickable_name": "Trans-Yellow",
+  "lego_id": "44 - Transparent Yellow",
+  "transparent": true,
+  "alpha": 128,
+  "rebrickable_years": [
+   1969,
+   2026
+  ],
+  "current_production": true,
+  "checks": {
+   "bl_guide_id == setdb_bl_id": true,
+   "ldraw code exists in LDConfig": true,
+   "rebrickable id exists in colors.csv": true,
+   "rebrickable name == bricklink name": true,
+   "RGB distance RB vs LDraw = 0 (< 90; loose, renders differ)": true,
+   "ldraw name ~ bricklink name": true,
+   "LEGO id SetDB 44 == LDConfig LEGOID 44": true
+  },
+  "num_parts_available": 30
+ }
+]

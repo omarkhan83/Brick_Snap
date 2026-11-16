@@ -1,0 +1,6824 @@
+[
+ {
+  "id": "3005",
+  "ldraw_file": "3005.dat",
+  "bricklink_id": "3005",
+  "rebrickable_id": "3005",
+  "name": "Brick  1 x  1",
+  "kind": "brick",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 1",
+  "bricklink_alternates": [
+   "30071",
+   "35382",
+   "3005f1",
+   "3005f2",
+   "3005f3"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3005",
+    "result": "found: Brick 1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 1",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3005"
+ },
+ {
+  "id": "3004",
+  "ldraw_file": "3004.dat",
+  "bricklink_id": "3004",
+  "rebrickable_id": "3004",
+  "name": "Brick  1 x  2",
+  "kind": "brick",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 2
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 2",
+  "bricklink_alternates": [
+   "3004f1",
+   "3004f2",
+   "93792"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3004",
+    "result": "found: Brick 1 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 2",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3004"
+ },
+ {
+  "id": "3622",
+  "ldraw_file": "3622.dat",
+  "bricklink_id": "3622",
+  "rebrickable_id": "3622",
+  "name": "Brick  1 x  3",
+  "kind": "brick",
+  "sx": 3,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 3
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 3",
+  "bricklink_alternates": [
+   "3622f1",
+   "45505"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3622",
+    "result": "found: Brick 1 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3622"
+ },
+ {
+  "id": "3010",
+  "ldraw_file": "3010.dat",
+  "bricklink_id": "3010",
+  "rebrickable_id": "3010",
+  "name": "Brick  1 x  4",
+  "kind": "brick",
+  "sx": 4,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 4
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 4",
+  "bricklink_alternates": [
+   "6146"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3010",
+    "result": "found: Brick 1 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 4",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3010"
+ },
+ {
+  "id": "3009",
+  "ldraw_file": "3009.dat",
+  "bricklink_id": "3009",
+  "rebrickable_id": "3009",
+  "name": "Brick  1 x  6",
+  "kind": "brick",
+  "sx": 6,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -60.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 6
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 6",
+  "bricklink_alternates": [
+   "3009f1",
+   "3009f2",
+   "3009f3",
+   "30611"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3009",
+    "result": "found: Brick 1 x 6"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 6",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   226,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3009"
+ },
+ {
+  "id": "3008",
+  "ldraw_file": "3008.dat",
+  "bricklink_id": "3008",
+  "rebrickable_id": "3008",
+  "name": "Brick  1 x  8",
+  "kind": "brick",
+  "sx": 8,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -80.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 8
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick 1 x 8",
+  "bricklink_alternates": [
+   "3008f1",
+   "3008f2",
+   "63322"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3008",
+    "result": "found: Brick 1 x 8"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 1 x 8",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   30,
+   31,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   330,
+   378,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3008"
+ },
+ {
+  "id": "3003",
+  "ldraw_file": "3003.dat",
+  "bricklink_id": "3003",
+  "rebrickable_id": "3003",
+  "name": "Brick  2 x  2",
+  "kind": "brick",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 4
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick 2 x 2",
+  "bricklink_alternates": [
+   "6223",
+   "15591",
+   "35275",
+   "62404",
+   "3003f1"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3003",
+    "result": "found: Brick 2 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 2 x 2",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3003"
+ },
+ {
+  "id": "3002",
+  "ldraw_file": "3002.dat",
+  "bricklink_id": "3002",
+  "rebrickable_id": "3002",
+  "name": "Brick  2 x  3",
+  "kind": "brick",
+  "sx": 3,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    24.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    24.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 6
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick 2 x 3",
+  "bricklink_alternates": [
+   "3002f1"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3002",
+    "result": "found: Brick 2 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 2 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   36,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   272,
+   288,
+   320,
+   321,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3002"
+ },
+ {
+  "id": "3001",
+  "ldraw_file": "3001.dat",
+  "bricklink_id": "3001",
+  "rebrickable_id": "3001",
+  "name": "Brick  2 x  4",
+  "kind": "brick",
+  "sx": 4,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    24.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    24.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 8
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick 2 x 4",
+  "bricklink_alternates": [
+   "3001f1",
+   "3556",
+   "15589",
+   "54534",
+   "72841"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3001",
+    "result": "found: Brick 2 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 2 x 4",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3001"
+ },
+ {
+  "id": "2456",
+  "ldraw_file": "2456.dat",
+  "bricklink_id": "2456",
+  "rebrickable_id": "2456",
+  "name": "Brick  2 x  6",
+  "kind": "brick",
+  "sx": 6,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -60.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    60.0,
+    24.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    60.0,
+    24.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 12
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick 2 x 6",
+  "bricklink_alternates": [
+   "44237"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "2456",
+    "result": "found: Brick 2 x 6"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 2 x 6",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "2456"
+ },
+ {
+  "id": "3007",
+  "ldraw_file": "3007.dat",
+  "bricklink_id": "3007",
+  "rebrickable_id": "3007",
+  "name": "Brick  2 x  8",
+  "kind": "brick",
+  "sx": 8,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -80.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    80.0,
+    24.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    80.0,
+    24.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    7,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 16
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    7,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick 2 x 8",
+  "bricklink_alternates": [
+   "93888"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3007",
+    "result": "found: Brick 2 x 8"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick 2 x 8",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   14,
+   15,
+   19,
+   25,
+   27,
+   29,
+   30,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   85,
+   92,
+   226,
+   272,
+   288,
+   320,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3007"
+ },
+ {
+  "id": "3024",
+  "ldraw_file": "3024.dat",
+  "bricklink_id": "3024",
+  "rebrickable_id": "3024",
+  "name": "Plate  1 x  1",
+  "kind": "plate",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 1",
+  "bricklink_alternates": [
+   "28554",
+   "30008",
+   "63326",
+   "118717"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3024",
+    "result": "found: Plate 1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 1 x 1",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3024"
+ },
+ {
+  "id": "3023b",
+  "ldraw_file": "3023b.dat",
+  "bricklink_id": "3023",
+  "rebrickable_id": "3023",
+  "name": "Plate  1 x  2",
+  "kind": "plate",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 2
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 2",
+  "bricklink_alternates": [
+   "6225",
+   "28653"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3023",
+    "result": "found: Plate 1 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3023"
+   ],
+   "rebrickable": [
+    "3023"
+   ]
+  },
+  "rebrickable_name": "Plate 1 x 2",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3023"
+ },
+ {
+  "id": "3623",
+  "ldraw_file": "3623.dat",
+  "bricklink_id": "3623",
+  "rebrickable_id": "3623",
+  "name": "Plate  1 x  3",
+  "kind": "plate",
+  "sx": 3,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 3
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 3",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3623",
+    "result": "found: Plate 1 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 1 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3623"
+ },
+ {
+  "id": "3710",
+  "ldraw_file": "3710.dat",
+  "bricklink_id": "3710",
+  "rebrickable_id": "3710",
+  "name": "Plate  1 x  4",
+  "kind": "plate",
+  "sx": 4,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 4
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 4",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3710",
+    "result": "found: Plate 1 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 1 x 4",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3710"
+ },
+ {
+  "id": "3666",
+  "ldraw_file": "3666.dat",
+  "bricklink_id": "3666",
+  "rebrickable_id": "3666",
+  "name": "Plate  1 x  6",
+  "kind": "plate",
+  "sx": 6,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -60.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 6
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 6",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3666",
+    "result": "found: Plate 1 x 6"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 1 x 6",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3666"
+ },
+ {
+  "id": "3460",
+  "ldraw_file": "3460.dat",
+  "bricklink_id": "3460",
+  "rebrickable_id": "3460",
+  "name": "Plate  1 x  8",
+  "kind": "plate",
+  "sx": 8,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -80.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 8
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate 1 x 8",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3460",
+    "result": "found: Plate 1 x 8"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 1 x 8",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3460"
+ },
+ {
+  "id": "3022",
+  "ldraw_file": "3022.dat",
+  "bricklink_id": "3022",
+  "rebrickable_id": "3022",
+  "name": "Plate  2 x  2",
+  "kind": "plate",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 4
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Plate 2 x 2",
+  "bricklink_alternates": [
+   "94148"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3022",
+    "result": "found: Plate 2 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 2 x 2",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3022"
+ },
+ {
+  "id": "3021",
+  "ldraw_file": "3021.dat",
+  "bricklink_id": "3021",
+  "rebrickable_id": "3021",
+  "name": "Plate  2 x  3",
+  "kind": "plate",
+  "sx": 3,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 6
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "bricklink_name": "Plate 2 x 3",
+  "bricklink_alternates": [
+   "03021"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3021",
+    "result": "found: Plate 2 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 2 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3021"
+ },
+ {
+  "id": "3020",
+  "ldraw_file": "3020.dat",
+  "bricklink_id": "3020",
+  "rebrickable_id": "3020",
+  "name": "Plate  2 x  4",
+  "kind": "plate",
+  "sx": 4,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 8
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ]
+  ],
+  "bricklink_name": "Plate 2 x 4",
+  "bricklink_alternates": [
+   "5584"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3020",
+    "result": "found: Plate 2 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 2 x 4",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3020"
+ },
+ {
+  "id": "3795",
+  "ldraw_file": "3795.dat",
+  "bricklink_id": "3795",
+  "rebrickable_id": "3795",
+  "name": "Plate  2 x  6",
+  "kind": "plate",
+  "sx": 6,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -60.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 12
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ]
+  ],
+  "bricklink_name": "Plate 2 x 6",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3795",
+    "result": "found: Plate 2 x 6"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 2 x 6",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3795"
+ },
+ {
+  "id": "3034",
+  "ldraw_file": "3034.dat",
+  "bricklink_id": "3034",
+  "rebrickable_id": "3034",
+  "name": "Plate  2 x  8",
+  "kind": "plate",
+  "sx": 8,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -80.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    7,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 16
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    7,
+    1
+   ]
+  ],
+  "bricklink_name": "Plate 2 x 8",
+  "bricklink_alternates": [
+   "03034"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3034",
+    "result": "found: Plate 2 x 8"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate 2 x 8",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3034"
+ },
+ {
+  "id": "3070b",
+  "ldraw_file": "3070b.dat",
+  "bricklink_id": "3070",
+  "rebrickable_id": "3070b",
+  "name": "Tile  1 x  1 with Groove",
+  "kind": "tile",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 1",
+  "bricklink_alternates": [
+   "3070b",
+   "30039",
+   "35403",
+   "39727",
+   "53836",
+   "112412",
+   "113480"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3070",
+    "result": "found: Tile 1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3070"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 1 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Chris Dee [cwdee]",
+  "requested_as": "3070b"
+ },
+ {
+  "id": "3069b",
+  "ldraw_file": "3069b.dat",
+  "bricklink_id": "3069",
+  "rebrickable_id": "3069b",
+  "name": "Tile  1 x  2 with Groove",
+  "kind": "tile",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 2",
+  "bricklink_alternates": [
+   "3069b",
+   "30070",
+   "35386",
+   "37293",
+   "45880",
+   "54285",
+   "88630",
+   "113477",
+   "113482"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3069",
+    "result": "found: Tile 1 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3069"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 2 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Santeri Piippo [arezey]",
+  "requested_as": "3069b"
+ },
+ {
+  "id": "63864",
+  "ldraw_file": "63864.dat",
+  "bricklink_id": "63864",
+  "rebrickable_id": "63864",
+  "name": "Tile  1 x  3",
+  "kind": "tile",
+  "sx": 3,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 3",
+  "bricklink_alternates": [
+   "37294",
+   "113478"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "63864",
+    "result": "found: Tile 1 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Tim Gould [timgould]",
+  "requested_as": "63864"
+ },
+ {
+  "id": "2431",
+  "ldraw_file": "2431.dat",
+  "bricklink_id": "2431",
+  "rebrickable_id": "2431",
+  "name": "Tile  1 x  4 with Groove",
+  "kind": "tile",
+  "sx": 4,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 4",
+  "bricklink_alternates": [
+   "35371",
+   "75703",
+   "91143",
+   "100687",
+   "112418",
+   "117822"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "2431",
+    "result": "found: Tile 1 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 4 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Santeri Piippo [arezey]",
+  "requested_as": "2431"
+ },
+ {
+  "id": "6636",
+  "ldraw_file": "6636.dat",
+  "bricklink_id": "6636",
+  "rebrickable_id": "6636",
+  "name": "Tile  1 x  6",
+  "kind": "tile",
+  "sx": 6,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -60.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    60.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 6",
+  "bricklink_alternates": [
+   "63324",
+   "75702",
+   "112417"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "6636",
+    "result": "found: Tile 1 x 6"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 6 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "6636"
+ },
+ {
+  "id": "4162",
+  "ldraw_file": "4162.dat",
+  "bricklink_id": "4162",
+  "rebrickable_id": "4162",
+  "name": "Tile  1 x  8",
+  "kind": "tile",
+  "sx": 8,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -80.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    80.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile 1 x 8",
+  "bricklink_alternates": [
+   "40929"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4162",
+    "result": "found: Tile 1 x 8"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 1 x 8 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   70,
+   71,
+   72,
+   73,
+   78,
+   85,
+   191,
+   212,
+   226,
+   272,
+   308,
+   320,
+   321,
+   322,
+   330,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "4162"
+ },
+ {
+  "id": "3068b",
+  "ldraw_file": "3068b.dat",
+  "bricklink_id": "3068",
+  "rebrickable_id": "3068b",
+  "name": "Tile  2 x  2 with Groove",
+  "kind": "tile",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Tile 2 x 2",
+  "bricklink_alternates": [
+   "3068b",
+   "1136",
+   "63327",
+   "78814",
+   "88409",
+   "113493",
+   "113506"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3068",
+    "result": "found: Tile 2 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3068"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 2 x 2 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   43,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Takeshi Takahashi [RainbowDolphin]",
+  "requested_as": "3068b"
+ },
+ {
+  "id": "26603",
+  "ldraw_file": "26603.dat",
+  "bricklink_id": "26603",
+  "rebrickable_id": "26603",
+  "name": "Tile  2 x  3",
+  "kind": "tile",
+  "sx": 3,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -30.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    30.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "bricklink_name": "Tile 2 x 3",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "26603",
+    "result": "found: Tile 2 x 3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 2 x 3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   31,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   272,
+   320,
+   321,
+   322,
+   379
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Philippe Hurbain [Philo]",
+  "requested_as": "26603"
+ },
+ {
+  "id": "87079",
+  "ldraw_file": "87079.dat",
+  "bricklink_id": "87079",
+  "rebrickable_id": "87079",
+  "name": "Tile  2 x  4",
+  "kind": "tile",
+  "sx": 4,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -40.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    40.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    3,
+    1
+   ]
+  ],
+  "bricklink_name": "Tile 2 x 4",
+  "bricklink_alternates": [
+   "38879",
+   "71150",
+   "113479"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "87079",
+    "result": "found: Tile 2 x 4"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile 2 x 4 with Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Tim Gould [timgould]",
+  "requested_as": "87079"
+ },
+ {
+  "id": "3040b",
+  "ldraw_file": "3040b.dat",
+  "bricklink_id": "3040",
+  "rebrickable_id": "3040b",
+  "name": "Slope Brick 45  2 x  1",
+  "kind": "slope",
+  "sx": 1,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -30.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -30.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=10.0 LDU from centre (footprint x -10.0..10.0, z -30.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 45.0,
+   "angle_range_deg": [
+    45.0,
+    45.0
+   ],
+   "nominal_angle_deg_in_ldraw_name": 45,
+   "sloped_area_ldu2": 565.7
+  },
+  "bricklink_name": "Slope 45 2 x 1",
+  "bricklink_alternates": [
+   "6270",
+   "35281"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3040",
+    "result": "found: Slope 45 2 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3040"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped 45\u00b0 2 x 1 with Bottom Pin",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   92,
+   191,
+   212,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3040b"
+ },
+ {
+  "id": "3039",
+  "ldraw_file": "3039.dat",
+  "bricklink_id": "3039",
+  "rebrickable_id": "3039",
+  "name": "Slope Brick 45  2 x  2",
+  "kind": "slope",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -30.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -30.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=10.0 LDU from centre (footprint x -20.0..20.0, z -30.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 2
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 45.0,
+   "angle_range_deg": [
+    45.0,
+    45.0
+   ],
+   "nominal_angle_deg_in_ldraw_name": 45,
+   "sloped_area_ldu2": 1131.4
+  },
+  "bricklink_name": "Slope 45 2 x 2",
+  "bricklink_alternates": [
+   "6227",
+   "35277",
+   "63341",
+   "3039f1",
+   "3039f2"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3039",
+    "result": "found: Slope 45 2 x 2"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped 45\u00b0 2 x 2",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3039"
+ },
+ {
+  "id": "54200",
+  "ldraw_file": "54200.dat",
+  "bricklink_id": "54200",
+  "rebrickable_id": "54200",
+  "name": "Slope Brick 31  1 x  1 x  0.667",
+  "kind": "slope",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 2,
+  "h_ldu": 15.6,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -15.6,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    0.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    -15.6,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    0.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the BOTTOM face of the body (body spans y -15.6..0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 30.96,
+   "angle_range_deg": [
+    30.96,
+    30.96
+   ],
+   "nominal_angle_deg_in_ldraw_name": 31,
+   "sloped_area_ldu2": 446.3
+  },
+  "bricklink_name": "Slope 30 1 x 1 x 2/3",
+  "bricklink_alternates": [
+   "18862",
+   "33847",
+   "35338",
+   "50746",
+   "63290",
+   "113476"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "54200",
+    "result": "found: Slope 30 1 x 1 x 2/3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped 30\u00b0 1 x 1 x 2/3 (Cheese Slope)",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Orion Pobursky [OrionP]",
+  "requested_as": "54200"
+ },
+ {
+  "id": "85984",
+  "ldraw_file": "85984.dat",
+  "bricklink_id": "85984",
+  "rebrickable_id": "85984",
+  "name": "Slope Brick 31  1 x  2 x  0.667",
+  "kind": "slope",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 2,
+  "h_ldu": 15.6,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -15.6,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    0.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    -15.6,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    0.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the BOTTOM face of the body (body spans y -15.6..0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 30.96,
+   "angle_range_deg": [
+    30.96,
+    30.96
+   ],
+   "nominal_angle_deg_in_ldraw_name": 31,
+   "sloped_area_ldu2": 897.3
+  },
+  "bricklink_name": "Slope 30 1 x 2 x 2/3",
+  "bricklink_alternates": [
+   "83473",
+   "118899"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "85984",
+    "result": "found: Slope 30 1 x 2 x 2/3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped 30\u00b0 1 x 2 x 2/3",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Magnus Forsberg [MagFors]",
+  "requested_as": "85984"
+ },
+ {
+  "id": "3665b",
+  "ldraw_file": "3665b.dat",
+  "bricklink_id": "3665",
+  "rebrickable_id": "3665",
+  "name": "Slope Brick 45  2 x  1 Inverted with Inner Stopper Ring",
+  "kind": "slope_inverted",
+  "sx": 1,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -30.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -30.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=10.0 LDU from centre (footprint x -10.0..10.0, z -30.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1,
+   "stud2a.dat": 1
+  },
+  "has_bottom_antistuds": false,
+  "bottom_cells": [
+   [
+    0,
+    1
+   ]
+  ],
+  "slope": {
+   "low_side": "+z",
+   "thin_side": "-z",
+   "sloped_face": "down",
+   "angle_deg": 45.0,
+   "angle_range_deg": [
+    45.0,
+    45.0
+   ],
+   "nominal_angle_deg_in_ldraw_name": 45,
+   "sloped_area_ldu2": 565.7
+  },
+  "bricklink_name": "Slope, Inverted 45 2 x 1",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3665",
+    "result": "found: Slope, Inverted 45 2 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3665"
+   ],
+   "rebrickable": [
+    "3665"
+   ]
+  },
+  "rebrickable_name": "Brick Sloped Inverted 45\u00b0 2 x 1",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Owen Burgoyne [C3POwen]",
+  "requested_as": "3665"
+ },
+ {
+  "id": "4286",
+  "ldraw_file": "4286.dat",
+  "bricklink_id": "4286",
+  "rebrickable_id": "4286",
+  "name": "Slope Brick 33  3 x  1",
+  "kind": "slope",
+  "sx": 1,
+  "sz": 3,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -50.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -50.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=20.0 LDU from centre (footprint x -10.0..10.0, z -50.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    2
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 26.57,
+   "angle_range_deg": [
+    26.57,
+    26.57
+   ],
+   "nominal_angle_deg_in_ldraw_name": 33,
+   "sloped_area_ldu2": 894.4
+  },
+  "bricklink_name": "Slope 33 3 x 1",
+  "bricklink_alternates": [
+   "4286b"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4286",
+    "result": "found: Slope 33 3 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped 33\u00b0 3 x 1",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   31,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   212,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "4286"
+ },
+ {
+  "id": "11477",
+  "ldraw_file": "11477.dat",
+  "bricklink_id": "11477",
+  "rebrickable_id": "11477",
+  "name": "Slope Brick Curved  2 x  1",
+  "kind": "curved_slope",
+  "sx": 1,
+  "sz": 2,
+  "h_plates": 2,
+  "h_ldu": 16.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -16.0,
+    -20.0
+   ],
+   "max": [
+    10.0,
+    0.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    -16.0,
+    -20.0
+   ],
+   "max": [
+    10.0,
+    0.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the BOTTOM face of the body (body spans y -16.0..0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": false,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "slope": {
+   "low_side": "-z",
+   "thin_side": "-z",
+   "sloped_face": "up",
+   "angle_deg": 19.66,
+   "angle_range_deg": [
+    8.22,
+    32.4
+   ],
+   "nominal_angle_deg_in_ldraw_name": null,
+   "sloped_area_ldu2": 700.4
+  },
+  "bricklink_name": "Slope, Curved 2 x 1 x 2/3",
+  "bricklink_alternates": [
+   "3593",
+   "17134",
+   "67128"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "11477",
+    "result": "found: Slope, Curved 2 x 1 x 2/3"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Curved 2 x 1 No Studs [1/2 Bow]",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Owen Burgoyne [C3POwen]",
+  "requested_as": "11477"
+ },
+ {
+  "id": "6141",
+  "ldraw_file": "6141.dat",
+  "bricklink_id": "4073",
+  "rebrickable_id": "6141",
+  "name": "Plate  1 x  1 Round",
+  "kind": "round_plate",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate, Round 1 x 1",
+  "bricklink_alternates": [
+   "6141",
+   "15570",
+   "30057",
+   "34823",
+   "39799",
+   "44325",
+   "51809",
+   "54003",
+   "113470"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4073",
+    "result": "found: Plate, Round 1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "4073"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate Round 1 x 1 with Solid Stud",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   226,
+   272,
+   308,
+   320,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "4073"
+ },
+ {
+  "id": "98138",
+  "ldraw_file": "98138.dat",
+  "bricklink_id": "98138",
+  "rebrickable_id": "98138",
+  "name": "Tile  1 x  1 Round with Groove",
+  "kind": "round_tile",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile, Round  1 x 1",
+  "bricklink_alternates": [
+   "35380",
+   "35381",
+   "39797",
+   "118864"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "98138",
+    "result": "found: Tile, Round  1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile Round 1 x 1",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Magnus Forsberg [MagFors]",
+  "requested_as": "98138"
+ },
+ {
+  "id": "3062b",
+  "ldraw_file": "3062b.dat",
+  "bricklink_id": "3062",
+  "rebrickable_id": "3062b",
+  "name": "Brick  1 x  1 Round with Hollow Stud",
+  "kind": "round_brick",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud2a.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick, Round  1 x 1",
+  "bricklink_alternates": [
+   "3062b",
+   "18860",
+   "30068",
+   "35390"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3062",
+    "result": "found: Brick, Round  1 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3062"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Round 1 x 1 Open Stud",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   29,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   212,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "3062b"
+ },
+ {
+  "id": "6143",
+  "ldraw_file": "6143.dat",
+  "bricklink_id": "3941",
+  "rebrickable_id": "3941",
+  "name": "Brick  2 x  2 Round Reinforced",
+  "kind": "round_brick",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -20.001,
+    -4.0,
+    -20.001
+   ],
+   "max": [
+    20.001,
+    24.0,
+    20.001
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.001,
+    0.0,
+    -20.001
+   ],
+   "max": [
+    20.001,
+    24.0,
+    20.001
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud15.dat": 4
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Brick, Round 2 x 2 with Axle Hole",
+  "bricklink_alternates": [
+   "6116",
+   "6143",
+   "39223",
+   "40049"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "3941",
+    "result": "found: Brick, Round 2 x 2 with Axle Hole"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3941"
+   ],
+   "rebrickable": [
+    "3941"
+   ]
+  },
+  "rebrickable_name": "Brick Round 2 x 2 with Axle Hole",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Steve Bliss [sbliss]",
+  "requested_as": "3941"
+ },
+ {
+  "id": "59900",
+  "ldraw_file": "59900.dat",
+  "bricklink_id": "4589b",
+  "rebrickable_id": "59900",
+  "name": "Cone  1 x  1 with Stop",
+  "kind": "cone",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud2a.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Cone 1 x 1 with Top Groove",
+  "bricklink_alternates": [
+   "15551",
+   "28701",
+   "59900",
+   "64288"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4589b",
+    "result": "found: Cone 1 x 1 with Top Groove"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "4589b"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Cone 1 x 1 [Top Groove]",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   10,
+   14,
+   15,
+   19,
+   25,
+   28,
+   29,
+   30,
+   31,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   84,
+   191,
+   212,
+   272,
+   288,
+   308,
+   320,
+   321,
+   378
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Michael Heidemann [mikeheide]",
+  "requested_as": "4589"
+ },
+ {
+  "id": "4740",
+  "ldraw_file": "4740.dat",
+  "bricklink_id": "4740",
+  "rebrickable_id": "4740",
+  "name": "Dish  2 x  2 Inverted",
+  "kind": "dish",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -20.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    20.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [
+   [
+    0.5,
+    0.5
+   ]
+  ],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud2a.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Dish 2 x 2 Inverted (Radar)",
+  "bricklink_alternates": [
+   "17964",
+   "22669",
+   "30063",
+   "35395",
+   "64938",
+   "71874",
+   "111473",
+   "112025"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4740",
+    "result": "found: Dish 2 x 2 Inverted (Radar)"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Dish 2 x 2 Inverted [Radar]",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   191,
+   320,
+   378,
+   379
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "4740"
+ },
+ {
+  "id": "87087",
+  "ldraw_file": "87087.dat",
+  "bricklink_id": "87087",
+  "rebrickable_id": "87087",
+  "name": "Brick  1 x  1 with Stud on 1 Side",
+  "kind": "side_stud",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -14.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [
+   {
+    "dir": "-z",
+    "cell": [
+     0,
+     0
+    ],
+    "y_ldu": 10.0,
+    "primitive": "stud2a.dat"
+   }
+  ],
+  "stud_primitives": {
+   "stud2a.dat": 1,
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick, Modified 1 x 1 with Stud on Side",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "87087",
+    "result": "found: Brick, Modified 1 x 1 with Stud on Side"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Special 1 x 1 with Stud on 1 Side",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Magnus Forsberg [MagFors]",
+  "requested_as": "87087"
+ },
+ {
+  "id": "4733",
+  "ldraw_file": "4733.dat",
+  "bricklink_id": "4733",
+  "rebrickable_id": "4733",
+  "name": "Brick  1 x  1 with Studs on Four Sides",
+  "kind": "side_stud",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -14.0,
+    -4.0,
+    -14.0
+   ],
+   "max": [
+    14.0,
+    24.0,
+    14.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [
+   {
+    "dir": "+x",
+    "cell": [
+     0,
+     0
+    ],
+    "y_ldu": 10.0,
+    "primitive": "stud2a.dat"
+   },
+   {
+    "dir": "-z",
+    "cell": [
+     0,
+     0
+    ],
+    "y_ldu": 10.0,
+    "primitive": "stud2a.dat"
+   },
+   {
+    "dir": "-x",
+    "cell": [
+     0,
+     0
+    ],
+    "y_ldu": 10.0,
+    "primitive": "stud2a.dat"
+   },
+   {
+    "dir": "+z",
+    "cell": [
+     0,
+     0
+    ],
+    "y_ldu": 10.0,
+    "primitive": "stud2a.dat"
+   }
+  ],
+  "stud_primitives": {
+   "stud2a.dat": 5
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Brick, Modified 1 x 1 with Studs on 4 Sides",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "4733",
+    "result": "found: Brick, Modified 1 x 1 with Studs on 4 Sides"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Special 1 x 1 Studs on 4 Sides",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   14,
+   15,
+   19,
+   25,
+   27,
+   29,
+   70,
+   71,
+   72,
+   73,
+   288,
+   320
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "James Jessiman",
+  "requested_as": "4733"
+ },
+ {
+  "id": "2412b",
+  "ldraw_file": "2412b.dat",
+  "bricklink_id": "2412b",
+  "rebrickable_id": "2412b",
+  "name": "Tile  1 x  2 Grille with Groove",
+  "kind": "tile",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "bricklink_name": "Tile, Modified 1 x 2 Grille with Bottom Groove",
+  "bricklink_alternates": [
+   "15561",
+   "30244",
+   "35248",
+   "51815",
+   "54029",
+   "71957",
+   "72582",
+   "78812"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "2412b",
+    "result": "found: Tile, Modified 1 x 2 Grille with Bottom Groove"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile Special 1 x 2 Grille with Bottom Groove",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   36,
+   43,
+   46,
+   47,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   272,
+   288,
+   320,
+   321,
+   330,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Guy Vivan [guyvivan]",
+  "requested_as": "2412b"
+ },
+ {
+  "id": "60897",
+  "ldraw_file": "60897.dat",
+  "bricklink_id": "4085d",
+  "rebrickable_id": "60897",
+  "name": "Plate  1 x  1 with Clip Vertical (Thick C-Clip)",
+  "kind": "detail",
+  "sx": 1,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -24.03
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -24.03
+   ],
+   "max": [
+    10.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0); footprint is the 1x1 plate; the clip protrudes to z=-24.03",
+  "studs_top": [
+   [
+    0,
+    0
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate, Modified 1 x 1 with Open O Clip Thick (Vertical Grip)",
+  "bricklink_alternates": [
+   "5731",
+   "44860",
+   "60897",
+   "93793"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "4085d",
+    "result": "found: Plate, Modified 1 x 1 with Open O Clip Thick (Vertical Grip)"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "4085d"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate Special 1 x 1 with Clip Vertical [Thick Open O Clip]",
+  "colours": [
+   0,
+   1,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   30,
+   70,
+   71,
+   72,
+   73,
+   85,
+   92,
+   191,
+   320,
+   321,
+   322,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Owen Burgoyne [C3POwen]",
+  "requested_as": "plate 1x1 with clip"
+ },
+ {
+  "id": "15573",
+  "ldraw_file": "15573.dat",
+  "bricklink_id": "15573",
+  "rebrickable_id": "15573",
+  "name": "Plate  1 x  2 with Groove with 1 Centre Stud, without Understud",
+  "kind": "detail",
+  "sx": 2,
+  "sz": 1,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -10.0
+   ],
+   "max": [
+    20.0,
+    8.0,
+    10.0
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [
+   [
+    0.5,
+    0.0
+   ]
+  ],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud2.dat": 1
+  },
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "bricklink_name": "Plate, Modified 1 x 2 with 1 Stud with Groove and Bottom Stud Holder (Jumper)",
+  "bricklink_alternates": [
+   "78823"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "15573",
+    "result": "found: Plate, Modified 1 x 2 with 1 Stud with Groove and Bottom Stud Holder (Jumper)"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Plate Special 1 x 2 with 1 Stud with Groove and Inside Stud Holder (Jumper)",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   70,
+   71,
+   72,
+   73,
+   78,
+   84,
+   85,
+   92,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   330,
+   378,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Magnus Forsberg [MagFors]",
+  "requested_as": "15573 or 3794"
+ },
+ {
+  "id": "14769",
+  "ldraw_file": "14769.dat",
+  "bricklink_id": "14769",
+  "rebrickable_id": "14769",
+  "name": "Tile  2 x  2 Round with Round Underside Stud",
+  "kind": "round_tile",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 1,
+  "h_ldu": 8.0,
+  "bbox_ldu": {
+   "min": [
+    -20.001,
+    0.0,
+    -20.001
+   ],
+   "max": [
+    20.001,
+    8.0,
+    20.001
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.001,
+    0.0,
+    -20.001
+   ],
+   "max": [
+    20.001,
+    8.0,
+    20.001
+   ]
+  },
+  "origin_note": "centre of footprint in X/Z; Y=0 is the top face of the body (body spans y 0..8.0)",
+  "studs_top": [],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {},
+  "has_bottom_antistuds": true,
+  "bottom_cells": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "bricklink_name": "Tile, Round 2 x 2 with Bottom Stud Holder",
+  "bricklink_alternates": [
+   "83056"
+  ],
+  "bricklink_lookup": [
+   {
+    "tried": "14769",
+    "result": "found: Tile, Round 2 x 2 with Bottom Stud Holder"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Tile Round 2 x 2 with Bottom Stud Holder",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   5,
+   10,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   29,
+   30,
+   31,
+   70,
+   71,
+   72,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   320,
+   321,
+   322,
+   330,
+   378,
+   379
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Max Martin Richter [MMR1988]",
+  "requested_as": "14769"
+ }
+]
