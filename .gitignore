@@ -20,5 +20,8 @@ __pycache__/
 # Working project folders (examples worth keeping go in samples/projects/)
 /projects/
 
+# Output of 'bricksnap bench' (the kept result is samples/scorecard.json)
+/bench/
+
 # Test screenshots and other test output
 tests/artifacts/

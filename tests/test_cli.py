@@ -18,15 +18,22 @@ import numpy as np
 import pytest
 import trimesh
 
+from bricksnap.bench import Row
+from bricksnap.catalog import load_catalog
+from bricksnap.checks import check
 from bricksnap.cli import main
 from bricksnap.designer.runner import TOOL_PREFIX, DesignerRun
+from bricksnap.export import PartLine
 from bricksnap.pipeline import create_project, rebuild, render_compare
 from bricksnap.project import Project, ProjectError
+from bricksnap.types import Build, Placement, Report
 
 STUDS = "8"
-# Removes three plates across the whole pawn (grid 10 x 10 x 26 at 8 studs), so the top
-# floats free and the build fails its checks.
-SPLIT = [{"op": "remove", "shape": {"type": "box", "min": [0, 0, 6], "max": [9, 9, 8]}}]
+# Adds a second, separate block on the ground in a corner of the pawn's grid (10 x 10 x 26
+# at 8 studs; the pawn stands on x and y = 2 to 7), so the build is in two pieces and fails
+# its checks. (Stage 1 removed three plates so the top floated; the make-buildable pass now
+# props up a floating part, but it never joins two objects that each stand on the ground.)
+SPLIT = [{"op": "add", "shape": {"type": "box", "min": [0, 0, 0], "max": [0, 1, 2]}, "color": 4}]
 PAINT = [{"op": "paint", "shape": {"type": "box", "min": [0, 0, 0], "max": [9, 9, 2]}, "color": 4}]
 # Four paint operations that each change something (different heights, different colours).
 PAINT_4 = [
@@ -794,7 +801,17 @@ def test_view_reports_a_system_error_plainly(capsys, pawn_copy, monkeypatch):
 def test_no_command_prints_help_and_returns_2(capsys):
     code, out, _ = run(capsys)
     assert code == 2
-    for command in ("new", "build", "check", "render", "export", "ops", "design", "view"):
+    for command in (
+        "new",
+        "build",
+        "check",
+        "render",
+        "export",
+        "bench",
+        "ops",
+        "design",
+        "view",
+    ):
         assert command in out
 
 
@@ -820,3 +837,811 @@ def test_module_runs_as_a_program():
     assert result.returncode == 2
     assert result.stderr.startswith("Error: Cannot find a project")
     assert "Traceback" not in result.stderr
+
+
+# ---- stage 2: notes and weak spots in new and build ---------------------------------------
+# The make-buildable and finishing passes and the renderer are written by others, so these
+# tests replace pipeline.rebuild and pipeline.render_compare with fakes that save a Build
+# made by hand. They pass whether or not those modules exist yet.
+
+PNG = b"\x89PNG\r\n\x1a\n"
+NOTES = [
+    "Added a 2 x 4 plate under the tail at x=3, y=8, z=6 so it holds on.",
+    "Could not fit a slope at x=1, y=0, z=12; left the studs there.",
+]
+
+
+@pytest.fixture(scope="module")
+def unbuilt_pawn(tmp_path_factory, pawn_path) -> Path:
+    """A pawn project with a design but no build, made once; copy it with ``bare_pawn``."""
+    return create_project(pawn_path, studs=int(STUDS), directory=tmp_path_factory.mktemp("u")).path
+
+
+@pytest.fixture
+def bare_pawn(unbuilt_pawn, tmp_path) -> Path:
+    dest = tmp_path / "work" / "pawn"
+    shutil.copytree(unbuilt_pawn, dest)
+    return dest
+
+
+def columns_build(notes: list[str] | None = None) -> Build:
+    """A good build with eight weak spots: eight columns of three 1 x 1 bricks, each on one
+    stud of a 2 x 8 brick. The report is made by the real checks."""
+    parts = [Placement("3007", 15, 0, 0, 0)]
+    for x in (0, 2, 4, 6):
+        for y in (0, 1):
+            parts += [Placement("3005", 4, x, y, z) for z in (3, 6, 9)]
+    build = Build(shape=(8, 2, 12), parts=parts, notes=list(notes or []))
+    build.report = check(build, load_catalog())
+    return build
+
+
+def report_build(report: Report, notes: list[str] | None = None) -> Build:
+    return Build(
+        shape=(1, 1, 3),
+        parts=[Placement("3005", 4, 0, 0, 0)],
+        report=report,
+        notes=list(notes or []),
+    )
+
+
+def fake_pipeline(monkeypatch, build: Build) -> list[dict]:
+    """Make rebuild save ``build`` and render_compare write a tiny picture; returns the
+    render calls."""
+    renders: list[dict] = []
+
+    def rebuild(project, *, catalog=None):
+        build.design_id = project.load_design().fingerprint()
+        project.save_build(build)
+        return build
+
+    def render_compare(project, *, catalog=None, name=None, rough=False, views=None):
+        out = project.renders_dir / (name or ("compare-rough.png" if rough else "compare.png"))
+        out.write_bytes(PNG)
+        renders.append({"name": name, "rough": rough})
+        return out
+
+    monkeypatch.setattr("bricksnap.pipeline.rebuild", rebuild)
+    monkeypatch.setattr("bricksnap.pipeline.render_compare", render_compare)
+    return renders
+
+
+def test_build_prints_the_notes_before_the_report(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build(NOTES))
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert code == 0
+    heading = out.index("What the software changed by itself:")
+    assert out.index(f"  - {NOTES[0]}\n  - {NOTES[1]}\n") > heading
+    assert heading < out.index("Check report:") < out.index("OK: 25 parts")
+
+
+def test_build_without_notes_has_no_notes_heading(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build([]))
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert code == 0
+    assert "changed by itself" not in out
+
+
+def test_build_shows_three_weak_spots_and_says_check_lists_them_all(capsys, bare_pawn, monkeypatch):
+    build = columns_build()
+    spots = build.report.weak_spots if build.report else []
+    assert len(spots) == 8
+    fake_pipeline(monkeypatch, build)
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert code == 0
+    assert "8 weak spots to strengthen" in out
+    for spot in spots[:3]:
+        assert f"- {spot}\n" in out
+    for spot in spots[3:]:
+        assert spot not in out
+    assert f"- and 5 more weak spots; 'uv run bricksnap check {bare_pawn}' lists them all." in out
+    # check prints every one of them
+    code, out, _ = run(capsys, "check", str(bare_pawn))
+    assert code == 0
+    for spot in spots:
+        assert f"- {spot}\n" in out
+    assert "more weak spots;" not in out
+
+
+def test_new_shows_notes_and_only_three_weak_spots(capsys, tmp_path, pawn_path, monkeypatch):
+    build = columns_build(NOTES)
+    spots = build.report.weak_spots if build.report else []
+    fake_pipeline(monkeypatch, build)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = run(capsys, "new", str(pawn_path), "--studs", STUDS)
+    assert code == 0
+    assert out.index("What the software changed by itself:") < out.index("Check report:")
+    assert f"  - {NOTES[1]}" in out
+    assert spots[2] in out and spots[3] not in out
+    assert "- and 5 more weak spots; 'uv run bricksnap check pawn' lists them all." in out
+
+
+def test_build_with_more_weak_spots_than_the_report_lists(capsys, bare_pawn, monkeypatch):
+    spots = [f"Weak spot number {i} at x={i}, y=0, z=3." for i in range(1, 11)]
+    text = "\n".join(
+        [
+            "NOT BUILDABLE: 40 parts; it would tip over.",
+            "It would tip over: widen the base.",
+            "14 weak spots to strengthen (they do not fail the checks on their own):",
+            *(f"- {s}" for s in spots),
+            "- and 4 less serious weak spots not listed.",
+        ]
+    )
+    report = Report(ok=False, part_count=40, weak_spots=spots, text=text)
+    fake_pipeline(monkeypatch, report_build(report))
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert code == 1
+    assert "It would tip over: widen the base." in out  # the problems are all kept
+    assert "Weak spot number 3 " in out and "Weak spot number 4 " not in out
+    assert "not listed" not in out
+    assert "- and 11 more weak spots; " in out
+    assert "lists the 10 most serious." in out
+
+
+def test_build_with_three_weak_spots_shows_them_all(capsys, bare_pawn, monkeypatch):
+    spots = ["First.", "Second.", "Third."]
+    text = "OK: 9 parts in one connected piece; it stands.\n3 weak spots to strengthen:\n"
+    text += "\n".join(f"- {s}" for s in spots)
+    fake_pipeline(monkeypatch, report_build(Report(ok=True, weak_spots=spots, text=text)))
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert code == 0
+    assert "- First.\n- Second.\n- Third.\n" in out
+    assert "more weak spot" not in out
+
+
+def test_one_more_weak_spot_is_singular(capsys, bare_pawn, monkeypatch):
+    spots = ["A.", "B.", "C.", "D."]
+    text = "OK: 9 parts.\n4 weak spots to strengthen:\n" + "\n".join(f"- {s}" for s in spots)
+    fake_pipeline(monkeypatch, report_build(Report(ok=True, weak_spots=spots, text=text)))
+    code, out, _ = run(capsys, "build", str(bare_pawn))
+    assert "- and 1 more weak spot; " in out
+    assert "- D." not in out
+
+
+# ---- stage 2: render --rough --------------------------------------------------------------
+
+
+def test_render_rough_draws_three_rows_into_its_own_file(capsys, bare_pawn, monkeypatch):
+    renders = fake_pipeline(monkeypatch, columns_build())
+    code, out, _ = run(capsys, "render", str(bare_pawn), "--rough")
+    assert code == 0
+    assert renders == [{"name": "compare-rough.png", "rough": True}]
+    assert str(bare_pawn / "renders" / "compare-rough.png") in out
+    assert "Middle row: the plain conversion" in out
+
+
+def test_render_rough_to_another_file(capsys, bare_pawn, monkeypatch, tmp_path):
+    renders = fake_pipeline(monkeypatch, columns_build())
+    target = tmp_path / "pics" / "rough.png"
+    code, out, _ = run(capsys, "render", str(bare_pawn), "--rough", "--out", str(target))
+    assert code == 0
+    assert renders[0]["rough"] is True
+    assert target.read_bytes() == PNG
+    assert not (bare_pawn / "renders" / ".render-out.png").exists()
+
+
+def test_render_without_rough_asks_for_two_rows(capsys, bare_pawn, monkeypatch):
+    renders = fake_pipeline(monkeypatch, columns_build())
+    code, out, _ = run(capsys, "render", str(bare_pawn))
+    assert code == 0
+    assert renders == [{"name": "compare.png", "rough": False}]
+    assert "Middle row" not in out
+
+
+def test_render_rough_says_the_bottom_row_is_the_design_before_any_build(
+    capsys, bare_pawn, monkeypatch
+):
+    fake_pipeline(monkeypatch, columns_build())  # bare_pawn has no build.json
+    code, out, _ = run(capsys, "render", str(bare_pawn), "--rough")
+    assert code == 0
+    assert "Bottom row: the design, not built into bricks yet." in out
+    assert f"uv run bricksnap build {bare_pawn}" in out
+    assert "the brick version" not in out
+    code, out, _ = run(capsys, "render", str(bare_pawn))
+    assert code == 0
+    assert "Bottom row: the design, not built into bricks yet." in out
+    assert "the brick version" not in out
+
+
+def test_render_rough_after_a_build_says_the_bottom_row_is_the_bricks(
+    capsys, pawn_copy, monkeypatch
+):
+    fake_pipeline(monkeypatch, columns_build())
+    code, out, _ = run(capsys, "render", str(pawn_copy), "--rough")
+    assert code == 0
+    assert "Bottom row: the brick version as it is now." in out
+    assert "not built into bricks yet" not in out
+
+
+def test_render_rough_with_a_damaged_base_design(capsys, pawn_copy):
+    (pawn_copy / "design.base.npz").write_text("junk", encoding="utf-8")
+    (pawn_copy / "build.rough.json").unlink(missing_ok=True)
+    code, _, err = run(capsys, "render", str(pawn_copy), "--rough")
+    assert code == 2
+    assert err.startswith("Error: ")
+    assert "design.base.npz" in err and "is damaged" in err
+    assert "pickle" not in err
+    # the plain picture does not need the base design
+    assert run(capsys, "render", str(pawn_copy))[0] == 0
+
+
+def test_render_rough_without_a_base_design(capsys, pawn_copy):
+    (pawn_copy / "design.base.npz").unlink()
+    code, _, err = run(capsys, "render", str(pawn_copy), "--rough")
+    assert code == 2
+    assert "has no base design yet" in err
+
+
+def test_render_rough_with_the_real_renderer(capsys, pawn_copy):
+    """Through the real pipeline and renderer: three rows, so a taller picture."""
+    from PIL import Image
+
+    code, out, err = run(capsys, "render", str(pawn_copy), "--rough")
+    assert code == 0, err
+    rough = pawn_copy / "renders" / "compare-rough.png"
+    plain = pawn_copy / "renders" / "compare.png"
+    assert (pawn_copy / "build.rough.json").is_file()
+    with Image.open(rough) as three, Image.open(plain) as two:
+        assert three.height > two.height
+
+
+# ---- stage 2: export ----------------------------------------------------------------------
+
+
+def _line(part, name, colour, colour_name, quantity, bl_id="", bl_colour=None) -> PartLine:
+    return PartLine(
+        part=part,
+        bricklink_id=bl_id or part,
+        name=name,
+        colour=colour,
+        colour_name=colour_name,
+        bricklink_colour=bl_colour,
+        quantity=quantity,
+    )
+
+
+LINES = [
+    _line("3007", "Brick 2 x 8", 15, "White", 1, bl_colour=1),
+    _line("3005", "Brick 1 x 1", 4, "Red", 24, bl_colour=5),
+    _line("99999", "unknown part", 4, "Red", 2, bl_id="-"),
+]
+
+
+@pytest.fixture
+def fake_export(monkeypatch):
+    """Replace bricksnap.export's functions; returns the projects write_exports was given."""
+    calls: list[Project] = []
+
+    def write_exports(project, catalog=None):
+        calls.append(project)
+        (project.path / "parts.csv").write_text("Part\n", encoding="utf-8")
+        (project.path / "wanted_list.xml").write_text("<INVENTORY/>", encoding="utf-8")
+        return {
+            "parts": project.path / "parts.csv",
+            "wanted_list": project.path / "wanted_list.xml",
+        }
+
+    monkeypatch.setattr("bricksnap.export.write_exports", write_exports)
+    monkeypatch.setattr("bricksnap.export.parts_list", lambda build, catalog: list(LINES))
+    monkeypatch.setattr(
+        "bricksnap.export.unlisted", lambda lines: [ln for ln in lines if ln.part == "99999"]
+    )
+    return calls
+
+
+def _save_current_build(project_path: Path) -> None:
+    project = Project(project_path)
+    build = columns_build()
+    build.design_id = project.load_design().fingerprint()
+    project.save_build(build)
+
+
+def test_export_writes_the_lists_and_says_how_to_buy(capsys, bare_pawn, fake_export):
+    _save_current_build(bare_pawn)
+    code, out, err = run(capsys, "export", str(bare_pawn))
+    assert code == 0, err
+    assert [p.path for p in fake_export] == [bare_pawn]
+    assert (bare_pawn / "build.ldr").is_file()
+    assert str(bare_pawn / "build.ldr") in out
+    assert str(bare_pawn / "parts.csv") in out
+    assert str(bare_pawn / "wanted_list.xml") in out
+    assert "27 parts of 3 different kinds" in out
+    assert "Wanted, then Upload" in out
+    assert "paste it" in out
+    assert "2 parts are not on the wanted list" in out
+    assert "  - 2 x Red unknown part (part 99999)" in out
+    assert "edited since" not in out
+
+
+def test_export_with_every_part_listed(capsys, bare_pawn, fake_export, monkeypatch):
+    monkeypatch.setattr("bricksnap.export.unlisted", lambda lines: [])
+    _save_current_build(bare_pawn)
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert code == 0
+    assert "Every part is on the wanted list." in out
+    assert "not on the wanted list" not in out
+
+
+def test_export_one_part_not_listed_is_singular(capsys, bare_pawn, fake_export, monkeypatch):
+    one = _line("99999", "unknown part", 4, "Red", 1, bl_id="-")
+    monkeypatch.setattr("bricksnap.export.parts_list", lambda build, catalog: [one])
+    monkeypatch.setattr("bricksnap.export.unlisted", lambda lines: [one])
+    _save_current_build(bare_pawn)
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert "1 part of 1 different kind " in out
+    assert "Buy it by hand" in out  # it is the only part, so there is nothing to upload
+    # with another part that can go on the wanted list
+    listed = _line("3005", "Brick 1 x 1", 4, "Red", 2, bl_colour=5)
+    monkeypatch.setattr("bricksnap.export.parts_list", lambda build, catalog: [listed, one])
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert "1 part is not on the wanted list" in out
+    assert "Add it by hand" in out
+
+
+def test_export_warns_when_the_design_changed_after_the_build(capsys, bare_pawn, fake_export):
+    Project(bare_pawn).save_build(columns_build())  # records no design, so it is out of date
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert code == 0
+    assert "the design has been edited since these bricks were built" in out
+    assert f"bricksnap build {bare_pawn}" in out
+
+
+def test_export_with_the_real_lists(capsys, bare_pawn):
+    """The real bricksnap.export, once it exists (skipped while it is still a stub)."""
+    _save_current_build(bare_pawn)
+    try:
+        code, out, err = run(capsys, "export", str(bare_pawn))
+    except NotImplementedError:
+        pytest.skip("bricksnap.export is not written yet")
+    assert code == 0, err
+    assert (bare_pawn / "parts.csv").is_file() and (bare_pawn / "wanted_list.xml").is_file()
+    assert "25 parts of 2 different kinds" in out
+
+
+def _edit_saved_build(project_path: Path, change) -> None:
+    """Save a good, current build, then change its build.json by hand with ``change``."""
+    _save_current_build(project_path)
+    path = project_path / "build.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    change(data)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_export_with_a_part_and_a_colour_not_in_the_parts_table(capsys, bare_pawn):
+    """The real bricksnap.export: an unknown part cannot go into the LDraw file, but the
+    lists are still written and the parts that need buying by hand are named."""
+
+    def change(data):
+        data["parts"][1]["part"] = "99999"  # a 1 x 1 brick becomes a part nobody knows
+        data["parts"][2]["color"] = 999  # and another one gets a colour nobody knows
+
+    _edit_saved_build(bare_pawn, change)
+    code, out, err = run(capsys, "export", str(bare_pawn))
+    assert code == 1, err
+    assert not (bare_pawn / "build.ldr").exists()
+    assert "Could not write the LDraw file" in out
+    assert "The part '99999' is not in BrickSnap's parts table" in out
+    assert (bare_pawn / "parts.csv").is_file() and (bare_pawn / "wanted_list.xml").is_file()
+    assert "2 parts are not on the wanted list" in out
+    assert "  - 1 x Red unknown part (part 99999)" in out
+    assert "  - 1 x Brick 1 x 1 (part 3005) in unknown colour 999" in out
+    assert "Wanted, then Upload" in out  # the other parts can still be uploaded
+
+
+def test_export_with_a_part_not_in_the_parts_table_keeps_an_older_ldraw_file(capsys, bare_pawn):
+    (bare_pawn / "build.ldr").write_text("0 older\n", encoding="utf-8")
+    _edit_saved_build(bare_pawn, lambda data: data["parts"][0].update(part="99999"))
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert code == 1
+    assert (bare_pawn / "build.ldr").read_text(encoding="utf-8") == "0 older\n"
+    assert "build.ldr was left as it was" in out
+
+
+@pytest.mark.parametrize("colour", ["red", None, 4.5])
+def test_export_with_a_colour_that_is_not_a_number(capsys, bare_pawn, colour):
+    _edit_saved_build(bare_pawn, lambda data: data["parts"][0].update(color=colour))
+    code, out, err = run(capsys, "export", str(bare_pawn))
+    assert code == 2
+    assert err.startswith("Error: The build file ")
+    assert "is damaged" in err
+    assert "LDraw colour code is a whole number" in err  # what is wrong, from export
+    assert f"bricksnap build {bare_pawn}" in err
+    assert "invalid literal" not in err and "NoneType" not in err
+    assert not (bare_pawn / "parts.csv").exists() and not (bare_pawn / "build.ldr").exists()
+
+
+def test_export_of_a_build_with_no_parts(capsys, bare_pawn):
+    _edit_saved_build(bare_pawn, lambda data: data.update(parts=[]))
+    code, out, err = run(capsys, "export", str(bare_pawn))
+    assert code == 0, err
+    assert "has no parts, so there is nothing to buy" in out
+    assert "Wanted, then Upload" not in out
+    assert "Every part is on the wanted list" not in out
+
+
+def test_export_where_no_part_can_go_on_the_wanted_list(
+    capsys, bare_pawn, fake_export, monkeypatch
+):
+    monkeypatch.setattr("bricksnap.export.unlisted", lambda lines: list(lines))
+    _save_current_build(bare_pawn)
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert code == 0
+    assert "Wanted, then Upload" not in out
+    assert "None of the parts can go on the BrickLink wanted list" in out
+    assert "nothing to upload" in out
+    assert "  - 24 x Red Brick 1 x 1 (part 3005)" in out
+    assert "Every part is on the wanted list" not in out
+
+
+def test_export_counts_one_part_in_two_colours_as_two_kinds(
+    capsys, bare_pawn, fake_export, monkeypatch
+):
+    lines = [
+        _line("3005", "Brick 1 x 1", 4, "Red", 10, bl_colour=5),
+        _line("3005", "Brick 1 x 1", 1, "Blue", 6, bl_colour=7),
+    ]
+    monkeypatch.setattr("bricksnap.export.parts_list", lambda build, catalog: list(lines))
+    _save_current_build(bare_pawn)
+    code, out, _ = run(capsys, "export", str(bare_pawn))
+    assert code == 0
+    assert "16 parts of 2 different kinds" in out
+
+
+# ---- stage 2: bench -----------------------------------------------------------------------
+
+
+class FakeBench:
+    def __init__(self, rows: list[Row]) -> None:
+        self.rows = rows
+        self.calls: list[dict] = []
+        self.compared: list[tuple[list[Row], list[Row]]] = []
+
+    def run_bench(self, models_dir, out_dir, studs=16, catalog=None, names=None):
+        self.calls.append(
+            {"models": Path(models_dir), "out": Path(out_dir), "studs": studs, "names": names}
+        )
+        return [r for r in self.rows if names is None or r.name in names]
+
+    def compare(self, old, new):
+        self.compared.append((old, new))
+        return "cat: parts went down from 120 to 110."
+
+
+@pytest.fixture
+def bench_dir(tmp_path, monkeypatch) -> Path:
+    """Run from tmp_path, which holds samples/models with three (empty) model files."""
+    models = tmp_path / "samples" / "models"
+    models.mkdir(parents=True)
+    for name in ("cat.glb", "duck.glb", "pawn.stl", "README.md"):
+        (models / name).write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def use_bench(monkeypatch, rows: list[Row]) -> FakeBench:
+    fake = FakeBench(rows)
+    monkeypatch.setattr("bricksnap.bench.run_bench", fake.run_bench)
+    monkeypatch.setattr("bricksnap.bench.compare", fake.compare)
+    monkeypatch.setattr(
+        "bricksnap.bench.format_table",
+        lambda rows: "| model | parts |\n" + "".join(f"| {r.name} | {r.parts} |\n" for r in rows),
+    )
+    return fake
+
+
+GOOD_ROWS = [
+    Row("cat", ok=True, parts=110),
+    Row("duck", ok=True, parts=80),
+    Row("pawn", ok=True, parts=60),
+]
+
+
+def test_bench_runs_every_model_and_prints_the_table(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    code, out, err = run(capsys, "bench")
+    assert code == 0, err
+    assert fake.calls == [
+        {"models": Path("samples/models"), "out": Path("bench"), "studs": 16, "names": None}
+    ]
+    assert "Building 3 test models at 16 studs" in out
+    assert "| cat | 110 |" in out
+    assert "Nothing to compare with yet; run with --save to keep this result." in out
+    assert "bench/scorecard.md" in out
+    assert "Result: all 3 models built with no loose parts." in out
+    assert not (bench_dir / "samples" / "scorecard.json").exists()
+
+
+def test_bench_options_are_passed_through(capsys, bench_dir, monkeypatch, tmp_path):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    other = tmp_path / "elsewhere"
+    code, out, _ = run(capsys, "bench", "--studs", "12", "--out", str(other), "duck", "cat")
+    assert code == 0
+    assert fake.calls[0]["studs"] == 12
+    assert fake.calls[0]["out"] == other
+    assert fake.calls[0]["names"] == ["duck", "cat"]
+    assert "Building 2 test models at 12 studs" in out
+    assert "| pawn |" not in out
+
+
+def test_bench_returns_1_when_a_model_has_loose_parts_or_fails(capsys, bench_dir, monkeypatch):
+    rows = [
+        Row("cat", ok=False, parts=110, loose=3),
+        Row("duck", error="The model file duck.glb is damaged."),
+        Row("pawn", ok=True, parts=60),
+    ]
+    use_bench(monkeypatch, rows)
+    code, out, _ = run(capsys, "bench")
+    assert code == 1
+    assert "Could not be built:\n  - duck: The model file duck.glb is damaged." in out
+    assert "Result: 2 of 3 models could not be built or have loose parts: cat, duck." in out
+
+
+def test_bench_ok_false_without_loose_parts_still_returns_0(capsys, bench_dir, monkeypatch):
+    use_bench(monkeypatch, [Row("cat", ok=False, parts=110, loose=0)])
+    assert run(capsys, "bench", "cat")[0] == 0
+
+
+def test_bench_save_then_compare(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    code, out, _ = run(capsys, "bench", "--save")
+    assert code == 0
+    saved = json.loads((bench_dir / "samples" / "scorecard.json").read_text(encoding="utf-8"))
+    assert saved["studs"] == 16
+    assert [r["name"] for r in saved["rows"]] == ["cat", "duck", "pawn"]
+    assert saved["rows"][0]["parts"] == 110
+    assert "Saved this result as the scorecard" in out
+    assert fake.compared == []  # there was nothing to compare with before saving
+
+    code, out, _ = run(capsys, "bench", "cat")
+    assert code == 0
+    old, new = fake.compared[-1]
+    assert [r.name for r in old] == ["cat"]  # only the models that were run
+    assert old[0] == Row("cat", ok=True, parts=110)
+    assert [r.name for r in new] == ["cat"]
+    assert "Compared with the saved scorecard (samples/scorecard.json):" in out
+    assert "cat: parts went down from 120 to 110." in out
+
+
+def test_bench_save_for_some_models_keeps_the_others(capsys, bench_dir, monkeypatch):
+    use_bench(monkeypatch, GOOD_ROWS)
+    assert run(capsys, "bench", "--save")[0] == 0
+    use_bench(monkeypatch, [Row("duck", ok=True, parts=70)])
+    assert run(capsys, "bench", "--save", "duck")[0] == 0
+    saved = json.loads((bench_dir / "samples" / "scorecard.json").read_text(encoding="utf-8"))
+    assert {r["name"]: r["parts"] for r in saved["rows"]} == {"cat": 110, "duck": 70, "pawn": 60}
+
+
+def test_bench_does_not_compare_different_sizes(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    scorecard = bench_dir / "samples" / "scorecard.json"
+    scorecard.write_text(json.dumps({"studs": 24, "rows": [{"name": "cat"}]}), encoding="utf-8")
+    code, out, _ = run(capsys, "bench")
+    assert code == 0
+    assert fake.compared == []
+    assert "made at 24 studs and this run is at 16" in out
+
+
+def test_bench_with_a_damaged_scorecard(capsys, bench_dir, monkeypatch):
+    use_bench(monkeypatch, GOOD_ROWS)
+    (bench_dir / "samples" / "scorecard.json").write_text("{nope", encoding="utf-8")
+    code, out, _ = run(capsys, "bench")
+    assert code == 0
+    assert "samples/scorecard.json is damaged" in out
+    assert "--save to replace it" in out
+    assert "Nothing to compare with yet" not in out
+
+
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        ('{"studs": 16, "rows": [{"parts": 3}]}', "row 1 has no model name"),
+        ('{"studs": 16, "rows": ["cat"]}', "row 1 has no model name"),
+        ('{"studs": 16, "rows": [{"name": ""}]}', "row 1 has no model name"),
+        ('{"studs": 16, "rows": [{"name": "cat", "parts": "many"}]}', 'row 1 (cat) has "many"'),
+        ('{"studs": 16, "rows": [{"name": "cat", "ok": 1}]}', "row 1 (cat) has 1 for ok"),
+        ('{"studs": 16, "rows": [{"name": "cat", "parts": true}]}', "row 1 (cat) has true"),
+        ('{"studs": 16, "rows": [{"name": "cat", "error": null}]}', "row 1 (cat) has null"),
+        ('{"studs": "16", "rows": []}', "the size it was made at is not a whole number"),
+        ('{"rows": {"name": "cat"}}', "it holds no list of rows"),
+        ("7", "it holds no list of rows"),
+        ("<<<<<<< HEAD\n[]\n=======\n[]\n>>>>>>> theirs\n", "it is not valid JSON"),
+        (b"\xff\xfe\x00", "it is not a text file"),
+    ],
+)
+def test_bench_scorecard_damage_is_explained_plainly(
+    capsys, bench_dir, monkeypatch, content, reason
+):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    scorecard = bench_dir / "samples" / "scorecard.json"
+    if isinstance(content, bytes):
+        scorecard.write_bytes(content)
+    else:
+        scorecard.write_text(content, encoding="utf-8")
+    code, out, err = run(capsys, "bench")
+    assert code == 0, err
+    assert (
+        f"The saved scorecard samples/scorecard.json is damaged and cannot be read: {reason}" in out
+    )
+    for python_words in ("__init__", "positional", "attribute", "codec", "Expecting"):
+        assert python_words not in out
+    assert fake.compared == []
+
+
+def test_bench_scorecard_accepts_whole_numbers_for_shares(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    rows = [{"name": "cat", "shaped": 1, "seconds": 2.5, "ok": True}]
+    (bench_dir / "samples" / "scorecard.json").write_text(
+        json.dumps({"studs": 16, "rows": rows}), encoding="utf-8"
+    )
+    assert run(capsys, "bench")[0] == 0
+    assert fake.compared[0][0] == [Row("cat", ok=True, shaped=1, seconds=2.5)]
+
+
+def test_bench_save_for_some_models_at_another_size_replaces_the_scorecard(
+    capsys, bench_dir, monkeypatch
+):
+    use_bench(monkeypatch, GOOD_ROWS)
+    assert run(capsys, "bench", "--save")[0] == 0
+    use_bench(monkeypatch, [Row("duck", ok=True, parts=300)])
+    code, out, _ = run(capsys, "bench", "--studs", "24", "--save", "duck")
+    assert code == 0
+    assert "The old scorecard was made at 16 studs, so it is replaced, not added to." in out
+    saved = json.loads((bench_dir / "samples" / "scorecard.json").read_text(encoding="utf-8"))
+    assert saved["studs"] == 24
+    assert [(r["name"], r["parts"]) for r in saved["rows"]] == [("duck", 300)]
+
+
+def test_bench_with_no_rows_returns_1(capsys, bench_dir, monkeypatch):
+    use_bench(monkeypatch, [])
+    code, out, _ = run(capsys, "bench")
+    assert code == 1
+    assert "Result: 0 of 0 models" in out or "Result: no model" in out
+    assert "built with no loose parts" not in out
+
+
+def test_bench_reads_a_scorecard_that_is_a_bare_list(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    rows = [{"name": "cat", "parts": 120, "something_new": 1}]
+    (bench_dir / "samples" / "scorecard.json").write_text(json.dumps(rows), encoding="utf-8")
+    assert run(capsys, "bench")[0] == 0
+    assert fake.compared[0][0] == [Row("cat", parts=120)]
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [
+        (["bench", "dragon"], "There is no model called dragon in samples/models. The models"),
+        (["bench", "--studs", "200"], "between 4 and 96"),
+        (["bench", "--models", "nowhere"], "Cannot find the folder of test models nowhere"),
+        (["bench", "--studs", "many"], "invalid int value"),
+    ],
+)
+def test_bench_mistakes(capsys, bench_dir, monkeypatch, argv, expected):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    code, _, err = run(capsys, *argv)
+    assert code == 2
+    assert err.startswith("Error: ")
+    assert expected in err
+    assert fake.calls == []
+
+
+def test_bench_lists_the_models_when_a_name_is_wrong(capsys, bench_dir, monkeypatch):
+    use_bench(monkeypatch, GOOD_ROWS)
+    _, _, err = run(capsys, "bench", "dragon")
+    assert "The models are: cat, duck, pawn." in err
+
+
+def test_bench_with_an_empty_models_folder(capsys, tmp_path, monkeypatch):
+    use_bench(monkeypatch, GOOD_ROWS)
+    (tmp_path / "empty").mkdir()
+    monkeypatch.chdir(tmp_path)
+    code, _, err = run(capsys, "bench", "--models", "empty")
+    assert code == 2
+    assert "There are no model files in empty" in err
+
+
+def test_bench_out_that_is_a_file(capsys, bench_dir, monkeypatch):
+    fake = use_bench(monkeypatch, GOOD_ROWS)
+    (bench_dir / "bench").write_text("x", encoding="utf-8")
+    code, _, err = run(capsys, "bench")
+    assert code == 2
+    assert "is a file, not a folder" in err
+    assert fake.calls == []
+
+
+# ---- stage 2: the designer's brief --------------------------------------------------------
+
+BRIEF = {
+    "object": "A chess pawn, facing the front.",
+    "features": ["round head", "wide base"],
+    "plan": "Make the head a little bigger.",
+    "colours": [15, 0, 99999],
+    "finish": "Smooth on the head, studs on the base.",
+}
+
+
+def _write_brief(project: Project, brief) -> None:
+    project.meta["brief"] = brief
+    project.save_meta()
+
+
+def test_design_shows_the_brief_before_its_closing_text(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build())
+
+    def designer(project, **options):
+        _write_brief(Project(project.path), BRIEF)  # as the brief tool does, mid-run
+        return DesignerRun(ok=True, turns=2, final_text="All done.")
+
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    code, out, _ = run(capsys, "design", str(bare_pawn))
+    assert code == 0
+    brief = out.index("The designer's brief:")
+    assert brief < out.index("What the designer said at the end:")
+    assert "  What it is: A chess pawn, facing the front.\n" in out
+    assert "  What makes it recognisable:\n    - round head\n    - wide base\n" in out
+    assert "  The plan: Make the head a little bigger.\n" in out
+    assert "  Colours: White, Black, colour 99999\n" in out
+    assert "  Surfaces: Smooth on the head, studs on the base.\n" in out
+
+
+def test_design_without_a_brief_has_no_brief_heading(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build())
+    monkeypatch.setattr(
+        "bricksnap.designer.runner.run_designer",
+        lambda project, **o: DesignerRun(ok=True, turns=1, final_text="Nothing to do."),
+    )
+    code, out, _ = run(capsys, "design", str(bare_pawn))
+    assert code == 0
+    assert "The designer's brief" not in out
+
+
+def test_design_shows_a_brief_that_is_plain_text(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build())
+    _write_brief(Project(bare_pawn), "Make it look like a pawn.")
+    monkeypatch.setattr(
+        "bricksnap.designer.runner.run_designer",
+        lambda project, **o: DesignerRun(ok=True, turns=1),
+    )
+    code, out, _ = run(capsys, "design", str(bare_pawn))
+    assert code == 0
+    assert "The designer's brief:\n  Make it look like a pawn.\n" in out
+
+
+def test_design_skips_missing_brief_fields(capsys, bare_pawn, monkeypatch):
+    fake_pipeline(monkeypatch, columns_build())
+    _write_brief(Project(bare_pawn), {"object": "A pawn.", "colours": 4, "features": []})
+    monkeypatch.setattr(
+        "bricksnap.designer.runner.run_designer",
+        lambda project, **o: DesignerRun(ok=True, turns=1),
+    )
+    code, out, _ = run(capsys, "design", str(bare_pawn))
+    assert code == 0
+    assert "  What it is: A pawn.\n  Colours: Red\n" in out
+    assert "recognisable" not in out and "The plan" not in out
+
+
+def test_ops_with_build_shows_notes_and_a_short_report(capsys, bare_pawn, monkeypatch):
+    build = columns_build(NOTES)
+    spots = build.report.weak_spots if build.report else []
+    fake_pipeline(monkeypatch, build)
+    code, out, _ = run(capsys, "ops", str(bare_pawn), json.dumps(PAINT), "--build")
+    assert code == 0
+    assert out.index("What the software changed by itself:") < out.index("Check report:")
+    assert spots[2] in out and spots[3] not in out
+    assert "- and 5 more weak spots; " in out
+
+
+def test_design_shows_notes_and_a_short_report(capsys, bare_pawn, monkeypatch):
+    build = columns_build(NOTES)
+    spots = build.report.weak_spots if build.report else []
+    fake_pipeline(monkeypatch, build)
+    monkeypatch.setattr(
+        "bricksnap.designer.runner.run_designer",
+        lambda project, **o: DesignerRun(ok=True, turns=1),
+    )
+    code, out, _ = run(capsys, "design", str(bare_pawn))
+    assert code == 0
+    notes = out.index("What the software changed by itself:")
+    assert notes < out.index("The build is valid afterwards:")
+    assert spots[2] in out and spots[3] not in out
+    assert "- and 5 more weak spots; " in out

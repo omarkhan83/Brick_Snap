@@ -4,7 +4,6 @@ designer's tools and the tests. Keeping them here means everything runs the same
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -60,22 +59,14 @@ def rebuild(project: Project, *, catalog: Catalog | None = None) -> Build:
     from bricksnap.buildable import make_buildable
     from bricksnap.checks import check
     from bricksnap.finish import finish
-    from bricksnap.layout import solve
     from bricksnap.ldraw import to_ldraw
 
     catalog = catalog or load_catalog()
     design = project.load_design()
-    work, build, notes = design, None, []
-    try:
-        fixed = make_buildable(design, catalog)
-        work, build, notes = fixed.design, fixed.build, list(fixed.notes)
-    except NotImplementedError:  # stage 2 pass not written yet
-        pass
-    if build is None:
-        build = solve(work, catalog)
-    build.notes = notes
-    with contextlib.suppress(NotImplementedError):  # stage 2 pass not written yet
-        build = finish(build, work, catalog)
+    fixed = make_buildable(design, catalog)  # works on a copy and returns its own layout
+    build = fixed.build
+    build.notes = list(fixed.notes)
+    build = finish(build, fixed.design, catalog)
     build.design_id = design.fingerprint()
     build.report = check(build, catalog)
     project.save_build(build)

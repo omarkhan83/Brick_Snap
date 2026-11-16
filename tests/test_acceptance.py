@@ -30,7 +30,7 @@ CASES = {
 }
 
 
-def assert_build_matches_design(design, build, catalog):
+def assert_build_matches_design(design, build, catalog, kinds=("brick", "plate")):
     """Every filled cell is covered by exactly one part of its colour; nothing else is."""
     occ, collisions, out_of_bounds, unknown = occupancy(build, catalog)
     assert not collisions, f"{len(collisions)} pairs of parts overlap"
@@ -45,7 +45,7 @@ def assert_build_matches_design(design, build, catalog):
         "a part has the wrong colour"
     )
     for p in build.parts:
-        assert catalog.parts[p.part].kind in ("brick", "plate")
+        assert catalog.parts[p.part].kind in kinds
         assert p.step >= 1, "every part needs a building step"
 
 
@@ -90,7 +90,9 @@ def test_pawn_from_file_to_checked_build(tmp_path, pawn_path, catalog):
     build = rebuild(project, catalog=catalog)
     assert build.report is not None
     assert build.report.ok, build.report.text
-    assert_build_matches_design(design, build, catalog)
+    # the finishing pass may swap bricks and plates for tiles and slopes covering the same cells
+    finished = ("brick", "plate", "tile", "slope", "curved_slope")
+    assert_build_matches_design(design, build, catalog, kinds=finished)
     text = project.ldraw_path.read_text()
     assert text.count("\n1 ") == len(build.parts) and "0 STEP" in text
     picture = render_compare(project, catalog=catalog)
