@@ -430,10 +430,153 @@ def test_run_designer_good_run(fake_claude, project: Project):
     assert server["args"][-1] == str(project.path.resolve())
 
 
-def test_run_designer_custom_instruction(fake_claude, project: Project):
+# ---- stage 3: a first pass, a first pass with a wish, and a typed edit -------------------------
+
+BRIEF = {
+    "object": "A pawn, seen from the front.",
+    "features": ["round head", "wide base"],
+    "plan": "Keep the shape, clean up the steps.",
+    "colours": [71],
+    "finish": "Studs everywhere.",
+}
+
+
+def with_brief(project: Project, brief: object = BRIEF) -> Project:
+    project.meta["brief"] = brief
+    project.save_meta()
+    return Project(project.path)
+
+
+def stdin_of(record_file: Path) -> str:
+    return json.loads(record_file.read_text())["stdin"]
+
+
+def test_first_pass_without_a_request_sends_the_default(fake_claude, project: Project):
     record_file = fake_claude(GOOD_RUN)
-    run_designer(project, instruction="Make the ears orange.")
-    assert json.loads(record_file.read_text())["stdin"] == "Make the ears orange."
+    run = run_designer(project)
+    assert run.kind == "first pass"
+    assert stdin_of(record_file) == DEFAULT_INSTRUCTION
+
+
+def test_first_pass_with_a_wish_adds_it_to_the_default(fake_claude, project: Project):
+    record_file = fake_claude(GOOD_RUN)
+    run = run_designer(project, instruction="Make the ears orange.")
+    assert run.kind == "first pass"
+    sent = stdin_of(record_file)
+    assert sent.startswith(DEFAULT_INSTRUCTION)
+    assert '"Make the ears orange."' in sent  # quoted exactly
+    assert "wish" in sent and "brief" in sent
+    assert "already been designed" not in sent
+
+
+def test_the_messages_may_hold_other_braces(project: Project, monkeypatch):
+    """Plain replacement of "{request}": any other brace in a message stays as written."""
+    monkeypatch.setattr(runner, "EDIT_MESSAGE", 'Ops look like {"op": ...}. {0} "{request}"')
+    monkeypatch.setattr(runner, "WISH_MESSAGE", '{x!r} "{request}"')
+    edit = runner.designer_message(with_brief(project), "add {a} hat")
+    assert edit == 'Ops look like {"op": ...}. {0} "add {a} hat"'
+    project.meta.pop("brief")
+    assert runner.designer_message(project, "a wish") == '{x!r} "a wish"'
+
+
+def test_a_wish_with_braces_is_sent_exactly(fake_claude, project: Project):
+    record_file = fake_claude(GOOD_RUN)
+    run = run_designer(project, instruction="a {request} on {0} and {x!r}")
+    assert run.ok
+    assert '"a {request} on {0} and {x!r}"' in stdin_of(record_file)
+
+
+def test_an_edit_asks_for_that_change_and_nothing_else(fake_claude, project: Project):
+    project = with_brief(project)
+    record_file = fake_claude(GOOD_RUN)
+    run = run_designer(project, instruction="add a red collar")
+    assert run.ok and run.kind == "edit"
+    sent = stdin_of(record_file)
+    assert sent != DEFAULT_INSTRUCTION and DEFAULT_INSTRUCTION not in sent
+    assert '"add a red collar"' in sent
+    for words in (
+        "already been designed",
+        "nothing else",
+        "Keep the brief",
+        "contradicts",
+        "a colour",  # a new colour or a changed feature makes the brief untrue: update it
+        "rebuild",
+        "a sentence or two",
+    ):
+        assert words in sent, words
+    # the request is the person's message: not on the command line, not in the system prompt
+    record = json.loads(record_file.read_text())
+    assert not any("collar" in arg for arg in record["argv"])
+    prompt = Path(record["argv"][record["argv"].index("--system-prompt-file") + 1])
+    assert prompt == runner.PROMPT_FILE.resolve()
+    assert "red collar" not in prompt.read_text(encoding="utf-8").lower()
+
+
+def test_an_odd_request_is_passed_exactly_and_names_no_file(fake_claude, project: Project):
+    project = with_brief(project)
+    # braces too: the request is put in by plain replacement, never read as a template
+    odd = 'make it "shiny" $(rm -rf ~) ; \\ and\nput a hat on it ../../x {request} {0} {x!r}'
+    record_file = fake_claude(GOOD_RUN)
+    run = run_designer(project, instruction=odd)
+    assert run.kind == "edit"
+    assert f'"{odd}"' in stdin_of(record_file)
+    assert run.transcript is not None and run.transcript.parent == project.path / "designer"
+    assert "shiny" not in run.transcript.name and run.transcript.name.endswith("Z.jsonl")
+    assert not any("shiny" in arg for arg in json.loads(record_file.read_text())["argv"])
+
+
+def test_a_designed_model_without_a_request_gets_another_full_pass(fake_claude, project: Project):
+    project = with_brief(project)
+    record_file = fake_claude(GOOD_RUN)
+    run = run_designer(project, instruction="   ")
+    assert run.kind == "first pass"
+    assert stdin_of(record_file) == DEFAULT_INSTRUCTION
+
+
+@pytest.mark.parametrize(
+    ("brief", "kind"),
+    [
+        (None, "first pass"),
+        ("", "first pass"),
+        ({}, "first pass"),
+        ("Make it look like a pawn.", "edit"),  # an older brief in plain text
+        (BRIEF, "edit"),
+    ],
+)
+def test_run_kind_follows_the_brief(project: Project, brief: object, kind: str):
+    project = with_brief(project, brief)
+    assert runner.run_kind(project, "add a red collar") == kind
+    assert runner.run_kind(project, None) == "first pass"
+    assert runner.run_kind(project, "") == "first pass"
+
+
+def test_designer_message_matches_the_kind(project: Project):
+    assert runner.designer_message(project, None) == DEFAULT_INSTRUCTION
+    wish = runner.designer_message(project, "give it a bow tie")
+    assert wish.startswith(DEFAULT_INSTRUCTION) and '"give it a bow tie"' in wish
+    edit = runner.designer_message(with_brief(project), "  give it a bow tie\n")
+    assert '"give it a bow tie"' in edit and "already been designed" in edit
+
+
+def test_a_replacement_prompt_gets_the_message_as_it_is(fake_claude, project: Project, tmp_path):
+    # The parity probe brings its own system prompt and its own message; the kinds of run
+    # belong to the designer's prompt, so nothing is wrapped around the message.
+    other = tmp_path / "other-prompt.md"
+    other.write_text("Another prompt.\n", encoding="utf-8")
+    record_file = fake_claude(GOOD_RUN)
+    run_designer(with_brief(project), instruction="List your tools.", prompt_file=other)
+    assert stdin_of(record_file) == "List your tools."
+
+
+def test_the_prompt_has_a_section_for_a_requested_change():
+    text = runner.PROMPT_FILE.read_text(encoding="utf-8")
+    headings = [line for line in text.splitlines() if line.startswith("# ")]
+    assert headings.count("# When the person asks for a change") == 1
+    section = text.split("# When the person asks for a change", 1)[1].split("\n# ", 1)[0]
+    assert "already" in section and "brief" in section
+    assert len(section.split()) < 250  # a short section
+    # plain prose, not shouted commands
+    assert not any(w in section for w in ("MUST", "NEVER", "ALWAYS", "IMPORTANT"))
 
 
 def test_run_designer_missing_claude(project: Project, monkeypatch, tmp_path: Path):

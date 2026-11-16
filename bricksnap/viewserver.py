@@ -10,6 +10,8 @@ CONTRACT (tests go in tests/test_viewer.py)
     /project/<file>        -> files under the project folder (build.json, project.json, renders/...)
     /catalog/parts.json    -> bricksnap/catalog/parts.json
     /catalog/colours.json  -> bricksnap/catalog/colours.json
+    /project-files.json    -> {"files": [...]}: which of project.json, build.json and
+                              build.rough.json exist in the project folder, in that order
 
 A requested path is resolved and must stay inside its root folder, including when it uses
 "..", percent-encoding, backslashes or an absolute path; anything else is 404. (The
@@ -35,6 +37,22 @@ The page draws each part by its catalogue ``kind`` (parts.json already carries `
 world direction its face runs down, so the tests can compare with ``Catalog.low_side``.
 The page also shows ``build.json``'s ``notes`` (what the make-buildable and finishing passes
 did) as a short list under the verdict, written with ``textContent``.
+
+STAGE 3 ADDITION TO THE CONTRACT: the plain conversion and the designed build side by side
+- ``/project/build.rough.json`` is the plain conversion, when the project kept one. When it
+  exists and differs from ``build.json``, the page shows two views side by side (one above
+  the other on a narrow screen): "Plain conversion" and "Designed", each with its part
+  count, turning and zooming together as one camera. A control shows both, or either one
+  alone; the choice survives a rebuild. The step slider acts on the designed build. With no
+  rough build, or one equal to the build, the page is exactly as before.
+- The brief. When ``project.json`` has a "brief" (object, features, plan, colours, finish),
+  the page shows it in a panel: the object sentence, the features as a list, the plan and
+  the finish, and the colours as small swatches with their names from colours.json. All
+  written with ``textContent``. No brief, no panel.
+- ``window.__bricksnap.inspect()`` reports each view (its parts, as now) and that they share
+  one camera, so the tests can check both without reading pixels.
+- Tests, with screenshots in tests/artifacts/: a project with both builds; with only one;
+  with and without a brief; at phone width; and that turning one view turns the other.
 
 Implementation notes
 --------------------
@@ -106,11 +124,71 @@ Implementation notes: part shapes and notes (viewer/viewer.js)
   round the parts changes; once the person has turned the view, framing again (after a
   rebuild or turning a phone) keeps their viewing direction and changes only the distance
   and the point looked at, so live reload during design edits does not snap the view back.
+
+Implementation notes: before and after, and the brief (viewer/viewer.js)
+------------------------------------------------------------------------
+- Each poll the page reads build.json, project.json and ``/project-files.json``, and asks for
+  build.rough.json only when that list names it, so a project without one causes no failed
+  requests (a 404 shows as an error in the browser's console). What changed is drawn again;
+  a change to project.json alone (a new brief) shows without a rebuild. A build.rough.json
+  that cannot be read or drawn, or has no part in it to draw, counts as none: the page shows
+  one view, and says nothing, since the plain conversion is extra. "Equal to the build"
+  means the same "parts" list.
+- One canvas, one renderer, one camera, one set of lights, ground and grid. Each build is
+  drawn into its own group by the same code; when both are shown, the canvas draws each
+  view's group in turn inside its pane's frame (scissor), with the camera's aspect set to
+  that pane. Turning, zooming or moving either view therefore moves both, and the camera is
+  framed (as above) on the box round both builds, so they sit at the same scale whichever is
+  shown. The part shapes, the stud, and one material per colour (plus the edge, highlight
+  and outline materials) are shared by both views and every rebuild; a rebuild frees only
+  the instanced meshes and edge lines of the view it replaces. Two views cost exactly what
+  the two builds cost drawn alone, added up: one pass each, the same draw calls and
+  triangles. A build is drawn with one body mesh and one stud mesh per colour, two edge-line
+  objects and one highlight outline per shape: 600 bricks of one shape in three colours
+  beside 600 of another in two take 9 + 7 = 16 meshes.
+- Camera: picking what to show (Both, or one build alone) never moves a view the person has
+  turned, zoomed or moved, though one view alone is wide and two side by side are tall;
+  until they have, the model is framed again for the new shape.
+- Layout: the panes are flex boxes inside the view (a row; a column at 700 px wide or less,
+  where the view grows to 88% of the screen's height). Each pane's sky is under the canvas,
+  its frame and name tag above it and let the mouse through. The name tags read "Plain
+  conversion" / "What a plain converter makes" and "Designed" / "What BrickSnap made of it",
+  each with its part count; on a narrow screen only the name and the count, on one line.
+  The control above the views reads "Show: Both, Plain conversion, Designed". Under the step
+  slider, "The steps are for the designed build." is shown while the plain conversion is.
+  The hint under the views reads "Drag either view to turn both ..." while both are shown.
+  The header's part count, verdict and notes are the designed build's. With one view, the
+  page is as before: no control, no tags, no frames, no note.
+- The brief panel: "The designer's brief", the object sentence, "What makes it
+  recognisable" (the features), "The plan", "Colours" (a swatch and the colour's name from
+  colours.json, underscores as spaces; a code the catalogue lacks shows as "Colour N" with
+  a dashed grey swatch) and "Finish". Empty or wrongly typed fields are left out; an older
+  brief written as one string is shown as one paragraph. On screens 1280 px wide or more it
+  stands beside the views (the page widens to 1560 px); narrower, it comes after the steps.
+- ``inspect()`` keeps its old fields for the designed build and adds ``views`` (per view:
+  label, shown, partCount, bodies, studs, outlines, ndc, meshCount, rect in page pixels,
+  the camera it was last drawn with, and the ids of the materials and geometries its parts
+  use), ``sharedCamera`` (every shown view was last drawn with the one camera, from the same
+  place) and ``compare`` ({active, show}). ``frame`` lists the renderer's passes in the
+  last frame drawn, each recorded by the scene as the pass ended (so a pass from anywhere
+  counts): ``groups`` (the views whose build was visible), ``viewport`` and ``scissor`` (the
+  canvas area drawn and the scissor box, [x, y, width, height] in page pixels; scissor null
+  when off), ``aspect`` (the camera's shape, read from its projection), ``camera`` (its id),
+  and ``calls`` and ``triangles`` (what that pass drew, shadows included; the renderer's
+  counts are reset once per frame). The tests compare these with the panes, and colours in
+  the picture with the panes, so a view drawn in the wrong place, stretched, or showing the
+  other build is caught. ``window.__bricksnap.brief`` holds the brief shown and
+  ``roughVersion`` goes up whenever build.rough.json changes.
+  ``timeFrames(n)`` draws every shown view n times, waiting for each frame, and returns the
+  milliseconds per frame. In the headless test browser, which draws in software, two
+  600-part builds take about 0.45 s a frame, the designed one alone 0.3 s and the plain one
+  alone 0.17 s; a graphics card is far faster.
 """
 
 from __future__ import annotations
 
 import errno
+import json
 import socket
 import sys
 import threading
@@ -127,6 +205,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VIEWER_DIR = REPO_ROOT / "viewer"
 CATALOG_DIR = REPO_ROOT / "bricksnap" / "catalog"
 CATALOG_FILES = ("parts.json", "colours.json")
+PROJECT_FILES = ("project.json", "build.json", "build.rough.json")
+"""The project files the page reads; ``/project-files.json`` says which of them exist."""
+FILES_ROUTE = "/project-files.json"
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
 
 CONTENT_TYPES = {
@@ -191,6 +272,12 @@ def is_local_host(host: str | None) -> bool:
     return name in LOCAL_HOSTS
 
 
+def project_files(project_root: Path) -> bytes:
+    """The body of ``/project-files.json``: which of ``PROJECT_FILES`` exist as files."""
+    found = [name for name in PROJECT_FILES if safe_join(project_root, name) is not None]
+    return json.dumps({"files": found}).encode("utf-8")
+
+
 def resolve_route(url_path: str, project_root: Path) -> Path | None:
     """The file a request path maps to, or None for 404. ``url_path`` may carry a query."""
     raw = urlsplit(url_path).path
@@ -230,7 +317,14 @@ def _make_handler(project_root: Path) -> type[BaseHTTPRequestHandler]:
 
         def _serve(self, body: bool) -> None:
             target = None
-            if is_local_host(self.headers.get("Host")):
+            local = is_local_host(self.headers.get("Host"))
+            if local and urlsplit(self.path).path == FILES_ROUTE:
+                data = project_files(project_root)
+                self._send_headers(HTTPStatus.OK, CONTENT_TYPES[".json"], len(data))
+                if body:
+                    self.wfile.write(data)
+                return
+            if local:
                 try:
                     target = resolve_route(self.path, project_root)
                 except (UnicodeDecodeError, ValueError):

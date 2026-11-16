@@ -122,6 +122,39 @@ Other
 - This module may use ``bricksnap.connect`` and ``bricksnap.catalog``. It does not call the
   layout solver or the checks.
 
+STAGE 3 ADDITION TO THE CONTRACT: finishing never makes a build less sturdy
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+Section 5 only forbids loosening a part. That is not enough: in the sample pawn at 16
+studs the solver's build has at most 6 parts hanging on any one part, and after finishing
+48 parts hang on a single 2 x 2 plate, because swaps cut bricks that tied two sections
+together into smaller parts.
+
+- The measure is the solver's: a *lone link* is a part, or a joint engaging a single stud,
+  that is a group's only connection to the rest of the model, and its *load* is what it
+  carries (see "sturdiness" in bricksnap/layout.py, which agrees with the weak spots that
+  bricksnap.checks reports). The measure moves to ``bricksnap.connect`` so that the solver
+  and this pass share one definition: ``connect.lone_links(build, catalog)`` and
+  ``connect.sturdiness(build, catalog)``; ``bricksnap.layout`` keeps its two names as
+  aliases.
+- Splitting a brick into a plate and a slope must not count against a swap by itself, so
+  here a load is measured in cells carried (``LoneLink`` gains the cells its group covers),
+  not in parts.
+- The rule, added to section 5: compared with the input, the result's largest load (in
+  cells) is no higher, and it has no more lone links whose group holds 3 parts or more.
+  A swap that would break this is not made, or is undone, exactly like a swap that would
+  loosen something.
+- The notes gain a reason for cells left alone because of it: "a tile (or slope) there
+  would leave N parts hanging on a single part", with the place, and the same advice as
+  for parts that would come loose.
+- Everything else about the pass is unchanged: on a build where no swap threatens
+  sturdiness, the result is exactly what it was before this addition.
+- Speed: a 3,000-part build still under 5 seconds.
+- Measured on the scorecard: at 16 studs no sample model has a larger worst weak spot
+  after finishing than the solver's own build had before finishing, and the weak spot
+  total is no higher than the saved scorecard's for any model that was at or under it
+  before finishing.
+
 Implementation notes
 --------------------
 The pass keeps a working state: parts by id, an array saying which part covers each cell, an

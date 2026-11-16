@@ -61,6 +61,21 @@ max_turns=40, timeout_s=1800) -> DesignerRun``
   the stream parsing (feed it recorded lines). One test marked ``@pytest.mark.designer``
   runs a real session; it is excluded by default.
 
+STAGE 3 ADDITION TO THE CONTRACT: a typed edit
+``run_designer(project, instruction=...)`` has two kinds of run.
+- A *first pass*: the project has no brief yet. The message is the default instruction;
+  if the person gave an instruction it is added as their wish for the design.
+- An *edit*: the project already has a brief and the person gave an instruction ("add a
+  red collar"). The message says that this model has already been designed, quotes the
+  person's request exactly, and asks for that change and nothing else: keep the rest of the
+  model, keep the brief unless the request contradicts it (then update the brief), rebuild,
+  check the result against the request, and say in a sentence or two what was changed.
+  ``DesignerRun`` gains ``kind`` ("first pass" or "edit").
+- prompt.md gains a short section, "When the person asks for a change", saying the same from
+  the designer's side. Nothing else in the prompt changes.
+- The request is the person's own text: it is passed to the model as their message, never
+  placed in the system prompt, and never used to build a command line or a file name.
+
 Implementation notes
 --------------------
 - ``designer_env(base)`` does the environment scrubbing; ``StreamParser`` reads the
@@ -99,6 +114,18 @@ Implementation notes
   per call).
 - ``python -m bricksnap.designer.runner <project> [--instruction TEXT]`` runs the designer
   and prints each tool call as it happens, then the redacted summary.
+- Typed edit: ``has_brief(project)`` uses the rule the tools use (a non-empty text or a
+  non-empty dict in ``project.meta["brief"]``). ``run_kind(project, instruction)`` gives
+  ``EDIT`` when there is a brief and a request that is not blank, otherwise ``FIRST_PASS``;
+  a project with a brief and no request gets another first pass with the default message.
+  ``designer_message(project, instruction)`` builds the message from ``WISH_MESSAGE`` or
+  ``EDIT_MESSAGE``. The request is stripped of surrounding blanks and put in by plain
+  replacement of "{request}" (not ``str.format``, so the messages may hold other braces
+  without escaping them). Braces or quotes in the request are sent exactly as typed,
+  between quotation marks on a line of their own.
+- When ``prompt_file`` replaces the prompt (the parity probe), the instruction is sent as it
+  is: the two kinds of run belong to prompt.md, and the probe's message must reach the model
+  unchanged. ``kind`` is still reported.
 """
 
 from __future__ import annotations
@@ -125,6 +152,34 @@ PROMPT_FILE = Path(__file__).parent / "prompt.md"
 DEFAULT_INSTRUCTION = (
     "Improve this model so that it looks designed rather than merely converted, "
     "following your process."
+)
+
+FIRST_PASS = "first pass"
+EDIT = "edit"
+
+# A first pass with a wish: the default instruction, then the person's words, quoted exactly.
+WISH_MESSAGE = (
+    DEFAULT_INSTRUCTION + "\n\n"
+    "The person who made this model also has a wish for the design, in their own words:\n\n"
+    '"{request}"\n\n'
+    "Make the wish part of your brief and of your design, and say in your summary how you "
+    "included it."
+)
+
+# An edit: the model is designed and accepted; the person wants this one change.
+EDIT_MESSAGE = (
+    "This model has already been designed. It has a brief, and the person has looked at the "
+    "result and accepted it. Now they want one change, in their own words:\n\n"
+    '"{request}"\n\n'
+    "Make that change and nothing else. Keep the rest of the model exactly as it is: every "
+    "cell outside the part the request is about should stay as it is now. Keep the brief as "
+    "it is, unless the request contradicts it: it does when the change brings in a colour "
+    "that is not in the brief's colours, or alters something the brief describes. Then call "
+    "brief first and update only those parts of it, keeping the rest as written.\n\n"
+    "Look before you edit (describe and render), so you know exactly where the change goes. "
+    "Make it with as few edits as do it well, rebuild, and look at the result: check that "
+    "it does what the person asked and that nothing else changed. Then say in a sentence or "
+    "two what you changed."
 )
 
 SERVER_NAME = "bricksnap"
@@ -165,6 +220,38 @@ class DesignerRun:
     duration_s: float = 0.0
     cost_usd: float | None = None
     models_used: list[str] = field(default_factory=list)
+    kind: str = FIRST_PASS  # FIRST_PASS or EDIT
+
+
+# ---- the message ----------------------------------------------------------------------------
+
+
+def has_brief(project: Project) -> bool:
+    """True when the project has a brief from an earlier run (the rule the tools use: a
+    non-empty text, or a non-empty dict, in ``project.meta["brief"]``)."""
+    brief = project.meta.get("brief") if isinstance(project.meta, dict) else None
+    if isinstance(brief, str):
+        return bool(brief.strip())
+    return isinstance(brief, dict) and bool(brief)
+
+
+def _request(instruction: str | None) -> str:
+    return instruction.strip() if instruction and instruction.strip() else ""
+
+
+def run_kind(project: Project, instruction: str | None) -> str:
+    """EDIT when the project has a brief and the person typed a request, else FIRST_PASS."""
+    return EDIT if _request(instruction) and has_brief(project) else FIRST_PASS
+
+
+def designer_message(project: Project, instruction: str | None) -> str:
+    """The user message for this run (see the contract): the default instruction, the
+    default with the person's wish, or a request for one change."""
+    request = _request(instruction)
+    if not request:
+        return DEFAULT_INSTRUCTION
+    template = EDIT_MESSAGE if has_brief(project) else WISH_MESSAGE
+    return template.replace("{request}", request)
 
 
 # ---- redaction ------------------------------------------------------------------------------
@@ -487,9 +574,12 @@ def run_designer(
     started = time.monotonic()
     project_path = project.path.resolve()
     transcript = project.designer_dir / f"{_timestamp()}.jsonl"
-    run = DesignerRun(ok=False, transcript=transcript)
+    run = DesignerRun(ok=False, transcript=transcript, kind=run_kind(project, instruction))
     parser = StreamParser()
-    message = instruction if instruction and instruction.strip() else DEFAULT_INSTRUCTION
+    if prompt_file is None:
+        message = designer_message(project, instruction)
+    else:  # another prompt (the parity probe) brings its own message, sent as it is
+        message = instruction if instruction and instruction.strip() else DEFAULT_INSTRUCTION
 
     with tempfile.TemporaryDirectory(prefix="bricksnap-designer-") as tmp:
         work = Path(tmp)

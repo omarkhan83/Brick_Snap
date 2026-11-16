@@ -23,3 +23,31 @@ each slope faces the way the picture shows.
 Also worth doing in the same sitting, with a BrickLink account: upload
 `samples/projects/cat-designed/wanted_list.xml` on BrickLink's wanted-list page (Wanted, then Upload) and
 note whether any item is rejected. Uploading buys nothing.
+
+2026-11-15, Alec-42's agent: checked on Linux with LeoCAD 26.09, an independent free program that reads
+the same file format with the real part shapes. The pawn (bricks and plates), the designed cat (tiles),
+and a designed duck (97 slopes) all load without error and look like our own pictures: every part in
+place, the right colours, slopes facing the right way, nothing floating. LeoCAD also reads our building
+steps (the cat builds up over 34 steps). This does not replace the Studio check: Studio has its own
+importer, its own step handling, and its own collision and stability checks, and BrickLink Studio was not
+installed on the machine used. A LeoCAD check that runs with the tests would be worth adding:
+`leocad FILE.ldr -i out.png` works without a screen under `xvfb-run`.
+
+2026-11-16, Alec-42's agent: BrickLink Studio 2.26.10 is now installed on Alec's Windows computer (in
+`C:\Users\AlecR\BrickSnap`, with the three test files and a checklist beside it). Checked against the
+data files Studio ships, without opening the program: all 40 of our colours have the same BrickLink colour
+number as in Studio's own table; all 50 of our part files exist in Studio's parts library; and for 49 of
+our 50 parts Studio pairs the same file with the same BrickLink part number. The exception is the inverted
+slope: we call its file `3665b.dat`, Studio's table knows only `3665.dat`. We do not place that part yet;
+before we do, write it as `3665.dat`. Still to do by a person: open the three files in Studio and answer
+the four questions above.
+
+2026-11-16, Alec-42: opened the designed cat (`samples/projects/cat-designed/build.ldr`, with tiles) in
+BrickLink Studio 2.26.10 on Windows. Answers so far:
+
+1. It opens without errors and looks like our picture. Alec: "The cat works well."
+2. The building steps are kept: Studio's instruction maker shows 33 steps, one picture each, the cat
+   growing step by step. So Studio can make an instruction booklet straight from our file.
+
+Not yet looked at: the pawn and the duck (for the duck, whether the slopes face the right way in Studio;
+they do in LeoCAD), Studio's collision and stability checks (question 3), and the wanted list (question 4).

@@ -35,13 +35,13 @@ packages = ["bricksnap"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["legacy", "viewer/vendor", "tools/catalog"]
+extend-exclude = ["legacy", "viewer/vendor", "tools/catalog", ".worktrees"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.ty.src]
-exclude = ["legacy", "tools/catalog", "viewer"]
+exclude = ["legacy", "tools/catalog", "viewer", ".worktrees"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

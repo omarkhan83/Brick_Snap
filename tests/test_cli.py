@@ -1645,3 +1645,305 @@ def test_design_shows_notes_and_a_short_report(capsys, bare_pawn, monkeypatch):
     assert notes < out.index("The build is valid afterwards:")
     assert spots[2] in out and spots[3] not in out
     assert "- and 5 more weak spots; " in out
+
+
+# ---- stage 3: a typed edit ----------------------------------------------------------------
+
+SMOOTH_TOP = [
+    {
+        "op": "set_finish",
+        "shape": {"type": "box", "min": [0, 0, 0], "max": [9, 9, 25]},
+        "finish": "smooth",
+    }
+]
+
+
+def designed(project_path: Path) -> Path:
+    """Give the project a brief, as a first design run would have."""
+    _write_brief(Project(project_path), {**BRIEF, "colours": [15, 0]})
+    return project_path
+
+
+def part_count(project_path: Path) -> int:
+    return len(Project(project_path).load_build().parts)
+
+
+def with_earlier_ops(project_path: Path) -> Path:
+    """Leave one operation in the design's log and rebuild, as a first design run would."""
+    from bricksnap.design import apply_ops
+
+    project = Project(project_path)
+    design = project.load_design()
+    # black, higher up than the paints the tests' designers make, so theirs still change
+    black = {"op": "paint", "shape": {"type": "box", "min": [0, 0, 15], "max": [9, 9, 17]}}
+    apply_ops(design, [{**black, "color": 0}], load_catalog())
+    project.save_design(design)
+    rebuild(project)
+    assert log_length(project_path) == 1
+    return project_path
+
+
+def test_design_takes_the_request_as_a_second_argument(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, _, _ = run(capsys, "design", str(designed(pawn_copy)), "add a red collar")
+    assert code == 0
+    assert fake.calls[0][1] == {"instruction": "add a red collar"}
+
+
+def test_design_refuses_a_request_given_twice(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, err = run(
+        capsys, "design", str(pawn_copy), "add a red collar", "--instruction", "add a hat"
+    )
+    assert code == 2
+    assert fake.calls == []
+    assert "sends pictures" not in out
+    assert "Error:" in err and "--instruction" in err and "once" in err
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_design_refuses_an_empty_request(capsys, pawn_copy, monkeypatch, empty):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, _, err = run(capsys, "design", str(pawn_copy), empty)
+    assert code == 2
+    assert fake.calls == []
+    assert "Error:" in err and "empty" in err
+
+
+def test_a_first_design_says_so_before_it_starts(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    run(capsys, "design", str(pawn_copy))
+    assert "first design" in fake.said_before_start
+    assert "one change" not in fake.said_before_start
+
+
+def test_a_first_design_with_a_wish_quotes_it(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    run(capsys, "design", str(pawn_copy), "give it a little blue bow tie")
+    before = fake.said_before_start
+    assert "first design" in before and '"give it a little blue bow tie"' in before
+
+
+def test_an_edit_says_so_before_it_starts_and_quotes_the_request(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    run(capsys, "design", str(designed(pawn_copy)), "--instruction", "add a red collar")
+    before = fake.said_before_start
+    assert "one change" in before and "already designed" in before
+    assert '"add a red collar"' in before
+    assert "first design" not in before
+    assert "sends pictures" in before  # the privacy warning is still given first
+
+
+def test_a_designed_model_without_a_request_gets_a_full_pass(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    run(capsys, "design", str(designed(pawn_copy)))
+    assert "full design pass" in fake.said_before_start
+    assert "one change" not in fake.said_before_start
+
+
+def test_an_edit_reports_what_changed_from_the_project(capsys, pawn_copy, monkeypatch):
+    with_earlier_ops(designed(pawn_copy))  # an edit follows a first pass that left a log
+    parts_before = part_count(pawn_copy)
+    log_before = log_length(pawn_copy)
+    fake = FakeDesigner(
+        capsys,
+        DesignerRun(ok=True, turns=4, kind="edit", final_text="Painted the base red."),
+        ops=PAINT_4 + SMOOTH_TOP,
+    )
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "paint it in stripes")
+    assert code == 0
+    assert log_length(pawn_copy) == log_before + 5
+    summary = out[out.index("What this change did:") :]
+    assert "5 edit operations" in summary and "6 edit operations" not in summary
+    assert "4 painting" in summary and "1 changing the surface finish" in summary
+    assert "5 painting" not in summary  # the earlier paint is not this run's
+    assert f"Parts: {parts_before:,} before, {part_count(pawn_copy):,} after." in summary
+    assert "The build is valid." in summary
+    assert "The brief was kept as it was." in summary
+    # the next step offered is another change, not a full pass over the whole model
+    after = out[out.index("What to do next:") :]
+    assert f'design {pawn_copy} "' in after and "one more change" in after
+
+
+def test_next_steps_offer_a_full_design_before_there_is_a_brief(capsys, pawn_copy, monkeypatch):
+    monkeypatch.setattr(
+        "bricksnap.designer.runner.run_designer",
+        FakeDesigner(capsys, DesignerRun(ok=True, turns=1)),
+    )
+    code, out, _ = run(capsys, "design", str(pawn_copy))
+    after = out[out.index("What to do next:") :]
+    assert "one more change" not in after and "improve how it looks" in after
+
+
+def test_an_edit_that_breaks_the_build_says_so(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=2, kind="edit"), ops=SPLIT)
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(designed(pawn_copy)), "add a little box")
+    assert code == 1
+    summary = out[out.index("What this change did:") :]
+    assert "1 edit operation (1 adding cells)" in summary
+    assert "The build is NOT valid" in summary
+
+
+def test_an_edit_that_changed_the_brief_says_so(capsys, pawn_copy, monkeypatch):
+    designed(pawn_copy)
+
+    def designer(project, **options):
+        _write_brief(Project(project.path), {**BRIEF, "colours": [15, 0, 4]})
+        return DesignerRun(ok=True, turns=2, kind="edit")
+
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "make it red")
+    assert "The designer updated the brief" in out[out.index("What this change did:") :]
+
+
+def test_an_edit_without_any_operation_says_no_change_and_why(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(
+        capsys,
+        DesignerRun(ok=True, turns=2, kind="edit", final_text="The pawn already has a collar."),
+    )
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    project = with_earlier_ops(designed(pawn_copy))  # the log is not empty before the run
+    code, out, _ = run(capsys, "design", str(project), "add a collar")
+    summary = out[out.index("What this change did:") :]
+    assert "The designer made no change to the design." in summary
+    assert "The pawn already has a collar." in summary
+    assert "edit operation" not in summary
+
+
+def test_an_edit_without_any_operation_or_reason(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=2, kind="edit"))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(designed(pawn_copy)), "add a collar")
+    assert code == 0
+    summary = out[out.index("What this change did:") :]
+    assert "The designer made no change to the design, and it did not say why." in summary
+
+
+@pytest.mark.parametrize("last_words", ["Let me look at the model first.", ""])
+def test_an_edit_whose_run_stopped_before_any_change_says_so(
+    capsys, pawn_copy, monkeypatch, last_words
+):
+    """A run that crashed, timed out or was stopped: its last remark is not a reason."""
+    error = "Claude Code stopped with an error (exit code 3): network went away"
+    fake = FakeDesigner(
+        capsys, DesignerRun(ok=False, turns=1, kind="edit", error=error, final_text=last_words)
+    )
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(designed(pawn_copy)), "add a red collar")
+    assert code == 1
+    summary = out[out.index("What this change did:") :]
+    assert "The run stopped before the designer changed anything" in summary
+    assert "network went away" in summary
+    assert "said why" not in summary and "did not say why" not in summary
+    if last_words:
+        assert last_words not in summary
+
+
+def test_an_edit_whose_run_stopped_partway_says_the_change_may_be_unfinished(
+    capsys, pawn_copy, monkeypatch
+):
+    fake = FakeDesigner(
+        capsys, DesignerRun(ok=False, turns=3, kind="edit", error="It timed out."), ops=PAINT
+    )
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(designed(pawn_copy)), "paint the base red")
+    assert code == 1
+    summary = out[out.index("What this change did:") :]
+    assert "1 edit operation (1 painting)" in summary
+    assert "stopped before it finished" in summary and "only partly made" in summary
+
+
+def test_an_edit_counts_parts_before_from_the_design_not_an_old_build(
+    capsys, pawn_copy, monkeypatch
+):
+    """A saved build made from an older design, or by an older BrickSnap, is not "before"."""
+    designed(pawn_copy)
+    fresh = part_count(pawn_copy)
+    _edit_saved_build(pawn_copy, lambda data: data.update(parts=data["parts"][:3]))
+    assert part_count(pawn_copy) == 3
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=2, kind="edit", final_text="No."))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "add a collar")
+    assert code == 0
+    summary = out[out.index("What this change did:") :]
+    assert f"Parts: {fresh:,} before, {fresh:,} after." in summary
+
+
+def test_an_edit_on_a_project_that_was_never_built_counts_parts_before(
+    capsys, pawn_copy, monkeypatch
+):
+    designed(pawn_copy)
+    fresh = part_count(pawn_copy)
+    (pawn_copy / "build.json").unlink()
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=2, kind="edit"), ops=PAINT)
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "paint the base red")
+    assert code == 0
+    summary = out[out.index("What this change did:") :]
+    assert f"Parts: {fresh:,} before, {part_count(pawn_copy):,} after." in summary
+    assert "none before" not in summary
+
+
+def test_an_edit_on_a_project_with_a_damaged_build_still_runs(capsys, pawn_copy, monkeypatch):
+    """The build is made again from the design before the run, so a damaged one is replaced."""
+    designed(pawn_copy)
+    fresh = part_count(pawn_copy)
+    (pawn_copy / "build.json").write_text("{nope", encoding="utf-8")
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=2, kind="edit", final_text="No."))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "add a collar")
+    assert code == 0 and fake.calls
+    assert f"Parts: {fresh:,} before, {fresh:,} after." in out
+
+
+@pytest.mark.parametrize(
+    ("words", "suggested"),
+    [
+        (["add", "a", "red", "collar"], '"add a red collar"'),
+        (["make", "it", "-", "smaller"], '"make it - smaller"'),
+        (["-smaller"], '--instruction="-smaller"'),
+        (["-make", "it", "smaller"], '--instruction="-make it smaller"'),
+    ],
+)
+def test_a_request_typed_without_quotes_is_explained(
+    capsys, pawn_copy, monkeypatch, words, suggested
+):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, err = run(capsys, "design", str(designed(pawn_copy)), *words)
+    assert code == 2
+    assert fake.calls == [] and "sends pictures" not in out
+    assert "Error:" in err and "quotes" in err
+    assert f"design {pawn_copy} {suggested}" in err
+    assert "usage:" not in err and "unrecognized arguments" not in err
+
+
+def test_an_unknown_option_to_design_is_still_argparse_s_message(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, _, err = run(capsys, "design", str(pawn_copy), "add a hat", "--studs", "16")
+    assert code == 2 and fake.calls == []
+    assert "unrecognized arguments: --studs 16" in err
+
+
+def test_left_over_words_on_another_command_are_still_argparse_s_message(capsys, pawn_copy):
+    code, _, err = run(capsys, "check", str(pawn_copy), "now")
+    assert code == 2
+    assert "Error: unrecognized arguments: now" in err
+
+
+def test_a_first_design_has_no_change_summary(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1), ops=PAINT)
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "make it red")
+    assert code == 0
+    assert "What this change did:" not in out

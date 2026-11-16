@@ -9,6 +9,14 @@
 // Footprints, stud positions and slope directions follow bricksnap/catalog/__init__.py
 // (footprint, local_to_cell, low_side and the rotation table there).
 //
+// Before and after: when the project keeps a plain conversion (/project/build.rough.json, which
+// /project-files.json says exists) that differs from build.json, the page shows two views,
+// "Plain conversion" and "Designed", side by side (one above the other on a narrow screen).
+// They are two rectangles of one canvas, drawn by one renderer with one camera and one set of
+// lights, ground and grid: each view's model is its own group, shown only while its rectangle
+// is drawn. So turning either view turns both, and geometry and materials are shared. The step
+// slider acts on the designed build. project.json's brief is shown in a panel beside them.
+//
 // Any text that comes from the files goes into the page with textContent, never innerHTML.
 
 import * as THREE from 'three';
@@ -51,7 +59,9 @@ const state = {
   showingAll: true,
   highlightCount: 0, // parts outlined as new in the current step
   buildVersion: 0, // goes up each time a new build.json is drawn
+  roughVersion: 0, // goes up each time build.rough.json changes (drawn, or gone)
   notes: [], // the build's notes as shown under the verdict
+  brief: null, // the designer's brief as shown, or null when there is none
   error: null,
 };
 window.__bricksnap = state;
@@ -106,8 +116,41 @@ let grid = null;
 const studGeo = new THREE.CylinderGeometry(STUD_R, STUD_R, STUD_H, 20);
 studGeo.rotateX(Math.PI / 2); // cylinder axis along z
 
-const modelGroup = new THREE.Group();
-scene.add(modelGroup);
+// Materials, shared by both views and every rebuild: one per colour (made on first use), and
+// one each for the edge lines, the current step's edge lines and its outline.
+const materialCache = new Map(); // LDraw colour code -> material
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x1b1b1b, transparent: true, opacity: 0.45 });
+const newEdgeMat = new THREE.LineBasicMaterial({ color: HIGHLIGHT });
+const outlineMat = new THREE.MeshBasicMaterial({ color: HIGHLIGHT, side: THREE.BackSide });
+
+// The two views. Each draws its build into its own group; both groups sit at the same place
+// on the same grid, and only the group of the view being drawn is visible.
+const FRAME_PX = 3; // the border drawn round each view when both builds are shown
+function makeView(name, label) {
+  const group = new THREE.Group();
+  scene.add(group);
+  return {
+    name,
+    label,
+    group,
+    drawn: null, // see drawBuild
+    partsJson: null, // the build's "parts" as JSON text, to tell whether the two builds differ
+    pane: $(`pane-${name}`),
+    count: $(`${name}Count`),
+    rect: null, // where it is drawn, in CSS pixels from the canvas's top left; null: all of it
+    lastRender: null, // the camera it was last drawn with (see renderViews)
+  };
+}
+const views = { rough: makeView('rough', 'Plain conversion'), designed: makeView('designed', 'Designed') };
+let compareActive = false; // both builds are there and differ: two views
+let show = 'both'; // which of them the person chose to see: 'both', 'rough' or 'designed'
+
+/** The views drawn now, left to right (or top to bottom). */
+function shownViews() {
+  if (!compareActive || show === 'designed') return [views.designed];
+  if (show === 'rough') return [views.rough];
+  return [views.rough, views.designed];
+}
 
 let fitted = null; // {box, portrait}: what placeCamera last framed (see fitView)
 let renderQueued = false;
@@ -116,23 +159,114 @@ function requestRender() {
   renderQueued = true;
   requestAnimationFrame(() => {
     renderQueued = false;
-    renderer.render(scene, camera);
+    renderViews();
   });
 }
 
-function resize() {
+// What each renderer.render call of the last frame drew, recorded by the scene itself as the
+// call ends (so every call counts, wherever it comes from): which views' groups were
+// visible, the canvas area and scissor box used, the camera and its shape, and the draw
+// calls and triangles it took (shadows included). See state.inspect's ``frame``.
+renderer.info.autoReset = false; // renderViews resets the counts once per frame
+let frame = [];
+const counted = { calls: 0, triangles: 0 };
+scene.onAfterRender = (r, s, cam) => {
+  const info = r.info.render;
+  const viewport = r.getViewport(new THREE.Vector4());
+  const scissor = r.getScissor(new THREE.Vector4());
+  const e = cam.projectionMatrix.elements;
+  frame.push({
+    groups: Object.values(views)
+      .filter((v) => v.group.visible)
+      .map((v) => v.name),
+    canvas: r.getSize(new THREE.Vector2()).toArray(),
+    viewport: viewport.toArray(),
+    scissor: r.getScissorTest() ? scissor.toArray() : null,
+    aspect: e[5] / e[0],
+    camera: cam.uuid,
+    calls: info.calls - counted.calls,
+    triangles: info.triangles - counted.triangles,
+  });
+  counted.calls = info.calls;
+  counted.triangles = info.triangles;
+};
+
+/** Draw each shown view into its rectangle of the canvas, all with the one camera. */
+function renderViews() {
+  const size = renderer.getSize(new THREE.Vector2());
+  const list = shownViews();
+  const aspect = camera.aspect;
+  renderer.info.reset();
+  frame = [];
+  counted.calls = 0;
+  counted.triangles = 0;
+  for (const v of Object.values(views)) v.lastRender = null;
+  if (compareActive) {
+    renderer.setScissorTest(false);
+    renderer.clear(); // nothing stays where a view was before the person hid it
+  }
+  for (const v of list) {
+    for (const w of Object.values(views)) w.group.visible = w === v;
+    const r = v.rect;
+    if (r) {
+      const bottom = size.y - r.y - r.height; // WebGL counts from the bottom
+      renderer.setViewport(r.x, bottom, r.width, r.height);
+      renderer.setScissor(r.x, bottom, r.width, r.height);
+      renderer.setScissorTest(true);
+      camera.aspect = r.width / r.height;
+      camera.updateProjectionMatrix();
+    } else {
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, size.x, size.y);
+    }
+    renderer.render(scene, camera);
+    v.lastRender = { id: camera.uuid, position: camera.position.toArray(), target: controls.target.toArray() };
+  }
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, size.x, size.y);
+  if (camera.aspect !== aspect) {
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+  }
+}
+
+/** Where each shown view is drawn: inside its pane's border, in canvas pixels. */
+function measurePanes() {
+  const c = renderer.domElement.getBoundingClientRect();
+  for (const v of Object.values(views)) {
+    v.rect = null;
+    if (!compareActive || !shownViews().includes(v)) continue;
+    const p = v.pane.getBoundingClientRect();
+    v.rect = {
+      x: p.left - c.left + FRAME_PX,
+      y: p.top - c.top + FRAME_PX,
+      width: Math.max(1, p.width - 2 * FRAME_PX),
+      height: Math.max(1, p.height - 2 * FRAME_PX),
+    };
+  }
+}
+
+/** Fit the canvas, the panes and the camera's shape to the page. ``keepView``: the layout
+ * changed because the person picked what to show, so a view they have moved stays put. */
+function resize(keepView = false) {
   const w = Math.max(1, container.clientWidth);
   const h = Math.max(1, container.clientHeight);
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
+  measurePanes();
+  const first = shownViews()[0].rect; // the views are the same size
+  camera.aspect = first ? first.width / first.height : w / h;
   camera.updateProjectionMatrix();
   // A new shape of view frames the model again, unless the person has moved the view; turning
   // a phone between portrait and landscape always does, as it changes which side limits it
-  // (keeping the angle the person turned it to).
-  if (fitted && (!userMoved || fitted.portrait !== camera.aspect < 1)) placeCamera(frameDir());
+  // (keeping the angle the person turned it to). Picking what to show never moves a view
+  // the person has moved, though one view alone is wide and two side by side are tall.
+  const portrait = camera.aspect < 1;
+  if (fitted && keepView && userMoved) fitted.portrait = portrait;
+  else if (fitted && (!userMoved || fitted.portrait !== portrait)) placeCamera(frameDir());
   requestRender();
 }
-new ResizeObserver(resize).observe(container);
+const resizeObserver = new ResizeObserver(() => resize());
+for (const el of [container, views.rough.pane, views.designed.pane]) resizeObserver.observe(el);
 resize();
 
 // ---- part shapes --------------------------------------------------------------------------
@@ -331,6 +465,7 @@ function loadCatalogue(partsJson, coloursJson) {
     colourByCode.set(Number(c.ldraw_code), {
       rgb: typeof c.rgb === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.rgb) ? c.rgb : FALLBACK_RGB,
       transparent: Boolean(c.transparent),
+      name: typeof c.name === 'string' && c.name ? c.name.replaceAll('_', ' ') : `Colour ${c.ldraw_code}`,
     });
   }
 }
@@ -396,24 +531,28 @@ state.geometry = {
 
 // ---- drawing a build --------------------------------------------------------------------
 
-let drawn = null; // what is in modelGroup now; see drawBuild
-
-function disposeDrawn() {
-  if (!drawn) return;
+/** Empty a view's group, freeing what only it used (shared geometry and materials stay). */
+function disposeDrawn(view) {
   const shared = new Set([studGeo, ...[...shapeCache.values()].map((g) => g.geo)]);
-  for (const obj of [...modelGroup.children]) {
-    modelGroup.remove(obj);
+  for (const obj of [...view.group.children]) {
+    view.group.remove(obj);
     if (obj.geometry && !shared.has(obj.geometry)) obj.geometry.dispose();
-    if (obj.material) obj.material.dispose();
     if (obj.isInstancedMesh) obj.dispose();
   }
-  drawn = null;
+  view.drawn = null;
+  view.partsJson = null;
 }
 
-function makeMaterial(colour) {
+/** The one material for a colour, made the first time it is needed. */
+function materialFor(code) {
+  let mat = materialCache.get(code);
+  if (mat) return mat;
+  const colour = colourByCode.get(code) || { rgb: FALLBACK_RGB, transparent: false };
   const opts = { color: new THREE.Color(colour.rgb) };
   if (colour.transparent) Object.assign(opts, { transparent: true, opacity: 0.55, depthWrite: false });
-  return new THREE.MeshLambertMaterial(opts);
+  mat = new THREE.MeshLambertMaterial(opts);
+  materialCache.set(code, mat);
+  return mat;
 }
 
 /** Sorted ascending array -> number of entries <= value. */
@@ -430,8 +569,10 @@ function upperBound(sorted, value) {
 
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
-function drawBuild(build) {
-  disposeDrawn();
+/** Draw ``build`` into ``view``'s group (the designed view also sets the page's counts). */
+function drawBuild(build, view) {
+  disposeDrawn(view);
+  const modelGroup = view.group;
   const all = Array.isArray(build.parts) ? build.parts : [];
   // Anything in "parts" that is not an object (null, a number, a list) cannot be a part.
   const raw = [];
@@ -499,15 +640,10 @@ function drawBuild(build) {
     }
   }
 
-  const materials = new Map();
   const meshes = [];
   for (const g of groups.values()) {
-    let mat = materials.get(g.code);
+    const mat = materialFor(g.code);
     const colour = colourByCode.get(g.code) || { rgb: FALLBACK_RGB, transparent: false };
-    if (!mat) {
-      mat = makeMaterial(colour);
-      materials.set(g.code, mat);
-    }
     const body = new THREE.InstancedMesh(g.shape.geo, mat, g.parts.length);
     g.parts.forEach((p, i) => body.setMatrixAt(i, partMatrix(p)));
     body.instanceMatrix.needsUpdate = true;
@@ -559,10 +695,7 @@ function drawBuild(build) {
   });
   const edgeGeo = new THREE.BufferGeometry();
   edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
-  const edges = new THREE.LineSegments(
-    edgeGeo,
-    new THREE.LineBasicMaterial({ color: 0x1b1b1b, transparent: true, opacity: 0.45 }),
-  );
+  const edges = new THREE.LineSegments(edgeGeo, edgeMat);
   edges.frustumCulled = false;
   modelGroup.add(edges);
 
@@ -571,14 +704,13 @@ function drawBuild(build) {
   const newEdgeGeo = new THREE.BufferGeometry();
   newEdgeGeo.setAttribute('position', edgeGeo.getAttribute('position'));
   newEdgeGeo.setDrawRange(0, 0);
-  const newEdges = new THREE.LineSegments(newEdgeGeo, new THREE.LineBasicMaterial({ color: HIGHLIGHT }));
+  const newEdges = new THREE.LineSegments(newEdgeGeo, newEdgeMat);
   newEdges.frustumCulled = false;
   newEdges.renderOrder = 1;
   modelGroup.add(newEdges);
 
   // Highlight: a slightly larger copy of each new part's shape drawn inside-out behind it,
   // which shows as a thick coloured outline. One instanced mesh per shape.
-  const outlineMat = new THREE.MeshBasicMaterial({ color: HIGHLIGHT, side: THREE.BackSide });
   const outlines = new Map();
   for (const p of parts) {
     const o = outlines.get(p.shape.key);
@@ -593,7 +725,7 @@ function drawBuild(build) {
   }
 
   const steps = parts.map((p) => p.step);
-  drawn = {
+  view.drawn = {
     parts,
     steps,
     meshes,
@@ -601,17 +733,22 @@ function drawBuild(build) {
     newEdges,
     edgeStart,
     outlines,
-    outlineMat,
     highlightParts: 0,
     partMatrix,
     skipped: all.length - raw.length,
   };
-  state.partCount = parts.length;
-  state.maxStep = parts.length ? parts[parts.length - 1].step : 0;
+  view.partsJson = JSON.stringify(all);
+  if (view === views.designed) {
+    state.partCount = parts.length;
+    state.maxStep = parts.length ? parts[parts.length - 1].step : 0;
+  }
+  return view.drawn;
 }
 
-/** Show parts with step <= n (all of them when showAll), outlining step n. */
+/** Show the designed build's parts with step <= n (all of them when showAll), outlining step
+ * n. The plain conversion always shows all its parts. */
 function applyStep(n, showAll) {
+  const drawn = views.designed.drawn;
   if (!drawn) return;
   const max = state.maxStep;
   if (max <= 0) showAll = true;
@@ -789,14 +926,78 @@ function slopeHeights(shape, world, bottom, top) {
 // ndc: where the shown model falls in the view, -1..1 on each axis being inside it.
 // meshCount: the three.js objects drawing the model (instancing keeps it small).
 // camera: {position, target}, where the camera is and the point it looks at.
+// All of the above is the designed build. ``views`` gives the same for each view, as
+// {rough, designed}: each with ``label``, ``shown`` (drawn on the page now), ``partCount``,
+// bodies, studs, outlines, ndc, meshCount, ``rect`` (where it is drawn, in page pixels, or
+// null when it is not shown), ``camera`` (the camera it was last drawn with: {id, position,
+// target}, null when not shown), and the ids of the ``materials`` and ``geometries`` its
+// parts are drawn with (so the tests can see the two views share them). ``sharedCamera`` is
+// true when every shown view was last drawn with the one camera, from the same place.
+// ``compare`` is {active: two views are possible, show: 'both', 'rough' or 'designed'}.
 state.inspect = (options = {}) => {
   const detail = Boolean(options && options.detail);
+  scene.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  const designed = inspectView(views.designed, detail);
+  const out = { ...designed, camera: { position: camera.position.toArray(), target: controls.target.toArray() } };
+  const shown = shownViews();
+  const c = renderer.domElement.getBoundingClientRect();
+  out.views = {};
+  for (const v of Object.values(views)) {
+    const own = v === views.designed ? designed : inspectView(v, detail);
+    const isShown = shown.includes(v);
+    const r = v.rect || (isShown ? { x: 0, y: 0, width: c.width, height: c.height } : null);
+    const meshes = v.drawn ? v.drawn.meshes : [];
+    out.views[v.name] = {
+      label: v.label,
+      shown: isShown,
+      partCount: v.drawn ? v.drawn.parts.length : 0,
+      ...own,
+      rect: r && { x: c.left + r.x, y: c.top + r.y, width: r.width, height: r.height },
+      camera: isShown ? v.lastRender : null,
+      materials: [...new Set(meshes.map((g) => g.body.material.uuid))],
+      geometries: [...new Set(meshes.map((g) => g.body.geometry.uuid))],
+    };
+  }
+  const drawnWith = shown.map((v) => v.lastRender);
+  out.sharedCamera = drawnWith.every(
+    (r) => r && r.id === camera.uuid && r.position.every((x, i) => x === drawnWith[0].position[i]),
+  );
+  out.compare = { active: compareActive, show };
+  // Each renderer.render call of the last frame, as recorded while it drew; areas in page
+  // pixels, as [x, y, width, height] from the top left like ``rect``.
+  const toPage = (b, canvas) => b && [c.left + b[0], c.top + canvas[1] - b[1] - b[3], b[2], b[3]];
+  out.frame = frame.map((ps) => ({
+    ...ps,
+    viewport: toPage(ps.viewport, ps.canvas),
+    scissor: toPage(ps.scissor, ps.canvas),
+  }));
+  return out;
+};
+
+// For tests: draw every shown view ``n`` times, waiting for each frame to finish, and give
+// the average milliseconds a frame took.
+state.timeFrames = (n = 10) => {
+  const gl = renderer.getContext();
+  const pixel = new Uint8Array(4);
+  const finish = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  renderViews();
+  finish();
+  const start = performance.now();
+  for (let i = 0; i < n; i++) {
+    renderViews();
+    finish();
+  }
+  return (performance.now() - start) / Math.max(1, n);
+};
+
+/** What one view draws now (see state.inspect). */
+function inspectView(view, detail) {
+  const drawn = view.drawn;
   const out = { bodies: [], studs: [], outlines: [], highlightEdgeParts: 0, outlineColour: null, ndc: null, meshCount: 0 };
-  out.camera = { position: camera.position.toArray(), target: controls.target.toArray() };
   if (!drawn) return out;
   const order = new Map(drawn.parts.map((p, i) => [p, i]));
-  out.meshCount = modelGroup.children.length;
-  scene.updateMatrixWorld(true);
+  out.meshCount = view.group.children.length;
   camera.updateMatrixWorld(true);
   const m = new THREE.Matrix4();
   const box = new THREE.Box3();
@@ -865,7 +1066,7 @@ state.inspect = (options = {}) => {
       out.outlines.push({ ...entry, topRim: shape && faceRim(shape.top, m), downhill: shape && downhill(shape, m) });
     }
   }
-  out.outlineColour = `#${drawn.outlineMat.color.getHexString()}`;
+  out.outlineColour = `#${outlineMat.color.getHexString()}`;
   // parts whose highlight edges are drawn: the draw range covers exactly theirs
   const range = drawn.newEdges.geometry.drawRange;
   for (let i = 0; i < drawn.parts.length; i++) {
@@ -990,14 +1191,18 @@ function placeCamera(dir = VIEW_DIR) {
 function fitView(build) {
   // The model's box in millimetres: what the parts cover (studs included), or the build's
   // grid when there are no parts. Never smaller than 4 x 4 x 3 cells, so a single part is
-  // not blown up to fill the screen.
+  // not blown up to fill the screen. With two views, the box round both builds, so they are
+  // framed alike and can be compared at the same scale, whichever of them is shown.
   const box = new THREE.Box3();
   // The corners the camera must keep in view: for each (x, y) grid corner of any part, its
   // lowest and highest point. Far fewer than every part's eight corners, and enough, since
   // the points between them on that vertical line are in view when both ends are.
   const columns = new Map();
-  if (drawn && drawn.parts.length) {
-    for (const p of drawn.parts) {
+  const framed = (compareActive ? [views.rough, views.designed] : [views.designed])
+    .filter((v) => v.drawn)
+    .flatMap((v) => v.drawn.parts);
+  if (framed.length) {
+    for (const p of framed) {
       const top = (p.z + p.h) * CELL.z + (p.part.studs.length ? STUD_H : 0);
       const bottom = p.z * CELL.z;
       box.expandByPoint(new THREE.Vector3(p.x * CELL.x, p.y * CELL.y, bottom));
@@ -1084,6 +1289,105 @@ function setNotice(text) {
   const el = $('notice');
   el.textContent = text || '';
   el.hidden = !text;
+}
+
+// ---- the two views and the brief ------------------------------------------------------------
+
+const compareBox = $('compare');
+const stepsFor = $('stepsFor');
+const hint = $('hint');
+const HINT_ONE = hint.textContent; // as index.html writes it
+const HINT_BOTH = 'Drag either view to turn both · scroll to zoom · right-drag to move';
+
+const plural = (n) => `${n} ${n === 1 ? 'part' : 'parts'}`;
+
+/** Lay the page out for one view or two, as the builds and the person's choice say
+ * (``picked``: the person just picked what to show; see resize). */
+function showCompare(picked = false) {
+  container.classList.toggle('compare', compareActive);
+  compareBox.hidden = !compareActive;
+  views.rough.pane.hidden = !compareActive || show === 'designed';
+  views.designed.pane.hidden = compareActive && show === 'rough';
+  for (const v of Object.values(views)) v.count.textContent = plural(v.drawn ? v.drawn.parts.length : 0);
+  for (const b of compareBox.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.show === show));
+  stepsFor.hidden = !compareActive || show === 'designed';
+  hint.textContent = compareActive && show === 'both' ? HINT_BOTH : HINT_ONE;
+  resize(picked);
+  requestRender();
+}
+
+for (const b of compareBox.querySelectorAll('button')) {
+  b.addEventListener('click', () => {
+    show = b.dataset.show;
+    showCompare(true);
+  });
+}
+
+/** project.json's brief: what the AI designer decided, in a panel beside the views. A brief
+ * from an older project, written as one paragraph, is shown as that paragraph. */
+function showBrief(proj) {
+  const panel = $('brief');
+  const body = $('briefBody');
+  const raw = proj ? proj.brief : null;
+  const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  let brief = null;
+  if (text(raw)) brief = { object: text(raw), features: [], plan: '', colours: [], finish: '' };
+  else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    brief = {
+      object: text(raw.object),
+      features: Array.isArray(raw.features) ? raw.features.map(text).filter(Boolean) : [],
+      plan: text(raw.plan),
+      colours: Array.isArray(raw.colours) ? raw.colours.filter((c) => Number.isInteger(c)) : [],
+      finish: text(raw.finish),
+    };
+    if (!brief.object && !brief.features.length && !brief.plan && !brief.colours.length && !brief.finish) brief = null;
+  }
+  state.brief = brief;
+  body.replaceChildren();
+  panel.hidden = !brief;
+  document.body.classList.toggle('has-brief', Boolean(brief));
+  if (!brief) return;
+  const add = (tag, className, content) => {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (content !== undefined) el.textContent = content;
+    body.append(el);
+    return el;
+  };
+  if (brief.object) add('p', 'brief-object', brief.object);
+  if (brief.features.length) {
+    add('h3', '', 'What makes it recognisable');
+    const list = add('ul', 'brief-features');
+    for (const f of brief.features) {
+      const li = document.createElement('li');
+      li.textContent = f;
+      list.append(li);
+    }
+  }
+  if (brief.plan) {
+    add('h3', '', 'The plan');
+    add('p', 'brief-plan', brief.plan);
+  }
+  if (brief.colours.length) {
+    add('h3', '', 'Colours');
+    const list = add('ul', 'swatches');
+    for (const code of brief.colours) {
+      const colour = colourByCode.get(code);
+      const li = document.createElement('li');
+      const swatch = document.createElement('span');
+      swatch.className = colour ? 'swatch' : 'swatch unknown';
+      swatch.style.backgroundColor = colour ? colour.rgb : FALLBACK_RGB;
+      const name = document.createElement('span');
+      name.className = 'swatch-name';
+      name.textContent = colour ? colour.name : `Colour ${code}`;
+      li.append(swatch, name);
+      list.append(li);
+    }
+  }
+  if (brief.finish) {
+    add('h3', '', 'Finish');
+    add('p', 'brief-finish', brief.finish);
+  }
 }
 
 /** build.json's notes (plain sentences from the make-buildable and finishing passes), as a
@@ -1195,8 +1499,14 @@ async function fetchJson(url) {
 
 let project = null;
 let lastBuildText; // undefined until the first poll, then the text (or null when missing)
+let lastRoughText; // the same for build.rough.json (null when the project has none)
+let lastProjectText; // the same for project.json
+let currentBuild = null; // the build.json last read, for the header
+let fitBuild = { shape: [8, 8, 3] }; // what fitView frames when there are no parts
 let unreadable = 0; // polls in a row that found build.json but could not read it
 const UNREADABLE_LIMIT = 2; // say so after this many, not on the first (it may be half-written)
+const DRAW_FAILED =
+  "The viewer could not draw this build. Run 'bricksnap build' again; if that does not help, tell the BrickSnap developers.";
 
 async function loadProject() {
   try {
@@ -1207,7 +1517,7 @@ async function loadProject() {
 }
 
 function clearModel() {
-  disposeDrawn();
+  disposeDrawn(views.designed);
   state.partCount = 0;
   state.maxStep = 0;
 }
@@ -1223,7 +1533,7 @@ function showNoSteps() {
 /** build.json exists but is not a readable build, poll after poll. */
 async function showUnreadable() {
   state.error = 'build.json cannot be read';
-  if (drawn) {
+  if (views.designed.drawn) {
     setNotice(
       "The newest build.json cannot be read, so this is still the previous build. Run 'bricksnap build' again.",
     );
@@ -1239,57 +1549,110 @@ async function showUnreadable() {
   showNoSteps();
 }
 
+/** A JSON object from text, or null when the text is missing or not one. */
+function parseObject(text) {
+  if (text === null || text === undefined) return null;
+  try {
+    const value = JSON.parse(text);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Look at build.json, build.rough.json and project.json, and show whatever changed. */
 async function refresh() {
-  const text = await fetchText('/project/build.json');
-  if (text === lastBuildText) return;
-  let build = null;
-  if (text !== null) {
-    try {
-      build = JSON.parse(text);
-    } catch {
-      build = undefined;
-    }
-    if (build === null || typeof build !== 'object' || Array.isArray(build)) {
-      // Probably caught half-written: the next poll will see the whole file. If it stays
-      // unreadable, say so rather than showing "Loading" (or an old build) without a word.
-      unreadable += 1;
-      if (unreadable === UNREADABLE_LIMIT) await showUnreadable();
-      return;
-    }
+  const [text, files, projectText] = await Promise.all([
+    fetchText('/project/build.json'),
+    fetchJson('/project-files.json'),
+    fetchText('/project/project.json'),
+  ]);
+  // Only asked for when it is there, so a project without one causes no failed requests.
+  const hasRough = Boolean(files && Array.isArray(files.files) && files.files.includes('build.rough.json'));
+  const roughText = hasRough ? await fetchText('/project/build.rough.json') : null;
+
+  const buildChanged = text !== lastBuildText;
+  const build = buildChanged ? parseObject(text) : currentBuild;
+  if (buildChanged && text !== null && !build) {
+    // Probably caught half-written: the next poll will see the whole file. If it stays
+    // unreadable, say so rather than showing "Loading" (or an old build) without a word.
+    unreadable += 1;
+    if (unreadable === UNREADABLE_LIMIT) await showUnreadable();
+    return;
   }
+  const roughChanged = roughText !== lastRoughText;
+  const projectChanged = projectText !== lastProjectText;
+  if (!buildChanged && !roughChanged && !projectChanged) return;
   unreadable = 0;
-  lastBuildText = text;
-  await loadProject();
-  // Keep the step the person was looking at, if it still exists.
-  const keep = state.showingAll ? null : state.step;
-  state.error = null;
-  let notice = '';
-  if (build) {
-    try {
-      drawBuild(build);
-      fitView(build);
-      if (!state.partCount) notice = 'This build has no parts in it.';
-      if (drawn.skipped) {
-        const n = drawn.skipped;
-        notice = `${n} ${n === 1 ? 'entry' : 'entries'} in build.json ${n === 1 ? 'is' : 'are'} not a part and ${n === 1 ? 'was' : 'were'} left out.`;
-      }
-    } catch (err) {
-      // Whatever went wrong, the screen and the text must agree: show nothing and say why.
-      clearModel();
-      fitView({ shape: [8, 8, 3] });
-      state.error = String(err && err.message ? err.message : err);
-      notice = "The viewer could not draw this build. Run 'bricksnap build' again; if that does not help, tell the BrickSnap developers.";
-    }
-  } else {
-    clearModel();
-    fitView({ shape: [8, 8, 3] });
-    notice = "This project has not been built yet. Run 'bricksnap build' and it will appear here.";
+  if (projectChanged) {
+    lastProjectText = projectText;
+    project = parseObject(projectText) || project; // half-written: keep the old one
   }
-  setNotice(notice);
-  showHeader(project, build);
-  if (drawn) applyStep(keep ?? state.maxStep, keep === null || keep > state.maxStep);
-  else showNoSteps();
-  state.buildVersion += 1;
+
+  let notice = null; // null: leave the notice as it is
+  let keep = null;
+  if (buildChanged) {
+    lastBuildText = text;
+    currentBuild = build;
+    // Keep the step the person was looking at, if it still exists.
+    keep = state.showingAll ? null : state.step;
+    state.error = null;
+    notice = '';
+    fitBuild = build || { shape: [8, 8, 3] };
+    if (build) {
+      try {
+        const drawn = drawBuild(build, views.designed);
+        if (!state.partCount) notice = 'This build has no parts in it.';
+        if (drawn.skipped) {
+          const n = drawn.skipped;
+          notice = `${n} ${n === 1 ? 'entry' : 'entries'} in build.json ${n === 1 ? 'is' : 'are'} not a part and ${n === 1 ? 'was' : 'were'} left out.`;
+        }
+      } catch (err) {
+        // Whatever went wrong, the screen and the text must agree: show nothing and say why.
+        clearModel();
+        fitBuild = { shape: [8, 8, 3] };
+        state.error = String(err && err.message ? err.message : err);
+        notice = DRAW_FAILED;
+      }
+    } else {
+      clearModel();
+      notice = "This project has not been built yet. Run 'bricksnap build' and it will appear here.";
+    }
+  }
+  if (roughChanged) {
+    lastRoughText = roughText;
+    const rough = parseObject(roughText);
+    try {
+      if (rough) drawBuild(rough, views.rough);
+      else disposeDrawn(views.rough);
+    } catch {
+      disposeDrawn(views.rough); // the plain conversion is extra: without it, show one view
+    }
+    state.roughVersion += 1;
+  }
+  const d = views.designed;
+  const r = views.rough;
+  // A plain conversion with nothing in it to draw counts as none, like one that cannot be read.
+  compareActive = Boolean(d.drawn && r.drawn && r.drawn.parts.length && r.partsJson !== d.partsJson);
+  showCompare();
+  if (buildChanged || roughChanged) {
+    try {
+      fitView(fitBuild);
+    } catch (err) {
+      clearModel();
+      state.error = String(err && err.message ? err.message : err);
+      notice = DRAW_FAILED;
+    }
+  }
+  if (notice !== null) setNotice(notice);
+  showHeader(project, currentBuild);
+  showBrief(project);
+  if (buildChanged) {
+    if (d.drawn) applyStep(keep ?? state.maxStep, keep === null || keep > state.maxStep);
+    else showNoSteps();
+    state.buildVersion += 1;
+  }
+  requestRender();
 }
 
 let polling = false;
@@ -1328,7 +1691,7 @@ async function start() {
   }
   // Wait for the first frame so a test that sees ready can take a picture straight away.
   requestAnimationFrame(() => {
-    renderer.render(scene, camera);
+    renderViews();
     state.ready = true;
   });
   setInterval(poll, POLL_MS);

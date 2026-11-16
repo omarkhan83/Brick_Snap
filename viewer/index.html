@@ -39,9 +39,32 @@
 
 <main>
   <section class="card viewcard">
-    <div id="view" class="view" aria-label="3D view of the model. Drag to turn it, scroll to zoom, right-drag to move it."></div>
+    <div id="compare" class="compare" role="group" aria-label="Which build to show" hidden>
+      <span class="compare-label">Show</span>
+      <button type="button" data-show="both" aria-pressed="true">Both</button>
+      <button type="button" data-show="rough" aria-pressed="false">Plain conversion</button>
+      <button type="button" data-show="designed" aria-pressed="false">Designed</button>
+    </div>
+    <div id="view" class="view" aria-label="3D view of the model. Drag to turn it, scroll to zoom, right-drag to move it.">
+      <div class="panes">
+        <div id="pane-rough" class="pane" hidden>
+          <div class="pane-frame"></div>
+          <p id="roughTag" class="pane-tag">
+            <span class="pane-title">Plain conversion</span>
+            <span class="pane-sub"><span class="pane-what">What a plain converter makes · </span><span id="roughCount">0 parts</span></span>
+          </p>
+        </div>
+        <div id="pane-designed" class="pane">
+          <div class="pane-frame"></div>
+          <p id="designedTag" class="pane-tag designed">
+            <span class="pane-title">Designed</span>
+            <span class="pane-sub"><span class="pane-what">What BrickSnap made of it · </span><span id="designedCount">0 parts</span></span>
+          </p>
+        </div>
+      </div>
+    </div>
     <p id="notice" class="notice" hidden></p>
-    <p class="hint">Drag to turn · scroll to zoom · right-drag to move</p>
+    <p id="hint" class="hint">Drag to turn · scroll to zoom · right-drag to move</p>
   </section>
 
   <section class="card steps" aria-label="Building steps">
@@ -49,9 +72,16 @@
     <div class="slider">
       <label for="step" id="stepLabel">All steps</label>
       <input id="step" type="range" min="1" max="1" value="1" step="1">
+      <p id="stepsFor" class="steps-for" hidden>The steps are for the designed build.</p>
     </div>
     <button id="next" type="button" title="Next step (right arrow)">Next ▶</button>
     <button id="all" type="button" class="allbtn" aria-pressed="true">All</button>
+  </section>
+
+  <section id="brief" class="card brief" aria-labelledby="briefTitle" hidden>
+    <h2 id="briefTitle">The designer's brief</h2>
+    <p class="brief-lead">What the AI designer decided before it changed anything.</p>
+    <div id="briefBody"></div>
   </section>
 </main>
 
