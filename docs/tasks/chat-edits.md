@@ -1,6 +1,6 @@
 # Chat edits: a person types a change and the designer makes it
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 3
 
 `uv run bricksnap design PROJECT "add a red collar"` should make that one change and nothing else: keep the

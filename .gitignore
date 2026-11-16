@@ -25,3 +25,6 @@ __pycache__/
 
 # Test screenshots and other test output
 tests/artifacts/
+
+# Extra working copies of this repository on other branches (git worktree)
+/.worktrees/

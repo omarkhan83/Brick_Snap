@@ -1,6 +1,6 @@
 # The viewer shows the rough and the designed build side by side
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 3
 
 The viewer shows one build. For showing people what BrickSnap does, it should show the plain conversion

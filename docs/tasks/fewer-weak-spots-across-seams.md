@@ -1,6 +1,6 @@
 # The solver should tie big sections together with more than one part
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 3
 
 A build can pass every check and still be fragile. In an AI-designed cat, the whole head (92 parts) is
