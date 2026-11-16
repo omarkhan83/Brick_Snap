@@ -102,6 +102,12 @@ Notes
   * a tile or slope there would let go of parts held on only through this cell, so part
     of the model would come loose: making that part thicker or joining it more firmly
     could change that;
+  * a tile or slope there would leave N parts hanging on a single part (the stage 3 rule
+    below; N is the fewest the swaps refused for the cell would have left, each measured
+    on its own; "up to N" when the cells of one sentence differ), with the same advice;
+  * the same, but said of the tile or slope "with the others tried around it at the same
+    time": on a large build the pass may not afford to measure every refused swap on its
+    own, and then N is what the swaps refused with it left between them;
   * it is the high side of a slope placed next to it, which carries the slope's studs;
   * every slope that fits there overlaps a slope placed beside it, which was preferred;
   * anything else: no part fits there.
@@ -123,8 +129,6 @@ Other
   layout solver or the checks.
 
 STAGE 3 ADDITION TO THE CONTRACT: finishing never makes a build less sturdy
-(Being built by the lead's agent; until this line is removed, what follows is not in the
-code yet.)
 Section 5 only forbids loosening a part. That is not enough: in the sample pawn at 16
 studs the solver's build has at most 6 parts hanging on any one part, and after finishing
 48 parts hang on a single 2 x 2 plate, because swaps cut bricks that tied two sections
@@ -132,28 +136,43 @@ together into smaller parts.
 
 - The measure is the solver's: a *lone link* is a part, or a joint engaging a single stud,
   that is a group's only connection to the rest of the model, and its *load* is what it
-  carries (see "sturdiness" in bricksnap/layout.py, which agrees with the weak spots that
-  bricksnap.checks reports). The measure moves to ``bricksnap.connect`` so that the solver
-  and this pass share one definition: ``connect.lone_links(build, catalog)`` and
-  ``connect.sturdiness(build, catalog)``; ``bricksnap.layout`` keeps its two names as
-  aliases.
-- Splitting a brick into a plate and a slope must not count against a swap by itself, so
-  here a load is measured in cells carried (``LoneLink`` gains the cells its group covers),
-  not in parts.
-- The rule, added to section 5: compared with the input, the result's largest load (in
-  cells) is no higher, and it has no more lone links whose group holds 3 parts or more.
-  A swap that would break this is not made, or is undone, exactly like a swap that would
-  loosen something.
+  carries (see ``bricksnap.connect``, which agrees with the weak spots that bricksnap.checks
+  reports). The solver and this pass share that one definition:
+  ``connect.lone_links(build, catalog)`` and ``connect.sturdiness(build, catalog)``;
+  ``bricksnap.layout`` keeps its two names as aliases.
+- Splitting a brick into plates, tiles and a slope must not count against a swap by
+  itself. So both builds are *seen as the input's parts*: each part stands for the input
+  parts whose cells it covers (a detail part, which covers none, for itself); when the part
+  a lone link hangs on was cut from a single input part, its group leaves out the other
+  pieces of that input part (a brick cut into plates and a tile hangs on its own bottom
+  plate, and that is still the one brick); groups of the same input parts are one; a group
+  holding fewer than 3 input parts is not a lone link; and its load in cells is the cells
+  of the parts left in it (``LoneLink.cells`` before leaving any out). On the input this is
+  simply its lone links.
+- The rule, added to section 5: compared with the input (with the detail parts standing on
+  it, since they stand there either way), both seen as the input's parts, the result's
+  largest load in cells is no higher and it has no more lone links. A swap that would break
+  the rule is not made, or is undone, exactly like a swap that would loosen something.
+- Not promised: the weak spots the checks report count every lone link in finished parts,
+  so their number and their largest load can go up after finishing, because a brick cut
+  into plates and a tile is a lone link of its own wherever it carries two parts or stands
+  on a single part. Counted that way, no tile could go on the cat's back at 12 studs, which
+  tests/test_stage2.py asks for. (Decided by the lead, 2026-11-16: a brick cut into a
+  plate and a tile is still one brick for this rule.)
 - The notes gain a reason for cells left alone because of it: "a tile (or slope) there
-  would leave N parts hanging on a single part", with the place, and the same advice as
-  for parts that would come loose.
+  would leave N parts hanging on a single part" (N counted in the input's parts, as above),
+  with the place, and the same advice as for parts that would come loose.
 - Everything else about the pass is unchanged: on a build where no swap threatens
   sturdiness, the result is exactly what it was before this addition.
 - Speed: a 3,000-part build still under 5 seconds.
-- Measured on the scorecard: at 16 studs no sample model has a larger worst weak spot
-  after finishing than the solver's own build had before finishing, and the weak spot
-  total is no higher than the saved scorecard's for any model that was at or under it
-  before finishing.
+- Measured on the scorecard at 16 studs: seen as the input's parts, no sample model is less
+  sturdy after finishing than the solver's own build was. Counted as the checks count
+  (every lone link, in finished parts), the worst weak spot of the duck and the pineapple
+  carries two parts more, of the pawn and the teapot one more, and the pawn's covers 21
+  cells where the solver's covered 16 (a 2 x 4 plate cut from a brick, carrying the rest of
+  that brick, two plates of another and a slope); every model's weak spot total is below
+  the saved scorecard's: 148 over the eleven models, against 219 there and 124 in the
+  solver's own builds.
 
 Implementation notes
 --------------------
@@ -219,9 +238,9 @@ slope candidate, whether the tile plan covered it, and whether a swap that wante
 refused because the model would come loose (``_State.refusal`` says why the last swap was
 refused) or for another reason. At the end each cell left as it was is sorted, in this
 order: a detail stands on it; it carries the studs of a slope placed beside it; a swap for
-it was refused as loosening; a candidate was refused for another reason ("no part fits"); a
-candidate existed but each overlapped a slope already placed. A smooth cell no planned tile
-covered has no tile in its colour.
+it was refused as loosening; one was refused by the stage 3 rule; a candidate was refused
+for another reason ("no part fits"); a candidate existed but each overlapped a slope
+already placed. A smooth cell no planned tile covered has no tile in its colour.
 A sloped cell with no candidate at all goes through ``_no_slope_reasons``: a flat top if all
 four neighbours at its level are filled; otherwise every slope part at every rotation and
 position that would slant it is run through the candidate tests one at a time (own column
@@ -230,24 +249,78 @@ step deep enough), and the furthest any part gets is the reason, a part that pas
 all but is not made in the colour giving the colour reason. This runs only on the cells
 left, after the build is decided, so it cannot change it.
 
+Sturdiness. The pass first runs exactly as it did before the stage 3 rule and measures its
+result once (``connect.lone_links`` on the result against the input with the details): if the
+rule holds, that is the result, so a build no swap threatens comes out as before. Otherwise it
+runs again, holding each *class* of swaps to the rule as it goes: each class of slopes (by
+height and width, as above), then the tile plan, the per-part tilings and the 1x1 tiles.
+Measuring after every swap would be too slow for 3,000 parts (each measure looks at the whole
+build), so a class runs freely and is measured once at its end, from a snapshot of the state
+taken at its start. When the class broke the rule:
+- Rounds: the groups that break the rule (heavier than the input's heaviest, or, when there
+  are too many, not one of the input's) are traced to the class's swaps whose new parts are
+  the part or joint they hang on, or else cut through their group (new parts inside it and
+  outside), or else lie in it, or else the swap nearest; those swaps are refused, and so is
+  any other swap of the class wanting the same faces (a slope turned another way does the
+  same harm), and the class runs again from the snapshot. After ``_STURDY_ROUNDS`` rounds,
+  one round refuses all the swaps that could be to blame; if the rule still does not hold,
+  every swap of the class is refused and the state goes back to the snapshot.
+- Then, since the rounds refuse more than the rule needs, the class runs once more from where
+  the rounds left it, with their refusals lifted: only the swaps they refused can be made
+  now, and each is measured as it is made and undone if the build breaks the rule (a swap of
+  a brick tries its other way of covering the rest first). The note for one still refused
+  says how many parts it alone would have left hanging: the largest of the groups it made or
+  changed, compared with the build just before it. This happens only when measuring every
+  swap the rounds refused fits what is left of ``_MEASURE_BUDGET`` (parts measured, summed
+  over the pass; twice their measuring must fit, since a swap may be tried more than once);
+  a swap that cannot be measured when its turn comes stays refused. Where it does not fit
+  (very large builds), the rounds' refusals stand and their notes say "with the others tried
+  around it at the same time".
+So the time is bounded: each class runs at most ``_STURDY_ROUNDS`` + 4 times and is measured
+once per run, and the swap-by-swap measuring is capped by the budget (under a second). At 24
+studs the pass keeps 762 slopes over the eleven sample models, against 769 with no limit on
+measuring (only the duck, at 1,360 parts, cannot afford all its retries). Judging every swap
+on its own from the start, as this pass once did where it could, kept fewer on the larger
+builds: what one swap uses up of the rule, the next cannot use. On the 153 x 153 slab two
+plates thick (about 3,000 parts, where almost every tile threatens the rule) the pass takes
+about 3.5 seconds.
+While it works the pass measures its own state (``_State.lone_links``): the same search,
+``connect.lone_links_of_graph``, fed from the state's cells and studs with the parts numbered
+in the order of the result, which gives exactly what ``connect.lone_links`` gives on the
+result (the tests check this). It leaves out what parts the input already had problems with
+hold (a part sticking out of the grid still holds the parts on its studs inside it), so when
+the input has such parts the pass measures with ``connect.lone_links`` itself.
+A refused swap's faces are marked with the parts it would have left hanging (the fewest, if
+several were refused for a cell); a marked cell left as it was gets the sturdiness reason,
+after the loosening one.
+
 Safety net. At the end the result is checked against section 5 with ``bricksnap.connect``
-itself. If it ever failed (it never has in the tests, which assert so), the input parts are
-returned with the details only, rather than a worse build. Parts the input already had
-problems with (collisions, out of the grid, unknown, or not a brick or plate) are never
-swapped.
+itself, and, in the run that holds swaps to the stage 3 rule, against that rule with
+``connect.lone_links``. If either ever failed (it never has in the tests, which make
+``_fell_back`` fail), the input parts are returned with the details only, rather than a worse
+build. Parts the input already had problems with (collisions, out of the grid, unknown, or not
+a brick or plate) are never swapped.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
 from itertools import groupby
 
 import networkx as nx
 import numpy as np
 
 from bricksnap.catalog import Catalog
-from bricksnap.connect import connection_graph, occupancy
+from bricksnap.connect import (
+    MIN_LOAD,
+    LoneLink,
+    connection_graph,
+    lone_links,
+    lone_links_of_graph,
+    occupancy,
+)
 from bricksnap.types import EMPTY, FINISH_SLOPED, FINISH_SMOOTH, Build, Design, Placement
 
 TILE_KIND = "tile"
@@ -267,6 +340,9 @@ _PAD = 4  # padding around the grid in the slope tests; more than any slope foot
 _VARIANTS_TALL = ("bricks", "plates")
 _VARIANTS_LOW = ("plates", "bricks")
 _RETRY_ROUNDS = 3
+_STURDY_ROUNDS = 8  # rounds of refusing the swaps to blame, per class, before a broad one
+_MEASURE_BUDGET = 150_000  # parts measured, summed over the swaps judged one by one
+_MEASURE_MARGIN = 2  # a class is judged swap by swap when twice its swaps' measuring fits
 
 
 # ---- small helpers ------------------------------------------------------------------------
@@ -463,6 +539,13 @@ class _State:
         self.next_id = len(build.parts)
         self.swaps = 0
         self.refusal = ""  # why the last refused swap was refused: "loose" or something else
+        self.banned: set[tuple[Placement, ...]] = set()  # swaps that made the build less sturdy
+        self.done: list[tuple[Placement, ...]] = []  # the swaps made, in order
+        self.made_by: dict[int, tuple[Placement, ...]] = {}  # new part -> the swap that made it
+        self.originals: dict[int, tuple] = {}  # part id -> the input parts it stands for
+        # (filled in by the sturdiness guard; forgotten when the id is given to a new part)
+        self.watch: Callable[[tuple[Placement, ...]], bool] | None = None  # judges each swap
+        self.last: tuple = ()  # what the last swap made needs to be undone
         frozen = set(out_of_bounds) | set(unknown) | {i for pair in collisions for i in pair}
         for i, p in enumerate(build.parts):
             part = catalog.parts.get(p.part)
@@ -628,6 +711,10 @@ class _State:
         piece of the model in one piece; otherwise nothing changes.
         """
         wanted = [wanted] if isinstance(wanted, Placement) else wanted
+        key = tuple(wanted)
+        if key in self.banned:
+            self.refusal = "sturdy"
+            return False
         self.refusal = "empty"
         regions = [self.occ[self.catalog.cells(q)] for q in wanted]
         if any((r < 0).any() for r in regions):
@@ -637,17 +724,27 @@ class _State:
         if any(i in self.frozen for i in removed):
             return False
         self.refusal = "refill"
-        loosens = False
+        loosens = weakens = False
         for variant in variants:
             refill = self._refill(removed, wanted, variant, cover)
             if refill is None:
                 continue
+            first = self.next_id
             if self._apply(removed, [*wanted, *refill]):
+                if self.watch is not None and not self.watch(key):
+                    self._take_back()  # it holds, but less sturdily than the rule allows
+                    weakens = True
+                    continue
                 self.swaps += 1
+                self.done.append(key)
+                for nid in range(first, self.next_id):
+                    self.made_by[nid] = key
                 return True
             loosens = loosens or self.refusal == "loose"
         if loosens:
             self.refusal = "loose"
+        elif weakens:
+            self.refusal = "sturdy"
         return False
 
     def _apply(self, removed: list[int], new_parts: list[Placement]) -> bool:
@@ -668,6 +765,7 @@ class _State:
         for q, step in zip(new_parts, steps, strict=True):
             nid = self.next_id
             self.next_id += 1
+            self.originals.pop(nid, None)
             q = replace(q, step=step)
             self.parts[nid] = q
             new_ids.append(nid)
@@ -725,21 +823,33 @@ class _State:
             if not ok:  # the whole model may still hold them together another way
                 ok = self._joined(groups)
 
+        saved = (new_ids, old_adj, box, occ_saved, stud_saved, step_saved)
         if ok:
-            for i in removed:
-                del self.parts[i]
+            self.last = ({i: self.parts.pop(i) for i in removed}, saved)
             return True
-
-        # undo
         self.refusal = "loose" if fits else "fit"
-        if fits:
+        self._undo(fits, *saved)
+        return False
+
+    def _undo(
+        self,
+        linked: bool,
+        new_ids: list[int],
+        old_adj: dict[int, set[int]],
+        box: tuple[slice, ...],
+        occ_saved: np.ndarray,
+        stud_saved: np.ndarray,
+        step_saved: np.ndarray,
+    ) -> None:
+        """Take the new parts out and put the graph and arrays back as they were."""
+        if linked:
             for nid in new_ids:
                 for e in self.adj.pop(nid):
                     if e in self.adj:
                         self.adj[e].discard(nid)
             for i, ns in old_adj.items():
                 for n in ns:
-                    if n not in gone:
+                    if n not in old_adj:
                         self.adj[n].add(i)
         self.adj.update(old_adj)
         for nid in new_ids:
@@ -747,30 +857,128 @@ class _State:
         self.occ[box] = occ_saved
         self.stud[box] = stud_saved
         self.stepg[box] = step_saved
-        return False
+
+    def _take_back(self) -> None:
+        """Undo the swap ``_apply`` has just made, exactly."""
+        removed, saved = self.last
+        self._undo(True, *saved)
+        self.parts.update(removed)
+
+    def snapshot(self) -> tuple:
+        """Everything a swap changes, to go back to with ``restore``."""
+        return (
+            dict(self.parts),
+            self.occ.copy(),
+            self.stud.copy(),
+            self.stepg.copy(),
+            {n: set(es) for n, es in self.adj.items()},
+            self.next_id,
+            self.swaps,
+            len(self.done),
+            dict(self.made_by),
+        )
+
+    def restore(self, snap: tuple) -> None:
+        parts, occ, stud, stepg, adj, next_id, swaps, done, made_by = snap
+        self.parts = dict(parts)
+        self.occ[...] = occ
+        self.stud[...] = stud
+        self.stepg[...] = stepg
+        self.adj = {n: set(es) for n, es in adj.items()}
+        self.next_id = next_id
+        self.swaps = swaps
+        del self.done[done:]
+        self.made_by = dict(made_by)
 
     # ---- result ----------------------------------------------------------------------------------
 
     def final_parts(self) -> list[Placement]:
         """The parts with steps made consistent: none before a part it stands on, 1..n used."""
+        return [replace(self.parts[i], step=s) for i, s in self.final_order()]
+
+    def final_order(self) -> list[tuple[int, int]]:
+        """(part id, step) of every part, in the order ``final_parts`` returns them."""
         cat = self.catalog
         ids = sorted(self.parts, key=lambda i: (self.parts[i].z, i))
         step = {i: self.parts[i].step for i in ids}
+        # every part directly under each part's footprint, all at once
+        boxes = []
         for i in ids:
             p = self.parts[i]
-            if i in self.outside or p.z == 0:
+            if i in self.outside or p.z == 0 or p.x < 0 or p.y < 0 or p.z > self.shape[2]:
                 continue
             w, d, _ = cat.footprint(p)
-            if p.x < 0 or p.y < 0 or p.z > self.shape[2]:
-                continue
-            below = self.occ[p.x : p.x + w, p.y : p.y + d, p.z - 1]
-            for j in np.unique(below[below >= 0]):
-                j = int(j)
-                if j != i and step[j] > step[i]:
-                    step[i] = step[j]
+            boxes.append((i, p.x, p.y, p.z - 1, w, d))
+        below: dict[int, list[int]] = {}
+        if boxes:
+            b = np.array(boxes, dtype=np.int64)
+            sizes = b[:, 4] * b[:, 5]
+            local = np.arange(int(sizes.sum())) - np.repeat(np.cumsum(sizes) - sizes, sizes)
+            deep = np.repeat(b[:, 5], sizes)
+            cx = np.repeat(b[:, 1], sizes) + local // deep
+            cy = np.repeat(b[:, 2], sizes) + local % deep
+            owner = np.repeat(b[:, 0], sizes)
+            inside = (cx < self.shape[0]) & (cy < self.shape[1])
+            j = np.full(len(cx), -1, dtype=np.int64)
+            j[inside] = self.occ[cx[inside], cy[inside], np.repeat(b[:, 3], sizes)[inside]]
+            keep = (j >= 0) & (j != owner)
+            for i, k in np.unique(np.stack([owner[keep], j[keep]], axis=1), axis=0).tolist():
+                below.setdefault(i, []).append(k)
+        for i in ids:
+            for k in below.get(i, ()):
+                if step[k] > step[i]:
+                    step[i] = step[k]
         levels = {s: n + 1 for n, s in enumerate(sorted(set(step.values())))}
         order = sorted(ids, key=lambda i: (levels[step[i]], i))
-        return [replace(self.parts[i], step=levels[step[i]]) for i in order]
+        return [(i, levels[step[i]]) for i in order]
+
+    def lone_links(self, ids: list[int], details: list[Placement]) -> list[LoneLink]:
+        """``connect.lone_links`` of the parts ``ids`` (in that order) and then ``details``,
+        worked out from the state's own cells and studs rather than built again.
+
+        The search depends only on the graph and the numbering of its parts, so this is the
+        shared measure; on a build whose parts collide the two may differ, and the final
+        check, made with ``connect.lone_links`` itself, decides.
+        """
+        cat = self.catalog
+        n_ids = len(ids)
+        n = n_ids + len(details)
+        size = self.next_id + 1  # index -1 (an empty cell) lands on the last entry
+        pos = np.full(size, -1, dtype=np.int64)
+        pos[ids] = np.arange(n_ids)
+        zpart = np.full(size, -1, dtype=np.int64)
+        grips = np.zeros(size, dtype=bool)
+        z: list[int] = []
+        volume: list[float] = []
+        known: list[bool] = []
+        for i in ids:
+            p = self.parts[i]
+            part = cat.parts.get(p.part)
+            zpart[i] = p.z
+            z.append(p.z)
+            if part is None:
+                known.append(False)
+                volume.append(0.0)
+                continue
+            grips[i] = part.antistuds_bottom
+            known.append(True)
+            volume.append(float(part.sx * part.sz * part.h))
+        lo, hi = self.occ[:, :, :-1], self.occ[:, :, 1:]
+        xs, ys, zs = np.nonzero(self.stud[:, :, :-1] & (hi >= 0) & (hi != lo))
+        a, b = lo[xs, ys, zs], hi[xs, ys, zs]
+        keep = (zpart[b] == zs + 1) & grips[b]
+        codes = [pos[a[keep]] * n + pos[b[keep]]]
+        for k, q in enumerate(details):  # a detail stands on studs and holds nothing
+            w, d, _ = cat.footprint(q)
+            under = self.occ[q.x : q.x + w, q.y : q.y + d, q.z - 1]
+            studs = self.stud[q.x : q.x + w, q.y : q.y + d, q.z - 1] & (under >= 0)
+            codes.append(pos[under[studs]] * n + n_ids + k)
+            z.append(q.z)
+            known.append(True)
+            volume.append(float(w * d * cat.parts[q.part].h))
+        uniq, counts = np.unique(np.concatenate(codes), return_counts=True)
+        edges = list(zip((uniq // n).tolist(), (uniq % n).tolist(), counts.tolist(), strict=True))
+        return lone_links_of_graph(n, edges, z, volume, known)[0]
 
 
 # ---- the passes -----------------------------------------------------------------------------
@@ -1013,6 +1221,289 @@ def _with_retries(items: list, place, failed: list | None = None) -> int:
     return placed
 
 
+def _plain(p: Placement) -> Placement:
+    return replace(p, step=0)
+
+
+def _face_cells(catalog: Catalog, q: Placement) -> list[tuple[int, int, int]]:
+    """The top cells of a wanted part that carry no stud: a tile's top, a slope's slant."""
+    w, d, h = catalog.footprint(q)
+    studs = set(catalog.stud_cells(q))
+    top = q.z + h - 1
+    return [
+        (q.x + i, q.y + j, top)
+        for i in range(w)
+        for j in range(d)
+        if (q.x + i, q.y + j) not in studs
+    ]
+
+
+class _Sturdy:
+    """The rule that finishing never makes a build less sturdy, and who to blame when it does.
+
+    Everything is seen as the input's parts (``_groups``). The input with the detail parts
+    standing on it is measured once (``connect.lone_links``): its largest load in cells and
+    its number of lone links. The working state is measured the same way, in the order the
+    result will have. ``keeps`` judges one swap just made; ``check`` judges a whole class of
+    swaps and says which of them to refuse.
+    """
+
+    def __init__(
+        self,
+        build: Build,
+        details: list[Placement],
+        catalog: Catalog,
+        input_occ: np.ndarray,
+        exact: bool,
+    ) -> None:
+        self.catalog = catalog
+        self.details = details
+        self.shape = build.shape
+        self.input = list(build.parts)
+        self.input_occ = input_occ  # which input part covers each cell
+        self.exact = exact  # measure with connect.lone_links itself (an awkward input)
+        self.originals: dict[Placement, tuple] = {}  # part -> the input parts it stands for
+        self.most = self.count = -1  # the input's, measured when first needed
+        self.known: set[frozenset] = set()  # the input's groups
+        self.budget = _MEASURE_BUDGET  # parts that may still be measured swap by swap
+        self.load = np.zeros(build.shape, dtype=np.int64)  # the fewest parts a swap wanting
+        # the cell, measured on its own and refused, would have left hanging (0: none)
+        self.together = np.zeros(build.shape, dtype=np.int64)  # the same for swaps refused
+        # in rounds, from the weak spots their class left (0: none)
+        self.in_class = np.zeros(build.shape, dtype=bool)  # faces refused in this class
+        self.rounds = np.zeros(build.shape, dtype=np.int64)  # ``together`` as the rounds of
+        # the class left it, while the swaps they refused are tried again one by one
+        self.worst = 0  # the most parts a refused swap would have left hanging
+        self.hanging = 0  # the most parts hanging on one part, as the last refusal found
+        self.prev: set[frozenset] | None = None  # the groups before the swap being judged
+
+    def _originals(self, p: Placement) -> tuple:
+        """The input parts whose cells ``p`` covers (by index), or ``p`` itself when it
+        covers none of them (a detail) or is not a brick or plate the pass could have made."""
+        got = self.originals.get(p)
+        if got is None:
+            own = (("own", _plain(p)),)
+            if p.part not in self.catalog.parts or min(p.x, p.y, p.z) < 0:
+                got = own
+            else:
+                region = self.input_occ[self.catalog.cells(p)]
+                got = tuple(int(v) for v in np.unique(region[region >= 0])) or own
+            self.originals[p] = got
+        return got
+
+    def _groups(
+        self, parts: list[Placement], originals: list[tuple], links: list[LoneLink]
+    ) -> dict[frozenset, tuple[int, int, LoneLink]]:
+        """The lone links seen as the input's parts: {input parts in the group: (how many,
+        cells, the lone link)}.
+
+        Each part stands for the input parts it covers cells of (``_originals``). A group
+        leaves out the pieces of the part it hangs on, when that part was cut from a single
+        input part (a brick cut into plates and a slope hangs on its own bottom plate: still
+        the one brick); groups of the same input parts are one, the heaviest in cells kept;
+        fewer than ``MIN_LOAD`` input parts is none. On the input this is simply its lone
+        links.
+        """
+        cat = self.catalog
+        volume = [
+            (cat.parts[p.part].sx * cat.parts[p.part].sz * cat.parts[p.part].h)
+            if p.part in cat.parts
+            else 0
+            for p in parts
+        ]
+        out: dict[frozenset, tuple[int, int, LoneLink]] = {}
+        for ln in links:
+            if ln.joint is None:
+                on = ln.part
+            else:
+                a, b = ln.joint
+                on = a if b in ln.members else b
+            base = originals[on]  # its pieces are the parts cut from that one input part
+            if len(base) != 1:
+                base = ()  # a part covering cells of several input parts is new
+            held: set = set()
+            cells = 0
+            for m in ln.members:
+                mine = originals[m]
+                if mine == base:
+                    continue  # a piece of the part it hangs on
+                held.update(mine)
+                cells += volume[m]
+            if len(held) < MIN_LOAD:
+                continue
+            key = frozenset(held)
+            kept = out.get(key)
+            if kept is None or cells > kept[1]:
+                out[key] = (len(held), cells, ln)
+        return out
+
+    def _measure_input(self) -> None:
+        if self.count >= 0:
+            return
+        base = self.input + self.details
+        links = lone_links(Build(shape=self.shape, parts=base), self.catalog)
+        groups = self._groups(base, [self._originals(p) for p in base], links)
+        self.most = max((g[1] for g in groups.values()), default=0)
+        self.count = len(groups)
+        self.known = set(groups)
+
+    def holds(self, parts: list[Placement]) -> bool:
+        links = lone_links(Build(shape=self.shape, parts=parts), self.catalog)
+        groups = self._groups(parts, [self._originals(p) for p in parts], links)
+        return not self._offenders(groups)
+
+    def _measure(self, state: _State) -> tuple[list[int], list[Placement], list[LoneLink]]:
+        ids = [i for i, _ in state.final_order()]
+        parts = [state.parts[i] for i in ids] + self.details
+        if self.exact:
+            return ids, parts, lone_links(Build(shape=self.shape, parts=parts), self.catalog)
+        return ids, parts, state.lone_links(ids, self.details)
+
+    def _state_groups(
+        self, state: _State
+    ) -> tuple[list[int], list[Placement], dict[frozenset, tuple[int, int, LoneLink]]]:
+        ids, parts, links = self._measure(state)
+        originals = []
+        for i in ids:
+            got = state.originals.get(i)
+            if got is None:
+                got = state.originals[i] = self._originals(state.parts[i])
+            originals.append(got)
+        originals += [self._originals(p) for p in self.details]
+        return ids, parts, self._groups(parts, originals, links)
+
+    def _offenders(
+        self, groups: dict[frozenset, tuple[int, int, LoneLink]]
+    ) -> dict[frozenset, tuple[int, int, LoneLink]]:
+        """The groups that break the rule; none when it holds.
+
+        A group breaks it when it covers more cells than the input's heaviest, or, when there
+        are more groups than the input had, when it is not one of the input's (the same input
+        parts hanging).
+        """
+        self._measure_input()
+        too_many = len(groups) > self.count
+        return {
+            k: g
+            for k, g in groups.items()
+            if g[1] > self.most or (too_many and k not in self.known)
+        }
+
+    def affords(self, swaps: int, parts: int) -> bool:
+        return swaps * parts * _MEASURE_MARGIN <= self.budget
+
+    def start(self, state: _State) -> bool:
+        """Get ready to judge swaps one by one from the state as it is (which keeps the
+        rule); False when not even one could be measured."""
+        n = len(state.parts) + len(self.details)
+        if n > self.budget:
+            return False
+        self.budget -= n
+        self.prev = set(self._state_groups(state)[2])
+        return True
+
+    def keeps(self, state: _State, key: tuple[Placement, ...]) -> bool:
+        """Whether the swap ``key``, just made, keeps the rule (the state before it did).
+
+        Used while the swaps refused in rounds are tried again. One that can no longer be
+        measured (the budget ran out on the way) stays refused, as the rounds found."""
+        n = len(state.parts) + len(self.details)
+        if n > self.budget:
+            faces = [c for q in key for c in _face_cells(self.catalog, q)]
+            load = max((int(self.rounds[c]) for c in faces), default=0)
+            self._mark(key, load or self.worst, "together")
+            return False
+        self.budget -= n
+        groups = self._state_groups(state)[2]
+        offenders = self._offenders(groups)
+        if not offenders:
+            self.prev = set(groups)
+            return True
+        # the groups this swap made or changed (the rest were there before it, which kept
+        # the rule), however many parts they hold: one of them broke it
+        made = [g[0] for k, g in groups.items() if self.prev is None or k not in self.prev]
+        self.hanging = max(made or [g[0] for g in offenders.values()])
+        self._mark(key, self.hanging, "measured")
+        return False
+
+    def check(
+        self, state: _State, start: int, broad: bool
+    ) -> list[tuple[tuple[Placement, ...], int]] | None:
+        """None when the state keeps the rule; otherwise the swaps to refuse, each with the
+        number of parts it left hanging. Only the swaps made since ``state.done[start]`` can
+        be blamed: the ones before kept the rule.
+
+        For each group that breaks the rule, the swaps refused are those that made the part
+        or joint it hangs on; failing that, those that made parts both in its group and
+        outside it (they cut through the group's ties); failing that, those that made parts
+        in its group; failing that (a group can also come to hang alone when a swap beside it
+        changes how the groups around it are counted), the swap made nearest to the part it
+        hangs on. ``broad`` refuses all of the first three at once.
+        """
+        ids, parts, groups = self._state_groups(state)
+        offenders = self._offenders(groups)
+        if not offenders:
+            return None
+        recent = set(state.done[start:])
+        made = [k if (k := state.made_by.get(i)) in recent else None for i in ids]
+        made += [None] * len(self.details)
+        new_of: dict[tuple[Placement, ...], list[int]] = {}
+        for n, k in enumerate(made):
+            if k is not None:
+                new_of.setdefault(k, []).append(n)
+        blamed: dict[tuple[Placement, ...], int] = {}
+        for load, _, ln in offenders.values():
+            hung_on = [ln.part] if ln.joint is None else list(ln.joint)
+            makers = {k for n in hung_on if (k := made[n]) is not None}
+            members = set(ln.members)
+            inside = {k for n in ln.members if (k := made[n]) is not None}
+            cutting = {k for k in inside if any(n not in members for n in new_of[k])}
+            chosen = (makers | inside) if broad else (makers or cutting or inside)
+            if not chosen and recent:
+                chosen = {self._nearest(parts[ln.part], state.done[start:])}
+            for k in chosen:
+                blamed[k] = max(blamed.get(k, 0), load)
+        self.hanging = max(g[0] for g in offenders.values())
+        return list(blamed.items())
+
+    def _nearest(self, p: Placement, swaps: list[tuple[Placement, ...]]) -> tuple[Placement, ...]:
+        """The swap whose wanted parts come closest to ``p`` (the first, on a tie)."""
+        w, d, h = self.catalog.footprint(p)
+
+        def gap(q: Placement) -> int:
+            qw, qd, qh = self.catalog.footprint(q)
+            return (
+                max(p.x - (q.x + qw), q.x - (p.x + w), 0)
+                + max(p.y - (q.y + qd), q.y - (p.y + d), 0)
+                + max(p.z - (q.z + qh), q.z - (p.z + h), 0)
+            )
+
+        return min(swaps, key=lambda k: min(gap(q) for q in k))
+
+    def _mark(self, key: tuple[Placement, ...], load: int, how: str) -> None:
+        """Remember, for the notes, the faces a refused swap wanted and how many parts it
+        would have left hanging: ``how`` is "measured" (the swap on its own) or "together"
+        (refused in rounds, from what its class left; the rest of this class then leaves
+        those faces alone, since a slope turned another way would do the same harm)."""
+        self.worst = max(self.worst, load)
+        grid = self.load if how == "measured" else self.together
+        for q in key:
+            for c in _face_cells(self.catalog, q):
+                grid[c] = load if grid[c] == 0 else min(int(grid[c]), load)
+                if how == "together":
+                    self.in_class[c] = True
+
+    def refuse(self, state: _State, blamed: list[tuple[tuple[Placement, ...], int]]) -> None:
+        """Refuse these swaps from now on."""
+        for key, load in blamed:
+            state.banned.add(key)
+            self._mark(key, load, "together")
+
+
+def _fell_back(why: str) -> None:
+    """Called when the safety net is used, which is never expected (the tests make it fail)."""
+
+
 def _detail_steps(details: list[Placement], first: int) -> list[Placement]:
     order = sorted(range(len(details)), key=lambda n: (details[n].z, details[n].y, details[n].x, n))
     return [replace(details[n], step=first + k // DETAIL_STEP_SIZE) for k, n in enumerate(order)]
@@ -1052,7 +1543,19 @@ def _verify(state: _State, parts: list[Placement], detail_mask: np.ndarray) -> b
 # ---- why cells were left as they were ---------------------------------------------------------
 
 # Reasons, in the order sentences about equally many cells are given.
-_DETAIL, _STUD_ROW, _FLAT, _LOOSE, _CROWDED, _COLOUR, _SMALL, _THIN, _OTHER = range(9)
+(
+    _DETAIL,
+    _STUD_ROW,
+    _FLAT,
+    _LOOSE,
+    _STURDY,
+    _TOGETHER,
+    _CROWDED,
+    _COLOUR,
+    _SMALL,
+    _THIN,
+    _OTHER,
+) = range(11)
 _MAX_REASON_NOTES = 6
 _MAX_PLACES = 3
 
@@ -1065,6 +1568,41 @@ class _Tried:
     planned: np.ndarray  # covered by a tile of the tile plan
     loose: np.ndarray  # wanted by a swap refused because part of the model would come loose
     refused: np.ndarray  # wanted by a swap refused for another reason
+
+
+@dataclass
+class _Progress:
+    """What the pass has done so far, beside the working state: cells taken, tiled and
+    slanted, counts, refused tiles, and what was tried (saved and loaded with the state)."""
+
+    claimed: np.ndarray
+    slanted: np.ndarray
+    tiled: np.ndarray
+    tried: _Tried
+    n_slopes: int = 0
+    n_tiles: int = 0
+    failed: list[Placement] = field(default_factory=list)
+
+    def save(self) -> _Progress:
+        t = self.tried
+        return _Progress(
+            self.claimed.copy(),
+            self.slanted.copy(),
+            self.tiled.copy(),
+            _Tried(t.candidate.copy(), t.planned.copy(), t.loose.copy(), t.refused.copy()),
+            self.n_slopes,
+            self.n_tiles,
+            list(self.failed),
+        )
+
+    def load(self, saved: _Progress) -> None:
+        """Go back to ``saved``, in place (the pass holds on to these arrays)."""
+        for name in ("claimed", "slanted", "tiled"):
+            getattr(self, name)[...] = getattr(saved, name)
+        for name in ("candidate", "planned", "loose", "refused"):
+            getattr(self.tried, name)[...] = getattr(saved.tried, name)
+        self.n_slopes, self.n_tiles = saved.n_slopes, saved.n_tiles
+        self.failed[:] = saved.failed
 
 
 def _cell(c: np.ndarray) -> tuple[int, int, int]:
@@ -1169,6 +1707,7 @@ def _why_left(
     left_sloped: np.ndarray,
     claimed: np.ndarray,
     tried: _Tried,
+    guard: _Sturdy,
     smooth: np.ndarray,
     sloped: np.ndarray,
     clear: np.ndarray,
@@ -1181,11 +1720,28 @@ def _why_left(
         for c in np.argwhere(mask):
             reasons.setdefault((name, *key), []).append(_cell(c))
 
+    measured = guard.load > 0
+    together = (guard.together > 0) & ~measured
+    sturdy = measured | together
+
+    def add_sturdy(name: str, mask: np.ndarray) -> None:
+        """The cells a swap was refused for by the sturdiness rule: measured on its own,
+        then refused in rounds; with the most parts left hanging, and whether all agree."""
+        for reason, grid, where in (
+            (_STURDY, guard.load, measured),
+            (_TOGETHER, guard.together, together),
+        ):
+            cells = mask & where
+            if cells.any():
+                hi, lo = int(grid[cells].max()), int(grid[cells].min())
+                add(name, cells, (reason, hi, hi == lo))
+
     # smooth: a refused tile beats "no tile is made in that colour" beats "no tile fits"
     usable = state.usable
     add("smooth", left_smooth & ~usable, (_OTHER,))
     add("smooth", left_smooth & usable & tried.loose, (_LOOSE,))
-    rest = left_smooth & usable & ~tried.loose
+    add_sturdy("smooth", left_smooth & usable & ~tried.loose)
+    rest = left_smooth & usable & ~tried.loose & ~sturdy
     add("smooth", rest & tried.refused, (_OTHER,))
     add("smooth", rest & ~tried.refused & tried.planned, (_OTHER,))
     for c in np.argwhere(rest & ~tried.refused & ~tried.planned):
@@ -1198,6 +1754,8 @@ def _why_left(
     add("sloped", left_sloped & claimed, (_STUD_ROW,))
     open_ = left_sloped & ~claimed
     add("sloped", open_ & tried.loose, (_LOOSE,))
+    add_sturdy("sloped", open_ & ~tried.loose)
+    open_ &= ~sturdy
     fitted = open_ & ~tried.loose & tried.candidate
     add("sloped", fitted & tried.refused, (_OTHER,))
     add("sloped", fitted & ~tried.refused, (_CROWDED,))
@@ -1292,6 +1850,17 @@ def _reason_sentence(key: tuple, cells: list[tuple[int, int, int]], catalog: Cat
             "of the model thicker, or joining it more firmly to the rest, could change that; "
             "otherwise leave studs there."
         )
+    if reason in (_STURDY, _TOGETHER):
+        hanging = _count(extra[0], "part") if extra[1] else f"up to {extra[0]} parts"
+        where = "there"
+        if reason == _TOGETHER:
+            where = f"there, with the others tried around {them} at the same time,"
+        return (
+            f"{subject} {left} because {part} {where} would leave {hanging} hanging on a "
+            "single part, so that part of the model would come off too easily. Making that "
+            "part of the model thicker, or joining it more firmly to the rest, could change "
+            "that; otherwise leave studs there."
+        )
     if reason == _COLOUR:
         colour = _colour_name(catalog, extra[0])
         if name == "smooth":
@@ -1351,6 +1920,31 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
             f"({design.shape})."
         )
     assert design.finish is not None
+    above_empty = np.ones(design.shape, dtype=bool)
+    above_empty[:, :, :-1] = ~design.filled[:, :, 1:]
+    marked = (design.finish == FINISH_SMOOTH) | (design.finish == FINISH_SLOPED)
+    if not design.details and not (design.filled & above_empty & marked).any():
+        return Build(
+            shape=build.shape,
+            parts=list(build.parts),
+            report=None,
+            design_id=build.design_id,
+            notes=list(build.notes),
+        )
+    # first exactly as without the sturdiness rule; only if that breaks the rule, again with it
+    plain = _finish(build, design, catalog, sturdy=False)
+    if plain is not None:
+        return plain
+    result = _finish(build, design, catalog, sturdy=True)
+    assert result is not None
+    return result
+
+
+def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Build | None:
+    """The pass. With ``sturdy`` each class of swaps is held to the sturdiness rule as it
+    goes; without, nothing is (as before the rule), and None is returned if the result
+    breaks it."""
+    assert design.finish is not None
     state = _State(build, design, catalog)
     details, detail_notes = _place_details(design, catalog, state)
 
@@ -1366,27 +1960,82 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
     open_cells = filled & above_empty & ~under
     smooth = open_cells & (design.finish == FINISH_SMOOTH)
     sloped = open_cells & (design.finish == FINISH_SLOPED)
-    if not smooth.any() and not sloped.any() and not design.details:
-        return Build(
-            shape=build.shape,
-            parts=list(build.parts),
-            report=None,
-            design_id=build.design_id,
-            notes=list(build.notes),
-        )
 
     cover = _Cover(catalog)
-    claimed = np.zeros(design.shape, dtype=bool)
-    slanted = np.zeros(design.shape, dtype=bool)
-    tiled = np.zeros(design.shape, dtype=bool)
-    n_slopes = n_tiles = 0
     # what was tried for each cell, so the notes can say why a cell was left as it was
-    tried = _Tried(
-        candidate=np.zeros(design.shape, dtype=bool),
-        planned=np.zeros(design.shape, dtype=bool),
-        loose=np.zeros(design.shape, dtype=bool),
-        refused=np.zeros(design.shape, dtype=bool),
+    prog = _Progress(
+        claimed=np.zeros(design.shape, dtype=bool),
+        slanted=np.zeros(design.shape, dtype=bool),
+        tiled=np.zeros(design.shape, dtype=bool),
+        tried=_Tried(
+            candidate=np.zeros(design.shape, dtype=bool),
+            planned=np.zeros(design.shape, dtype=bool),
+            loose=np.zeros(design.shape, dtype=bool),
+            refused=np.zeros(design.shape, dtype=bool),
+        ),
     )
+    claimed, tried = prog.claimed, prog.tried
+    awkward = any(state.input_problems)  # the quick measure may miss what such parts hold
+    guard = _Sturdy(build, details, catalog, state.input_occ, exact=awkward)
+
+    def guarded(work: Callable[[], None]) -> None:
+        """Run one class of swaps. If it leaves the build less sturdy than the input, refuse
+        the swaps to blame and run the class again from where it started; after
+        ``_STURDY_ROUNDS`` such rounds, one round refusing every swap that could be to blame;
+        after that, every swap of the class is refused. The rounds refuse more than the rule
+        needs, so then the swaps they refused are tried again one by one, each measured as it
+        is made, when the budget allows measuring them all."""
+        if not sturdy:
+            work()
+            return
+        snap, saved, start = state.snapshot(), prog.save(), len(state.done)
+        guard.in_class[...] = False
+        before = guard.together.copy()
+        work()
+        if len(state.done) == start:
+            return
+        blamed = guard.check(state, start, broad=False)
+        if blamed is None:
+            return
+        refused: set[tuple[Placement, ...]] = set()
+        for attempt in range(_STURDY_ROUNDS + 2):
+            if not blamed or attempt == _STURDY_ROUNDS + 1:
+                # nothing left to blame: refuse the whole class
+                blamed = [(k, guard.hanging) for k in state.done[start:]]
+                guard.refuse(state, blamed)
+                refused.update(k for k, _ in blamed)
+                state.restore(snap)
+                prog.load(saved)
+                break
+            guard.refuse(state, blamed)
+            refused.update(k for k, _ in blamed)
+            state.restore(snap)
+            prog.load(saved)
+            work()
+            if len(state.done) == start:
+                break
+            blamed = guard.check(state, start, broad=attempt + 1 >= _STURDY_ROUNDS)
+            if blamed is None:
+                break
+        if not guard.affords(len(refused), len(state.parts)) or not guard.start(state):
+            return  # the refusals stand, noted as made in rounds
+        state.banned -= refused
+        guard.rounds[...] = guard.together
+        guard.together[...] = before
+        guard.in_class[...] = False
+        prog.failed[:] = saved.failed
+        state.watch = lambda key: guard.keeps(state, key)
+        try:
+            work()
+        finally:
+            state.watch = None
+
+    def mark_refused(cells: Iterable[tuple]) -> None:
+        if state.refusal == "sturdy":
+            return  # the guard has marked the cells already
+        refused = tried.loose if state.refusal == "loose" else tried.refused
+        for c in cells:
+            refused[c] = True
 
     clear = ~filled & ~detail_mask
     candidates = _slope_candidates(design, catalog, sloped, smooth, clear, state.usable)
@@ -1401,31 +2050,37 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
         if claimed[sl].any():
             return None
         variants = _VARIANTS_TALL if -cand.key[0] >= 3 else _VARIANTS_LOW
+        if any(guard.in_class[c] for c in cand.slanted):
+            return False
         if not state.swap(cand.placement, variants, cover):
-            refused = tried.loose if state.refusal == "loose" else tried.refused
-            for c in cand.slanted:
-                refused[c] = True
+            mark_refused(cand.slanted)
             return False
         claimed[sl] = True
         for c in cand.slanted:
-            slanted[c] = True
+            prog.slanted[c] = True
         return True
 
+    def slope_class(group: list[_Candidate]) -> Callable[[], None]:
+        def work() -> None:
+            prog.n_slopes += _with_retries(group, place_slope)
+
+        return work
+
     for _, group in groupby(candidates, key=lambda c: c.key[:2]):
-        n_slopes += _with_retries(list(group), place_slope)
+        guarded(slope_class(list(group)))
 
     def place_tiles(tiles: list[Placement]) -> bool | None:
         slices = [catalog.cells(t) for t in tiles]
         if any(claimed[sl].any() for sl in slices):
             return None
+        if any(guard.in_class[sl].any() for sl in slices):
+            return False
         if not state.swap(tiles, ("plates",), cover):
-            refused = tried.loose if state.refusal == "loose" else tried.refused
-            for sl in slices:
-                refused[sl] = True
+            mark_refused(slices)
             return False
         for sl in slices:
             claimed[sl] = True
-            tiled[sl] = True
+            prog.tiled[sl] = True
         return True
 
     def place_tile(tile: Placement) -> bool | None:
@@ -1439,25 +2094,37 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
     plan = exact + _tile_plan(rest, design.colors, cover)
     for tile in plan:
         tried.planned[catalog.cells(tile)] = True
-    failed: list[Placement] = []
-    n_tiles += _with_retries(plan, place_tile, failed)
+
+    def plan_tiles() -> None:
+        prog.n_tiles += _with_retries(plan, place_tile, prog.failed)
+
     # a tile refused whole straddled parts in a way that loosens something: cover what each
     # part underneath still wants on its own, in several tilings, keeping the first that holds
-    n_tiles += _replan_tiles(state, failed, wanted_tiles & ~claimed, cover, place_tiles)
-    # what is still refused: try its cells one by one, some may still take a tile
-    singles = []
-    for tile in failed:
-        w, d, _ = catalog.footprint(tile)
-        one = cover(np.ones((1, 1), dtype=bool), TILE_KIND, tile.color)
-        if w * d > 1 and one:
-            singles += [
-                Placement(one[0][0], tile.color, tile.x + i, tile.y + j, tile.z)
-                for i in range(w)
-                for j in range(d)
-            ]
-    n_tiles += _with_retries(singles, place_tile)
+    def replan_tiles() -> None:
+        prog.n_tiles += _replan_tiles(
+            state, prog.failed, wanted_tiles & ~claimed, cover, place_tiles
+        )
 
-    fell_back = False
+    # what is still refused: try its cells one by one, some may still take a tile
+    def single_tiles() -> None:
+        singles = []
+        for tile in prog.failed:
+            w, d, _ = catalog.footprint(tile)
+            one = cover(np.ones((1, 1), dtype=bool), TILE_KIND, tile.color)
+            if w * d > 1 and one:
+                singles += [
+                    Placement(one[0][0], tile.color, tile.x + i, tile.y + j, tile.z)
+                    for i in range(w)
+                    for j in range(d)
+                ]
+        prog.n_tiles += _with_retries(singles, place_tile)
+
+    for work in (plan_tiles, replan_tiles, single_tiles):
+        guarded(work)
+
+    slanted, tiled = prog.slanted, prog.tiled
+    n_slopes, n_tiles = prog.n_slopes, prog.n_tiles
+    fell_back: tuple | None = None
     if state.swaps == 0 and not details:
         parts = list(build.parts)
     else:
@@ -1466,7 +2133,16 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
         parts += _detail_steps(details, last + 1)
         if not _verify(state, parts, detail_mask):
             # never expected; keep the input as it was rather than hand back a worse build
-            fell_back = True
+            fell_back = (_OTHER,)
+            _fell_back("section 5")
+        elif not guard.holds(parts):
+            if not sturdy:
+                return None
+            # never expected: each class was measured as it went
+            worst = max(guard.worst, guard.hanging)
+            fell_back = (_TOGETHER, worst, worst == guard.worst)
+            _fell_back("sturdiness")
+        if fell_back is not None:
             n_slopes = n_tiles = 0
             slanted[:] = False
             tiled[:] = False
@@ -1490,10 +2166,10 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
             x, y, z = (int(v) for v in c)
             name = "smooth" if design.finish[x, y, z] == FINISH_SMOOTH else "sloped"
             reasons.setdefault((name, _DETAIL), []).append((x, y, z))
-        if fell_back:
+        if fell_back is not None:
             for name, left in (("smooth", smooth & ~tiled), ("sloped", sloped & ~slanted)):
                 for c in np.argwhere(left):
-                    reasons.setdefault((name, _OTHER), []).append(_cell(c))
+                    reasons.setdefault((name, *fell_back), []).append(_cell(c))
         else:
             _why_left(
                 design,
@@ -1503,6 +2179,7 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
                 sloped & ~slanted,
                 claimed,
                 tried,
+                guard,
                 smooth,
                 sloped,
                 clear,
