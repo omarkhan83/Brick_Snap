@@ -23,3 +23,12 @@ each slope faces the way the picture shows.
 Also worth doing in the same sitting, with a BrickLink account: upload
 `samples/projects/cat-designed/wanted_list.xml` on BrickLink's wanted-list page (Wanted, then Upload) and
 note whether any item is rejected. Uploading buys nothing.
+
+2026-11-15, Alec-42's agent: checked on Linux with LeoCAD 26.09, an independent free program that reads
+the same file format with the real part shapes. The pawn (bricks and plates), the designed cat (tiles),
+and a designed duck (97 slopes) all load without error and look like our own pictures: every part in
+place, the right colours, slopes facing the right way, nothing floating. LeoCAD also reads our building
+steps (the cat builds up over 34 steps). This does not replace the Studio check: Studio has its own
+importer, its own step handling, and its own collision and stability checks, and BrickLink Studio was not
+installed on the machine used. A LeoCAD check that runs with the tests would be worth adding:
+`leocad FILE.ldr -i out.png` works without a screen under `xvfb-run`.
