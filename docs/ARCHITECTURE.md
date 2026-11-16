@@ -20,7 +20,7 @@ one.
 | | What it is | Who changes it |
 |---|---|---|
 | **Seed** | The 3D model, with a chosen size in studs and an up direction | The user |
-| **Design** | A grid of coloured cells plus notes about finish and details: *what it should look like* | The AI designer, chat edits, the make-buildable pass |
+| **Design** | A grid of coloured cells plus notes about finish and details: *what it should look like* | The AI designer and chat edits, through edit operations |
 | **Build** | Real parts at real positions, in steps: *how it is made* | Only the layout solver and finishing pass |
 
 Why the split: AI models are good at "the ears should be bigger and orange" and bad at placing hundreds of
@@ -53,8 +53,11 @@ projects/<name>/
   design.base.npz    the Design exactly as voxelised from the seed (never edited)
   design.npz         the current Design arrays
   design.json        named regions, detail parts, and the edit log
-  build.json         the parts, their steps, and the check report
+  build.json         the parts, their steps, the check report, and notes on what the software changed
+  build.rough.json   the plain conversion's build, kept for before-and-after pictures
   build.ldr          the LDraw file
+  parts.csv          the parts list (written by `bricksnap export`)
+  wanted_list.xml    the same list in BrickLink's upload format
   renders/           pictures
   designer/          transcripts of AI design runs
 ```
@@ -65,9 +68,10 @@ projects/<name>/
 
 - `colors`: integer array `[x, y, z]`. -1 means empty; any other value is an LDraw colour code.
 - `finish`: small-integer array, same shape. What the exposed top of a cell should be: 0 studs (default),
-  1 smooth (tiles), 2 sloped.
-- `details`: a list of small parts sitting on free studs (part, colour, cell, rotation), such as round
-  tiles for eyes.
+  1 smooth (tiles), 2 sloped. The conversion marks cells sloped where the seed's own surface is slanted;
+  the designer marks more, or unmarks them. A mark only matters on a cell with nothing above it.
+- `details`: a list of small parts standing on free studs (part, colour, cell, rotation), such as round
+  tiles for eyes. A detail occupies cells that are empty in `colors`, directly above filled ones.
 - `regions`: names for areas of the grid ("ear_left"), stored as the shape that defined them.
 - `log`: every edit operation applied since the base Design, in order. Replaying the log on
   `design.base.npz` reproduces the current Design. That gives undo, before/after, and a record of what the
@@ -83,27 +87,49 @@ Edits are declarative, not code. One operation is a small JSON object:
 {"op": "remove", "shape": {"type": "box", "min": [0, 0, 0], "max": [1, 7, 2]}}
 ```
 
-Coordinates are grid cells (x and y in studs, z in plates), and `min` and `max` are inclusive. Stage 1 has
-`add`, `remove`, and `paint` with `box` and `ellipsoid`. Later stages add more shapes (cone, capsule,
-half-space), a `symmetric` flag, selections (by colour, surface only, connected region, combined with and,
-or, not), `grow`, `shrink`, `mirror`, `move`, `set_finish`, `name_region`, and `place_detail`.
+Coordinates are grid cells (x and y in studs, z in plates), and `min` and `max` are inclusive. The
+operations so far:
+
+| Operation | What it does |
+|---|---|
+| `add`, `remove`, `paint` | Fill, empty, or recolour the cells inside a `box` or an `ellipsoid` |
+| `set_finish` | Mark the tops of cells `studs`, `smooth`, or `sloped` |
+| `place_detail`, `remove_detail` | Stand a small part on free studs, or take it away |
+| `"mirror": true` on any of them | Also apply it to the mirror image across the model's left-right middle |
+
+Details never dangle: filling the cell a detail stands in, or emptying the cell beneath it, removes the
+detail and says so. Later stages add more shapes (cone, capsule, half-space), selections (by colour,
+surface only, connected region, combined with and, or, not), `grow`, `shrink`, `move`, and `name_region`.
 
 Why declarative: there is no model-written code to sandbox, every edit can be validated before it is
 applied, and the same tool works unchanged when the AI later runs on the API.
 
 ## Deterministic steps
 
-**Voxelise (seed to Design).** Scale the mesh so its longest side is the requested number of studs. Mark
-every cell the surface passes through, then fill everything the outside cannot reach (this tolerates
-scans with small holes). Take colours from the mesh where it has them and snap each to the nearest colour
-in the parts table; otherwise use one default colour. Optionally hollow the inside, keeping a shell. A
-model with zero size on any axis is rejected with a clear message.
+**Voxelise (seed to Design).** Scale the mesh so its longest side is the requested number of studs, stand
+it on the ground, and centre it on the stud grid so that a symmetric model comes out symmetric. Mark every
+cell the surface passes through, then fill everything the outside cannot reach (this tolerates scans with
+small holes). Take colours from the mesh where it has them and snap each to the catalogue colour that looks
+closest (the CIEDE2000 colour difference, not distance in RGB); otherwise use one default colour. Mark a
+cell's finish as sloped where the seed's upward-facing surface in it is slanted between 20 and 70 degrees.
+Optionally hollow the inside, keeping a shell. A model with zero size on any axis is rejected with a clear
+message.
 
-**Make buildable (Design to Design).** Parts only hold each other through studs, vertically. Cells side by
-side in one layer do not hold each other. So some shapes cannot be built as given: wide overhangs, thin
-horizontal sheets, the ceiling of a hollow. This pass changes the Design as little as it can to fix that:
-steps the tops of hollow spaces inwards, thickens sheets that are one plate thin, and adds hidden support
-columns inside. It reports what it changed. It runs after voxelising and after every edit.
+**Make buildable (Design to Design).** Parts only hold each other through studs, vertically, and each part
+has one colour. So some Designs have no layout in which everything is attached: a feature in its own
+colour stuck on the side of the body, a sheet one plate thin, something hanging in the air. This pass uses
+the layout solver as its judge: solve, look at what is loose, repair the Design near it, solve again. Its
+repairs, cheapest first:
+
+1. Recolour cells nobody can see (every neighbour filled, or facing only an enclosed hollow), so that the
+   loose feature's parts can reach into the body and be held from above and below. This changes nothing
+   visible, and it is what makes a nose stay on a face.
+2. Thicken a thin sheet from beneath, so parts in two levels can overlap.
+3. Add a support column under something that hangs, hidden inside a hollow when possible.
+
+It never empties a cell and never changes the colour of a visible one. It works on a copy inside every
+rebuild: the saved Design stays exactly what the designer or the person made, and what the pass did is
+written in the Build's notes.
 
 **Layout (Design to Build).** The solver chooses parts.
 1. Split the height into courses of three plates. Where a cell is filled through a whole course it becomes
@@ -116,10 +142,12 @@ columns inside. It reports what it changed. It runs after voxelising and after e
    than one connected piece, tear up a small window where two pieces touch and re-tile it, rewarding parts
    that join them. If that fails, report it as a weak spot instead of pretending.
 
-**Finish (Build to Build).** Only swaps parts that have nothing on top of them, so it cannot break a
-connection: tiles where the finish is smooth, 45-degree slopes where the surface steps down by a brick,
-cheese slopes where it steps down by a plate. Detail parts are added on free studs. Each swap is undone if
-a check fails.
+**Finish (Build to Build).** Swaps plain parts for better-looking ones covering exactly the same cells:
+tiles where the finish is smooth; 45-degree slopes where a sloped cell steps down by a brick; cheese slopes
+where it steps down by two plates. A slope takes the corner off a step and never adds material. Then the
+Design's detail parts are stood on their studs. A swap that would loosen any part of the model is not made,
+and a part that does not exist in the cell's colour is never substituted. What could not be done is
+written in the Build's notes.
 
 **Checks (Build to report).** No two parts share a cell. Every part is connected to every other, through
 studs, in one piece that reaches the ground. The centre of mass sits over the footprint. Weak spots (a
@@ -129,20 +157,28 @@ the AI or a person can act on them. Working out forces is a later stage.
 **Outputs.** `build.ldr` with steps (opens in BrickLink Studio, LeoCAD, LDView); a parts list; a BrickLink
 wanted-list file; pictures.
 
+**The rough build.** The untouched base Design laid out with no passes at all is kept as
+`build.rough.json`. It is the "before" in every before-and-after picture and in the scorecard.
+
+**The scorecard.** `bricksnap bench` builds every model in `samples/models/` and prints one row each:
+valid or not, loose parts, part count, how much of the upward surface is tiles, slopes, or details rather
+than plain studs, and how closely the build's outline matches the seed's from three sides. A change is an
+improvement when these numbers and the pictures say so.
+
 ## The AI designer
 
-The designer is a language model with four tools and nothing else:
+The designer is a language model with five tools and nothing else:
 
 | Tool | Gives or does |
 |---|---|
-| `describe` | Text: grid size, colours used, part counts, named regions with their bounds, the check report |
-| `render` | Pictures: straight-on views (front, right, back, left, top) of the seed and of the current build, drawn at the same scale with stud and layer numbers along the edges |
-| `apply_ops` | Applies a list of edit operations to the Design; returns which were applied or rejected and why |
-| `rebuild` | Runs make-buildable, layout, finish, and checks; returns the report |
+| `describe` | Text: grid size, the brief, the check report, what the software changed by itself, colours and finish marks in use, details placed, and the colours and detail parts available |
+| `render` | One picture: straight-on views of the seed and of the current build, drawn at the same scale with stud and plate numbers along the edges |
+| `brief` | Records the designer's decisions before it edits: what the object is, what makes it recognisable, what to exaggerate or drop, the palette, the finish. Saved in `project.json` and shown to the person |
+| `apply_ops` | Applies a list of edit operations to the Design; returns which were applied or rejected and why. Refuses until a brief exists |
+| `rebuild` | Runs make-buildable, layout, finish, and checks; returns the notes and the report |
 
-It works in this order: look, write a brief (what this is, what must be recognisable, colours, what to
-exaggerate at this size), edit, rebuild, look again, for a bounded number of rounds. The same tools serve
-a person's chat edits.
+It works in this order: look, write the brief, edit, rebuild, look again, for a bounded number of rounds.
+The same tools serve a person's chat edits.
 
 Prompt and tool definitions live in `bricksnap/designer/` as plain files, defined once.
 
@@ -167,7 +203,7 @@ sets the variables that switch off auto memory, CLAUDE.md loading, built-in agen
 non-essential network traffic. `--bare` cannot be used: it turns off subscription login.
 
 What was measured (Claude Code 2.1.325): with these settings the model receives our system prompt, exactly
-our four tools, no built-in tools, no skills, no agents, and no project or memory files. Four things remain
+our tools, no built-in tools, no skills, no agents, and no project or memory files. Four things remain
 that no documented setting removes:
 
 - one identity line before our prompt ("You are a Claude agent, built on Anthropic's Claude Agent SDK.");
@@ -210,6 +246,7 @@ bricksnap/
   checks.py       Build to report
   ldraw.py        Build to LDraw text
   export.py       parts list and BrickLink wanted list
+  bench.py        the scorecard over the test models
   render.py       pictures of a mesh, a Design, or a Build (plain numpy, no GPU)
   project.py      read and write a project folder
   cli.py          the `bricksnap` command
@@ -230,7 +267,7 @@ Rules that keep parallel work from colliding:
 - Python 3.12 or newer, managed by `uv`. `uv sync` installs everything.
 - `uv run pytest` runs the tests, `uv run ruff check` and `uv run ruff format` lint and format,
   `uv run ty check` checks types.
-- `uv run bricksnap <command>`: `new`, `build`, `check`, `render`, `export`, `design`, `view`.
+- `uv run bricksnap <command>`: `new`, `build`, `check`, `render`, `export`, `ops`, `design`, `view`, `bench`.
 - The viewer is plain JavaScript modules with three.js copied into `viewer/vendor/`; `bricksnap view`
   serves it with Python's built-in web server. It is tested with headless Chromium through Playwright.
 
@@ -243,6 +280,8 @@ point for the optional printable output.
 ## Things that must stay true
 
 - The AI never writes to the Build. Only the solver and finishing pass do.
+- The make-buildable pass never empties a cell and never recolours a visible one, and the saved Design is
+  only ever changed by edit operations.
 - Every part and colour pair in a Build comes from the parts table.
 - A Build that fails its checks is never presented as finished; the failure is reported in words.
 - Nothing leaves the computer except through the AI design step.
@@ -268,7 +307,12 @@ point for the optional printable output.
 | LDU | LDraw's length unit. One stud is 20 LDU; one plate is 8 LDU tall |
 | BrickLink Studio | Free design software from BrickLink that opens LDraw files, renders them, and orders parts |
 | Wanted list | BrickLink's shopping list, which can be uploaded as a file |
-| AI designer | The language model that edits the Design through four tools |
+| AI designer | The language model that edits the Design through five tools |
+| Brief | The designer's written decisions about a model, made before it edits |
+| Finish | What the top of a cell should be: studs, smooth (a tile), or sloped |
+| Hidden cell | A filled cell nobody can see once the model is built; its colour is free |
+| Rough build | The plain conversion of the seed, before any design work or finishing |
+| Scorecard | The table `bricksnap bench` prints: one row of measurements per test model |
 | Clean-room runner | The code that starts the AI designer with only our prompt and tools (see "Running it clean") |
 | Parity check | The test that shows the AI designer really received only our prompt and tools |
 | Headless Chromium | A web browser with no window, driven by a test script to check the viewer page |

@@ -2,10 +2,11 @@
 
 Turn any object or 3D model into a brick set of real LEGO® parts that looks designed and works.
 
-You give it a 3D model. A solver builds it from real, interlocking bricks and plates. An AI acts as art
-director: it decides what makes the object recognisable at brick scale and reshapes and recolours the design,
+You give it a 3D model. A solver builds it from real, interlocking bricks and plates, then swaps in tiles
+and slopes where the surface should be smooth or slanted. An AI acts as art director: it decides what makes
+the object recognisable at brick scale, reshapes and recolours the design, and places small detail parts,
 while the solver guarantees the result still holds together. Out comes a standard LDraw file you can open in
-BrickLink Studio, with building steps.
+BrickLink Studio, with building steps, plus a parts list and a BrickLink wanted list.
 
 - [`docs/VISION.md`](docs/VISION.md): what we are building and why
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): the order of work and where we are
@@ -29,10 +30,13 @@ comparing the model with the build (`renders/compare.png`), and the check report
 | Command | What it does |
 |---|---|
 | `bricksnap build PROJECT` | Rebuild from the current design and check it |
+| `bricksnap check PROJECT` | Check the saved build again and list every weak spot |
 | `bricksnap ops PROJECT edits.json --build` | Apply edit operations by hand |
 | `bricksnap design PROJECT` | Let the AI designer improve it. The only command that sends anything off your computer |
-| `bricksnap render PROJECT` | Write the comparison picture |
+| `bricksnap render PROJECT` | Write the comparison picture. With `--rough`: your model, the plain conversion, and the finished build |
 | `bricksnap view PROJECT` | Open the 3D viewer |
+| `bricksnap export PROJECT` | Write the LDraw file, a parts list (`parts.csv`), and a BrickLink wanted list (`wanted_list.xml`) |
+| `bricksnap bench` | Build every test model and print the scorecard: how we tell whether a change helped |
 
 ## Working on it as a team
 
@@ -49,10 +53,10 @@ One-time setup: you need to be a collaborator on the GitHub repository, with git
 
 | Path | What it is |
 |---|---|
-| `bricksnap/` | The engine: model to grid, layout solver, checks, LDraw export, pictures, the AI designer's tools |
+| `bricksnap/` | The engine: model to grid, layout solver, finishing, checks, exports, pictures, the scorecard, the AI designer's tools |
 | `viewer/` | The 3D viewer page |
 | `tests/` | Tests. `uv run pytest` runs them |
-| `samples/models/` | Test models, each with its licence |
+| `samples/` | Test models (each with its licence), example projects, and the saved scorecard |
 | `docs/` | Vision, roadmap, architecture, open tasks, recorded decisions |
 | `AGENTS.md`, `CLAUDE.md` | Rules for the AI agents |
 | `tools/catalog/` | Scripts that rebuild the parts table from the LDraw library |

@@ -1,0 +1,25 @@
+{
+ "name": "cat",
+ "seed": "seed.glb",
+ "seed_original_name": "cat.glb",
+ "studs": 16,
+ "up": null,
+ "hollow": false,
+ "brief": {
+  "object": "A blocky, Minecraft-style grey cat standing on four legs, facing the front (-y). Its tail sticks straight up at the back.",
+  "features": [
+   "boxy head wider than the body, with two square ears on top",
+   "light grey muzzle sticking out, with a pink nose and tall black eyes",
+   "four separate square legs with light grey feet",
+   "tall straight tail standing up at the back"
+  ],
+  "plan": "The conversion merged the four legs into one solid block, smeared the face, and gave the body a ragged top. Since the seed is made of simple boxes, rebuild it as clean boxes: separate 2x2 legs (3 bricks tall, feet light grey), a 6-wide body 4 bricks tall, an 8-wide head 1 plate taller than the body, 2x2 ears one brick tall with a light inner patch, a 4-wide muzzle sticking out 2 studs, a 2x1 pink nose on top of it, 1-wide black eyes 4 plates tall, short light grey whiskers out to the sides, and a 2x1 tail 13 plates tall on top of the back of the body. Make everything symmetric about the middle.",
+  "colours": [
+   72,
+   71,
+   0,
+   29
+  ],
+  "finish": "Smooth tiles on the body, head, muzzle, whiskers and tail top for the sleek block-cat look, with studs left on the ears for a little texture."
+ }
+}

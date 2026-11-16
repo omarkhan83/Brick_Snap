@@ -141,7 +141,12 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
    yourself: the tests drive the viewer in a headless browser and save screenshots in `tests/artifacts/`,
    and `uv run bricksnap render <project>` writes pictures you can open. If you cannot look, ask your user
    to and tell them exactly what they should see.
-3. A change to documents only needs no checks beyond making sure the files it mentions exist.
+3. If the change is meant to alter how models come out (the conversion, the solver, the make-buildable or
+   finishing pass, the parts table, the designer's prompt or tools), run `uv run bricksnap bench` and tell
+   your user what it reports against the saved scorecard, `samples/scorecard.json`. Every model must still
+   build with no loose parts. Save a new scorecard (`--save`) in the same commit only when the numbers and
+   the pictures show an improvement.
+4. A change to documents only needs no checks beyond making sure the files it mentions exist.
 
 ## Setup and common snags
 

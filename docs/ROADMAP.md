@@ -3,7 +3,7 @@
 The order of work. There are no dates here on purpose: what matters is the sequence. Only the lead
 (Alec-42, through his agent) edits this file. Everyone else proposes changes through `docs/decisions/`.
 
-**Current stage: 2**
+**Current stage: 3**
 
 Pick tasks from the current stage first. A task's `stage:` line says where it belongs.
 
@@ -31,6 +31,8 @@ Finishing pass (tiles, 45-degree slopes, cheese slopes). Detail parts on free st
 The design brief. Six test models and the scorecard. Parts list and BrickLink wanted-list export. Only
 part and colour pairs that exist.
 
+**Done.** What was shown, with pictures: `docs/stages/stage-2.md`.
+
 ### Stage 3: steerable and showable
 
 - Chat edits: a person types a change and the designer makes it.
@@ -39,6 +41,9 @@ part and colour pairs that exist.
 - A separate clean-context judge compares candidate designs blind; keep the best of several.
 - Choose the showcase models. If a physical model is wanted, order its parts as soon as its design is
   good enough, because parts take time to arrive.
+- Closer and sturdier, measured on the scorecard (`uv run bricksnap bench`, compared with
+  `samples/scorecard.json`): fill cells by how much of them the model covers, tie big sections together
+  with more than one part, and use fewer small plates on curved models.
 
 ### Stage 4: presentable
 
@@ -77,13 +82,16 @@ Lanes are groups of files. People can work side by side by staying in different 
 
 | Lane | Files | Kind of work |
 |---|---|---|
-| Engine | `bricksnap/layout.py`, `buildable.py`, `finish.py`, `checks.py` | Solver, finishing, checks |
+| Conversion | `bricksnap/seed.py`, `voxelize.py` | Model file to grid |
+| Engine | `bricksnap/layout.py`, `buildable.py`, `finish.py`, `checks.py` | Solver, repairs, finishing, checks |
 | Parts and export | `bricksnap/catalog/`, `ldraw.py`, `export.py` | Parts table, file formats, checking files open in Studio |
 | Designer | `bricksnap/designer/`, `design.py` | Prompt, tools, test runs, judging |
-| Viewer | `viewer/` | The web page |
+| Pictures and viewer | `bricksnap/render.py`, `viewserver.py`, `viewer/` | Pictures, the web page |
+| Measuring | `bricksnap/bench.py`, `samples/scorecard.json` | The scorecard |
 | No code | `samples/`, Notes in `docs/tasks/` | Collecting licensed test models, rating results, the walkthrough script, ordering parts |
 
 ## How we know a stage is done
 
 `uv run pytest` passes, the stage's "done when" is shown with pictures or output in the commit that closes
-it, and the lead's agent updates "Current stage" above.
+it (see `docs/stages/`), and the lead's agent updates "Current stage" above. A change that is meant to make
+models better also says what `uv run bricksnap bench` reported against `samples/scorecard.json`.
