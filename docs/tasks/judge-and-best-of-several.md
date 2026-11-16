@@ -17,3 +17,11 @@ Lives in `bricksnap/designer/`. The judge runs through the same clean-room runne
 no edit tools. Each run uses the user's Claude Code subscription; ask before running it, and say how many
 runs a command will start.
 The contract is the opening comment of `bricksnap/designer/judge.py`.
+
+2026-11-16, Alec-42's agent: built, reviewed, and on `main`. One real run on the duck at 16 studs
+(three designs and one judging, about four minutes): the judge ranked the design with the smooth head and
+the thin sloped bill first, the same order the agent that wrote it had chosen from the pictures before
+reading the verdict, and its reasons matched the pictures; measurement alone would have picked the
+sturdiest design, whose bill is a chunky block. A second judging of the same three gave the same order.
+Left before this task is closed: one run on the cat, and a person's opinion on both
+(`docs/stages/stage-3/judge-sheet-duck.png` is the sheet the judge saw).
