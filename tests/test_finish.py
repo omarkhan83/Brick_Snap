@@ -2,8 +2,10 @@
 
 Every result is checked by ``assert_finished`` below, which is written here from the contract
 and uses only bricksnap.connect and the catalogue: the same cells covered in the same
-colours, real part and colour pairs, no new loose pieces, valid steps, slopes facing downhill
-and nothing standing on a tile or a slanted face.
+colours, real part and colour pairs, no new loose pieces, valid steps, slopes facing downhill,
+nothing standing on a tile or a slanted face, and no less sturdy than the input, seen as the
+input's parts (the largest load in cells no higher, no more lone links; see
+``groups_as_input``).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 
 import networkx as nx
 import numpy as np
@@ -23,7 +26,7 @@ import shapes
 
 import bricksnap.finish as finish_module
 from bricksnap.catalog import Catalog
-from bricksnap.connect import connection_graph, occupancy
+from bricksnap.connect import connection_graph, lone_links, occupancy
 from bricksnap.finish import finish
 from bricksnap.layout import solve
 from bricksnap.types import (
@@ -189,9 +192,94 @@ def assert_finished(before: Build, after: Build, design: Design, catalog) -> dic
             for a in range(len(ordered))
             for b in range(len(ordered))
         )
+    assert_no_less_sturdy(before, after, design, catalog)
     c = counts(after, design, catalog)
     assert_summary_note(before, after, design, c, len(details))
     return c
+
+
+def cells_of(build: Build, members, catalog) -> int:
+    return sum(int(np.prod(catalog.footprint(build.parts[i]))) for i in members)
+
+
+def groups_as_input(
+    build: Build, catalog, before: Build | None = None
+) -> dict[frozenset, tuple[int, int]]:
+    """The lone links of ``build`` seen as the input's parts: {the input parts in the group:
+    (how many, cells)}.
+
+    Each part stands for the parts of ``before`` (the input; without it, ``build`` is its own
+    input) whose cells it covers, a part covering none of them (a detail) for itself. When
+    the part a group hangs on was cut from one input part, the group leaves out the other
+    pieces of it: a brick cut into plates and a slope hangs on its own bottom plate, and that
+    is still the one brick, which hung on nothing. Groups of the same input parts are one; a
+    group holding fewer than 3 input parts is none. The cells are those of the parts left in
+    the group.
+    """
+    links = lone_links(build, catalog)
+    occ0 = occupancy(before if before is not None else build, catalog)[0]
+
+    def stands_for(i: int) -> set:
+        p = build.parts[i]
+        own = {("own", p.part, p.color, p.x, p.y, p.z, p.rot)}
+        if p.part not in catalog.parts or min(p.x, p.y, p.z) < 0:
+            return own
+        region = occ0[catalog.cells(p)]
+        return {int(j) for j in region[region >= 0]} or own
+
+    groups: dict[frozenset, tuple[int, int]] = {}
+    for ln in links:
+        assert ln.cells == cells_of(build, ln.members, catalog)
+        assert ln.load == len(ln.members) >= 3
+        if ln.joint is None:
+            on = ln.part
+        else:
+            on = ln.joint[0] if ln.joint[1] in ln.members else ln.joint[1]
+        assert on not in ln.members
+        base = stands_for(on)
+        kept = [m for m in ln.members if len(base) > 1 or stands_for(m) != base]
+        held = frozenset().union(*(stands_for(m) for m in kept))
+        if len(held) >= 3:
+            cells = cells_of(build, kept, catalog)
+            groups[held] = (len(held), max(cells, groups.get(held, (0, 0))[1]))
+    return groups
+
+
+def sturdiness_in_cells(build: Build, catalog, before: Build | None = None) -> tuple[int, int]:
+    """(largest load in cells, number of lone links), seen as the input's parts."""
+    groups = groups_as_input(build, catalog, before)
+    return max((cells for _, cells in groups.values()), default=0), len(groups)
+
+
+def assert_no_less_sturdy(before: Build, after: Build, design: Design, catalog) -> None:
+    """The stage 3 rule: compared with the input with the detail parts standing on it, and
+    seen as the input's parts (``groups_as_input``), the largest load in cells is no higher
+    and there are no more lone links."""
+    base = Build(shape=before.shape, parts=[*before.parts, *detail_parts(after, design)])
+    most0, count0 = sturdiness_in_cells(base, catalog, before)
+    most1, count1 = sturdiness_in_cells(after, catalog, before)
+    assert most1 <= most0, f"the heaviest load went from {most0} to {most1} cells"
+    assert count1 <= count0, f"the lone links went from {count0} to {count1}"
+
+
+def hanging_on_one_part(build: Build, catalog) -> int:
+    """The most cells cut off from the ground by taking out one part, worked out here from
+    the connection graph alone: an independent check of the measure on small builds."""
+    graph = connection_graph(build, catalog)
+    ground = -1
+    graph.add_node(ground)
+    graph.add_edges_from((ground, i) for i, p in enumerate(build.parts) if p.z == 0)
+    reach = nx.node_connected_component(graph, ground)
+    worst = 0
+    for i, p in enumerate(build.parts):
+        if p.z == 0 or i not in reach:
+            continue
+        rest = graph.copy()
+        rest.remove_node(i)
+        cut = reach - {i} - nx.node_connected_component(rest, ground)
+        if len(cut) >= 3:
+            worst = max(worst, cells_of(build, cut, catalog))
+    return worst
 
 
 def assert_steps_follow_the_input(before, after, details, occ0, occ1, catalog) -> None:
@@ -466,7 +554,9 @@ def test_two_plate_staircase_gets_slopes_facing_downhill(catalog, downhill):
     _, after, c = run(design, catalog)
     slopes = [p for p in after.parts if kind(catalog, p) == "slope"]
     assert c["sloped"] == 10 and c["sloped_left"] <= 2, c
-    assert all(catalog.low_side(p) == downhill for p in slopes)
+    # where the slope facing down the stairs would leave parts hanging on one part, the
+    # next best one may slope off the side instead: at most one such
+    assert sum(catalog.low_side(p) != downhill for p in slopes) <= 1
     assert len(pieces(after, catalog)) == 1
 
 
@@ -474,13 +564,18 @@ def test_two_plate_staircase_gets_slopes_facing_downhill(catalog, downhill):
 def test_one_plate_steps_take_cheese_slopes_where_they_hold(catalog, downhill):
     """One-plate steps, in a colour made only in cheese slopes. Each step's slope is two
     plates tall and so cuts through the plates the steps are built from, which overlap like
-    shingles; it goes in only where the model still holds together, which here is everywhere.
-    The first two rows take the two-wide cheese slope facing down the stairs. The third row
-    may slope off the side of the stairs instead (the side is a cliff, so the surface drops
-    further there), but the middle row has steps on both sides and must face downhill."""
+    shingles; it goes in only where the model still holds together, which here is everywhere,
+    and where it leaves no new group of three parts hanging on one part, which here is all
+    but one or two cells (the notes say which). The first two rows take the two-wide cheese
+    slope facing down the stairs. The third row may slope off the side of the stairs instead
+    (the side is a cliff, so the surface drops further there), but the middle row has steps
+    on both sides and must face downhill."""
     design = staircase(downhill, rise=1, steps=4, width=3, colour=BRIGHT_LIGHT_YELLOW)
-    _, after, c = run(design, catalog)
-    assert c["sloped"] == 12 and c["sloped_left"] == 0, c
+    before, after, c = run(design, catalog)
+    assert c["sloped"] == 12 and c["sloped_left"] <= 2, c
+    notes = reason_notes(before, after)
+    assert sum(int(note.split()[0]) for note in notes) == c["sloped_left"]
+    assert all("hanging on a single part" in n or "would come loose" in n for n in notes)
     slopes = [p for p in after.parts if kind(catalog, p) == "slope"]
     assert all(catalog.parts[p.part].h == 2 for p in slopes)
     two_wide = [p for p in slopes if p.part == "85984"]
@@ -570,7 +665,9 @@ def test_colour_with_only_cheese_slopes_uses_them(catalog):
 
 def test_slope_never_takes_a_smooth_cell_for_its_studs(catalog):
     # a 1x2 bar two bricks tall: x=0 sloped, x=1 smooth. A 3040b would fit, with its stud
-    # on the smooth cell; a cheese slope and a tile give both cells what they want
+    # on the smooth cell; a cheese slope and a tile give both cells what they want. (The
+    # cheese slope, a plate and the tile then stand on the 1x2 plate left of the top brick:
+    # that is still the one brick, standing on one brick as before, so it is no less sturdy.)
     design = from_heights(np.array([[6], [6]]))
     fin(design)[0, 0, 5] = FINISH_SLOPED
     fin(design)[1, 0, 5] = FINISH_SMOOTH
@@ -1105,17 +1202,22 @@ def test_why_nothing_fits_says_so_plainly(catalog):
     ]
 
 
-def test_two_reasons_at_once(catalog):
+def test_three_reasons_at_once(catalog):
+    """A slab three plates thick, its top plates 2 x 6 (no tile is that size), so a few of
+    its smooth cells would have to be tiled in a way that leaves parts hanging on one part:
+    three reasons, biggest first."""
     design = slab_with([Detail("98138", RED, 1, 1, 3)], smooth=True)
     fin(design)[4, 4, 2] = FINISH_SLOPED  # on the flat top
     fin(design)[3, 4, 2] = FINISH_SLOPED
     before, after, c = run(design, catalog)
-    assert c["smooth_left"] == 0
+    assert c["smooth_left"] == 3
     notes = reason_notes(before, after)
-    assert len(notes) == 2
-    assert notes[0].startswith("2 cells marked sloped at x=3 to 4, y=4, z=2 got no slope because ")
-    assert "does not step down beside them" in notes[0]
-    assert notes[1].startswith("1 cell marked smooth at x=1, y=1, z=2 keeps its stud because a ")
+    assert len(notes) == 3
+    assert notes[0].startswith("3 cells marked smooth at x=2 to 4, y=1, z=2 kept their studs ")
+    assert "would leave up to 4 parts hanging on a single part" in notes[0]
+    assert notes[1].startswith("2 cells marked sloped at x=3 to 4, y=4, z=2 got no slope because ")
+    assert "does not step down beside them" in notes[1]
+    assert notes[2].startswith("1 cell marked smooth at x=1, y=1, z=2 keeps its stud because a ")
     assert after.notes[len(before.notes)].startswith("Finishing placed ")
 
 
@@ -1144,16 +1246,48 @@ def test_at_most_six_reason_sentences(catalog):
     )
 
 
-def test_the_notes_change_nothing_in_the_build(catalog):
+def without_the_sturdiness_rule(monkeypatch) -> None:
+    """Switch off the stage 3 rule: the pass then works exactly as it did before it."""
+    monkeypatch.setattr(finish_module._Sturdy, "check", lambda self, state, start, broad: None)
+    monkeypatch.setattr(finish_module._Sturdy, "holds", lambda self, parts: True)
+
+
+def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
     """Finding the reasons must not change what the pass builds: these fingerprints of the
-    parts (with their steps and order) were recorded before the reasons were added."""
-    want = {"blobs": "cb27a5fdc520506e", "stairs": "a8f3dbbf410b6548", "shaped": "89ca68ebcee90301"}
-    for name, cases in mixed_cases(catalog).items():
-        builds = [finish(build, design, catalog) for design, build in cases]
+    parts (with their steps and order) were recorded before the reasons were added, and
+    before the sturdiness rule, so they hold with the rule switched off; with it, the
+    first set (recorded when the rule took its present form) holds."""
+    cases = mixed_cases(catalog)
+    want = {"blobs": "4065d63c1a5f67d1", "stairs": "676fa78ad0305f1d", "shaped": "37f0220c77db87ab"}
+    for name, group in cases.items():
+        builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
     # and these cases do have tiles, slopes, details and cells left for every sort of reason
     notes = " ".join(n for b in builds for n in b.notes)
     assert "detail part stands on" in notes and "would come loose" in notes
+    without_the_sturdiness_rule(monkeypatch)
+    want = {"blobs": "cb27a5fdc520506e", "stairs": "a8f3dbbf410b6548", "shaped": "89ca68ebcee90301"}
+    for name, group in cases.items():
+        builds = [finish(build, design, catalog) for design, build in group]
+        assert parts_fingerprint(builds) == want[name], name
+
+
+def test_nothing_changes_where_no_swap_threatens_sturdiness(catalog, monkeypatch):
+    """Where the pass without the rule already leaves the build as sturdy as the rule asks
+    (checked here), the rule changes nothing: the same parts, order and steps."""
+    cases = [case for group in mixed_cases(catalog).values() for case in group]
+    with monkeypatch.context() as m:
+        without_the_sturdiness_rule(m)
+        plain = [finish(build, design, catalog) for design, build in cases]
+    calm = 0
+    for (design, build), was in zip(cases, plain, strict=True):
+        try:
+            assert_no_less_sturdy(build, was, design, catalog)
+        except AssertionError:
+            continue  # the rule has something to refuse here
+        calm += 1
+        assert finish(build, design, catalog).parts == was.parts
+    assert 10 <= calm < len(cases), (calm, len(cases))
 
 
 def test_nothing_to_do_gives_back_the_same_parts(catalog):
@@ -1247,9 +1381,13 @@ def random_layout(design: Design, catalog, rng: np.random.Generator) -> Build:
     return Build(shape=design.shape, parts=parts)
 
 
+def never_fall_back(why: str) -> None:
+    raise AssertionError(f"the pass had to fall back on its safety net ({why})")
+
+
 def test_random_blobs_keep_every_promise(catalog, monkeypatch):
-    # the pass checks its own result and falls back to the input if it ever broke a promise;
-    # here that must never be needed
+    # the pass checks its own result and falls back to the input if it ever broke a promise
+    # (section 5 or the sturdiness rule); here that must never be needed
     verify = finish_module._verify
 
     def strict(*args):
@@ -1257,6 +1395,7 @@ def test_random_blobs_keep_every_promise(catalog, monkeypatch):
         return True
 
     monkeypatch.setattr(finish_module, "_verify", strict)
+    monkeypatch.setattr(finish_module, "_fell_back", never_fall_back)
     rng = np.random.default_rng(2026)
     totals = Counter()
     for n in range(300):
@@ -1355,7 +1494,10 @@ def test_a_refusal_searches_only_the_piece_that_would_come_loose(catalog):
 
 def test_speed_thin_slab_3000_parts(catalog):
     """A smooth slab two plates thick, where many tiles are refused because they would
-    loosen a plate: each refusal must be decided without searching the whole model."""
+    loosen a plate: each refusal must be decided without searching the whole model. The
+    input has no lone link at all, and tiles that split its 2 x 8 top plates easily leave a
+    big part of the slab hanging on one part (before the sturdiness rule, 2,265 parts on
+    one), so the rule refuses some: almost all of the top still gets tiles."""
     design = mark_open(design_of(np.ones((153, 153, 2), dtype=bool)), FINISH_SMOOTH)
     build = solve(design, catalog)
     assert len(build.parts) >= 3000
@@ -1363,5 +1505,400 @@ def test_speed_thin_slab_3000_parts(catalog):
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
     assert elapsed < 5.0, f"{elapsed:.1f} s"
-    c = assert_finished(build, after, design, catalog)
-    assert c["smooth_left"] == 0
+    c = assert_finished(build, after, design, catalog)  # includes the sturdiness rule
+    assert c["smooth_left"] <= 0.02 * c["smooth"], c["smooth_left"]
+
+
+# ---- stage 3: never less sturdy ----------------------------------------------------------------
+
+
+def column(middle_course: list[Placement]) -> tuple[Design, Build]:
+    """A 1 x 2 column three bricks tall with a smooth top: a 1 x 2 brick on the ground, then
+    the middle course, then a 1 x 2 brick on top."""
+    design = mark_open(from_heights(np.array([[9], [9]])), FINISH_SMOOTH)
+    c = DEFAULT_COLOUR
+    parts = [Placement("3004", c, 0, 0, 0, 0, 1), *middle_course, Placement("3004", c, 0, 0, 6)]
+    parts[-1] = replace(parts[-1], step=3)
+    return design, Build(shape=design.shape, parts=parts)
+
+
+def test_a_tile_on_a_brick_standing_on_one_brick_is_made(catalog):
+    """The top brick stands on the middle brick alone. A tile on top means two plates and a
+    tile there instead: three parts on the middle brick, and the measure counts that as a
+    lone link where the input had none. But they are the top brick cut up, hanging on the
+    same brick as before with the same 6 cells: splitting a brick does not count against a
+    swap by itself, so the tile is made."""
+    design, build = column([Placement("3004", DEFAULT_COLOUR, 0, 0, 3, 0, 2)])
+    assert lone_links(build, catalog) == []
+    _, after, counted = run(design, catalog, build)
+    assert counted["smooth_left"] == 0 and counted["tiles"] == 1
+    assert hanging_on_one_part(after, catalog) == 6  # cells of two plates and a tile
+    assert len(lone_links(after, catalog)) == 1
+    assert groups_as_input(after, catalog, build) == {}
+
+
+BRICK_1X4 = "3010"
+
+
+def tied(section: list[Placement]) -> tuple[Design, Build]:
+    """Two sections tied together by two 1 x 4 bricks lying side by side on top.
+
+    x runs 0..3 and y 0..1. On the left (x=0..1) two 2 x 2 bricks stand on the ground; on
+    the right (x=2..3) ``section`` hangs at z=3..5 with nothing under it. On top (z=6..8) a
+    nougat 1 x 4 brick at y=0 and a red one at y=1 each lie across both sections, so the
+    section hangs on both. The cell at x=3, y=0, z=8 is marked sloped: in nougat only a
+    1 x 2 45-degree slope fits there, and it cuts the nougat brick in two (a slope on the
+    section, a 1 x 2 brick on the left), so the section then hangs on the red brick alone.
+    """
+    g = DEFAULT_COLOUR
+    colors = np.full((4, 2, 9), EMPTY, dtype=np.int16)
+    colors[0:2, :, 0:6] = g
+    colors[2:4, :, 3:6] = g
+    colors[:, 0, 6:9] = NOUGAT
+    colors[:, 1, 6:9] = RED
+    design = Design(colors=colors)
+    design.finish = np.full(design.shape, FINISH_STUDS, dtype=np.uint8)
+    design.finish[3, 0, 8] = FINISH_SLOPED
+    parts = [
+        Placement("3003", g, 0, 0, 0, 0, 1),
+        Placement("3003", g, 0, 0, 3, 0, 2),
+        *section,
+        Placement(BRICK_1X4, NOUGAT, 0, 0, 6, 0, 3),
+        Placement(BRICK_1X4, RED, 0, 1, 6, 0, 3),
+    ]
+    return design, Build(shape=design.shape, parts=parts)
+
+
+def cut_in_two(build: Build) -> Build:
+    """What a careless pass makes of ``tied``: the nougat brick cut by the slope."""
+    rest = [p for p in build.parts if p.color != NOUGAT]
+    return Build(
+        shape=build.shape,
+        parts=[
+            *rest,
+            Placement("3004", NOUGAT, 0, 0, 6, 0, 3),
+            Placement("3040b", NOUGAT, 2, 0, 6, 90, 3),
+        ],
+    )
+
+
+def test_a_slope_that_would_leave_a_section_hanging_on_one_part_is_not_made(catalog):
+    """The section is three plates: cut the nougat brick and those three plates and the
+    slope hang on the red brick alone (four of the input's parts: a new lone link), where
+    they hung on two bricks before. So the slope is not made, and the note says why and
+    where, counting the input's parts."""
+    g = DEFAULT_COLOUR
+    design, build = tied([Placement("3022", g, 2, 0, z, 0, 2) for z in (3, 4, 5)])
+    careless = cut_in_two(build)
+    red = careless.parts.index(Placement(BRICK_1X4, RED, 0, 1, 6, 0, 3))
+    graph = connection_graph(careless, catalog)
+    graph.remove_node(red)
+    away = [
+        c for c in nx.connected_components(graph) if not any(careless.parts[i].z == 0 for i in c)
+    ]
+    assert [len(c) for c in away] == [4]  # the three plates and the slope
+    assert (
+        len(groups_as_input(careless, catalog, build)) == len(groups_as_input(build, catalog)) + 1
+    )
+    # the pass
+    before, after, counted = run(design, catalog, build)
+    assert counted["sloped_left"] == 1 and after.parts == build.parts
+    assert reason_notes(before, after) == [
+        "1 cell marked sloped at x=3, y=0, z=8 got no slope because a slope there would leave "
+        "4 parts hanging on a single part, so that part of the model would come off too "
+        "easily. Making that part of the model thicker, or joining it more firmly to the "
+        "rest, could change that; otherwise leave studs there."
+    ]
+
+
+def test_the_same_slope_is_made_where_the_section_is_one_brick(catalog):
+    """The same, with the section one 2 x 2 brick: after the cut the brick and the slope hang
+    on the red brick, but two parts are not a weak spot, so the slope is made."""
+    design, build = tied([Placement("3003", DEFAULT_COLOUR, 2, 0, 3, 0, 2)])
+    assert sturdiness_in_cells(cut_in_two(build), catalog, build) == sturdiness_in_cells(
+        build, catalog
+    )
+    _, after, counted = run(design, catalog, build)
+    assert counted["sloped_left"] == 0 and counted["slopes"] == Counter({"3040b": 1})
+    assert sorted(map(dataclasses.astuple, after.parts)) == sorted(
+        map(dataclasses.astuple, cut_in_two(build).parts)
+    )
+
+
+def test_the_same_tile_is_made_where_nothing_would_hang(catalog):
+    """The same column with its middle course made of two 1 x 1 bricks: the plate at the
+    bottom of the new top stands on both, so nothing hangs on a single part and the tile
+    goes in."""
+    c = DEFAULT_COLOUR
+    design, build = column(
+        [Placement("3005", c, 0, 0, 3, 0, 2), Placement("3005", c, 1, 0, 3, 0, 2)]
+    )
+    _, after, counted = run(design, catalog, build)
+    assert counted["smooth_left"] == 0 and counted["tiles"] == 1
+    assert hanging_on_one_part(after, catalog) == 0
+    assert lone_links(after, catalog) == []
+
+
+MODELS = Path(__file__).resolve().parent.parent / "samples" / "models"
+
+
+def sample_builds(
+    studs: int, directory, catalog, names: tuple[str, ...] = ()
+) -> dict[str, tuple[Design, Build]]:
+    """Every sample model (or those named) as the pipeline hands it to the finishing pass."""
+    from bricksnap.buildable import make_buildable
+    from bricksnap.pipeline import create_project
+
+    out = {}
+    for path in sorted(MODELS.iterdir()):
+        if path.suffix not in (".glb", ".stl") or (names and path.stem not in names):
+            continue
+        name = f"{path.stem}{studs}"
+        project = create_project(path, studs=studs, directory=directory, name=name)
+        fixed = make_buildable(project.load_design(), catalog)
+        fixed.build.notes = list(fixed.notes)
+        out[path.stem] = (fixed.design, fixed.build)
+    return out
+
+
+@pytest.fixture(scope="module")
+def samples(tmp_path_factory, catalog) -> dict[int, dict[str, tuple[Design, Build]]]:
+    root = tmp_path_factory.mktemp("samples")
+    return {studs: sample_builds(studs, root, catalog) for studs in (12, 16)}
+
+
+def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
+    """The case that started this: at 16 studs finishing used to leave 48 parts (170 cells)
+    hanging on one 2 x 2 plate, where the solver's own build had at most 6 (16 cells)."""
+    design, build = samples[16]["pawn"]
+    before, after, counted = run(design, catalog, build)
+    most0, count0 = sturdiness_in_cells(build, catalog)
+    most1, count1 = sturdiness_in_cells(after, catalog, build)
+    assert most1 <= most0 and count1 <= count0
+    assert hanging_on_one_part(after, catalog) <= hanging_on_one_part(build, catalog)
+    assert sum(counted["slopes"].values()) >= 40, "the pawn keeps most of its slopes"
+
+
+# Fingerprints of the finished parts of the samples (16 studs) that no swap made less
+# sturdy, recorded before the rule was added: the rule must leave them exactly as they were.
+# They depend on the voxeliser, the solver and the make-buildable pass too.
+UNCHANGED_AT_16 = {"bottle": "d548c504b744e9b8", "cat": "51a1e61e2c9f30f9"}
+
+
+@pytest.mark.parametrize("studs", [12, 16])
+def test_every_sample_is_no_less_sturdy_after_finishing(catalog, samples, monkeypatch, studs):
+    for name, (design, build) in samples[studs].items():
+        _, after, _ = run(design, catalog, build)  # run checks the rule, among the rest
+        with monkeypatch.context() as m:
+            without_the_sturdiness_rule(m)
+            was = finish(build, design, catalog)
+        try:
+            assert_no_less_sturdy(build, was, design, catalog)
+        except AssertionError:
+            continue  # the rule had something to refuse in this model
+        assert after.parts == was.parts, name
+        if studs == 16 and name in UNCHANGED_AT_16:
+            text = json.dumps([dataclasses.astuple(p) for p in after.parts])
+            assert hashlib.sha256(text.encode()).hexdigest()[:16] == UNCHANGED_AT_16[name], name
+
+
+def test_the_rule_holds_also_when_judged_in_rounds(catalog, samples, monkeypatch):
+    """The swaps to blame are found from the weak spots and refused, in rounds, and then
+    tried again one by one while the measuring budget lasts. With no budget at all the
+    rounds' refusals stand: the rule must hold that way too."""
+    monkeypatch.setattr(finish_module, "_MEASURE_BUDGET", 0)
+    for design, build in samples[16].values():
+        run(design, catalog, build)
+    rng = np.random.default_rng(7)
+    for _ in range(60):
+        design = random_blob(rng)
+        layout = random_layout(design, catalog, rng)
+        # its steps are z + 1, so a level with no part leaves a gap the solver never leaves
+        dense = {s: n + 1 for n, s in enumerate(sorted({p.step for p in layout.parts}))}
+        layout.parts = [replace(p, step=dense[p.step]) for p in layout.parts]
+        run(design, catalog, layout)
+
+
+def test_the_quick_measure_is_the_shared_measure(catalog, samples, monkeypatch):
+    """While it works the pass measures from its own cells; that must give exactly what
+    ``connect.lone_links`` gives for the same parts in the same order."""
+    measure = finish_module._Sturdy._measure
+    seen = []
+
+    def compare(self, state):
+        ids, parts, links = measure(self, state)
+        assert links == lone_links(Build(shape=self.shape, parts=parts), catalog)
+        seen.append(len(links))
+        return ids, parts, links
+
+    monkeypatch.setattr(finish_module._Sturdy, "_measure", compare)
+    for name in ("pawn", "duck"):
+        design, build = samples[16][name]
+        finish(build, design, catalog)
+    rng = np.random.default_rng(11)
+    for _ in range(40):
+        design = random_blob(rng)
+        finish(random_layout(design, catalog, rng), design, catalog)
+    assert len(seen) > 50 and max(seen) > 0
+
+
+def test_the_number_in_the_note_is_what_the_refused_swap_leaves(catalog, samples, monkeypatch):
+    """A swap refused by the rule is noted with how many parts it would leave hanging on one
+    part: the largest of the groups the swap itself made or changed (worked out here from the
+    build before and after it; the build before it kept the rule, so one of them broke it),
+    never a weak spot elsewhere that earlier swaps changed."""
+    keeps = finish_module._Sturdy.keeps
+    check = finish_module._Sturdy.check
+    restore = finish_module._State.restore
+    last: list = [None]
+    seen = []
+
+    def judged(self, state, key):
+        parts = [*state.final_parts(), *self.details]
+        budget = self.budget
+        ok = keeps(self, state, key)
+        if ok:
+            last[0] = parts
+        elif self.budget < budget and last[0] is not None:  # measured, after a known state
+            seen.append((self, last[0], parts, self.hanging))
+        return ok
+
+    def forget(original):
+        def wrapped(*args, **kwargs):
+            last[0] = None
+            return original(*args, **kwargs)
+
+        return wrapped
+
+    monkeypatch.setattr(finish_module._Sturdy, "keeps", judged)
+    monkeypatch.setattr(finish_module._Sturdy, "check", forget(check))
+    monkeypatch.setattr(finish_module._State, "restore", forget(restore))
+    for name in ("duck", "teapot", "pawn", "pineapple", "knight"):
+        design, build = samples[16][name]
+        finish(build, design, catalog)
+    assert len(seen) >= 10, len(seen)
+    for guard, prev, now, said in seen:
+        before = Build(shape=guard.shape, parts=list(guard.input))
+        base = Build(shape=guard.shape, parts=[*guard.input, *guard.details])
+        input_groups = groups_as_input(base, catalog, before)
+        most = max((cells for _, cells in input_groups.values()), default=0)
+        groups = groups_as_input(Build(shape=guard.shape, parts=now), catalog, before)
+        old = groups_as_input(Build(shape=guard.shape, parts=prev), catalog, before)
+        assert max((c for _, c in old.values()), default=0) <= most
+        assert len(old) <= len(input_groups), "the build before the swap kept the rule"
+        assert max((c for _, c in groups.values()), default=0) > most or len(groups) > len(
+            input_groups
+        ), "the swap broke the rule"
+        made = [n for held, (n, _) in groups.items() if held not in old]
+        assert said == max(made), (said, sorted(made))
+
+
+def test_a_part_sticking_out_of_the_grid_does_not_stop_the_pass(catalog, monkeypatch):
+    """Parts the input already had problems with are left alone (section 4) and the rest is
+    finished as usual. A part sticking out of the grid still holds the parts on its studs
+    inside the grid: the pass must count that when it measures, or it believes the rule
+    holds where it does not and has to throw all its work away at the end."""
+    monkeypatch.setattr(finish_module, "_fell_back", never_fall_back)
+    rng = np.random.default_rng(5)
+    placed = 0
+    for _ in range(60):
+        design = random_blob(rng)
+        build = random_layout(design, catalog, rng)
+        colour = build.parts[0].color if build.parts else DEFAULT_COLOUR
+        build.parts.append(Placement("3001", colour, design.shape[0] - 1, 0, 0, 0, 1))
+        assert occupancy(build, catalog)[2] == [len(build.parts) - 1]
+        after = finish(build, design, catalog)
+        new = [p for p in after.parts if p not in build.parts]
+        placed += sum(kind(catalog, p) in ("tile", "slope") for p in new)
+        details = [p for p in detail_parts(after, design) if p not in build.parts]
+        base = Build(shape=build.shape, parts=[*build.parts, *details])
+        most0, count0 = sturdiness_in_cells(base, catalog, build)
+        most1, count1 = sturdiness_in_cells(after, catalog, build)
+        assert most1 <= most0 and count1 <= count0
+    assert placed > 300, placed
+
+
+@pytest.fixture(scope="module")
+def samples_at_24(tmp_path_factory, catalog) -> dict[str, tuple[Design, Build]]:
+    root = tmp_path_factory.mktemp("samples24")
+    return sample_builds(24, root, catalog, names=("duck", "knight", "pineapple"))
+
+
+def test_larger_builds_keep_what_the_rule_allows(catalog, samples_at_24, monkeypatch):
+    """A class of swaps that breaks the rule is judged in rounds, refusing the swaps found
+    from the weak spots, which refuses more than the rule needs; the swaps refused that way
+    are then tried again one by one, measured, while the budget allows. At 24 studs the
+    pass must keep nearly all the slopes it keeps with no limit on measuring (the rounds
+    alone once kept 28 of 43 on the pineapple), and a cell gets the note "a slope there
+    would leave N parts hanging" only if its own swap was measured."""
+    measured: set[tuple[int, int, int]] = set()
+    reasons: dict = {}
+    mark = finish_module._Sturdy._mark
+    why_left = finish_module._why_left
+
+    def marked(self, key, load, how):
+        if how == "measured":
+            measured.update(c for q in key for c in finish_module._face_cells(catalog, q))
+        return mark(self, key, load, how)
+
+    def why(*args):
+        why_left(*args)
+        reasons.clear()
+        reasons.update(args[-1])
+
+    for name, (design, build) in samples_at_24.items():
+        measured.clear()
+        with monkeypatch.context() as m:
+            m.setattr(finish_module._Sturdy, "_mark", marked)
+            m.setattr(finish_module, "_why_left", why)
+            run(design, catalog, build)
+            after = finish(build, design, catalog)
+        with monkeypatch.context() as m:
+            m.setattr(finish_module, "_MEASURE_BUDGET", 10**12)
+            every = finish(build, design, catalog)
+        got = sum(counts(after, design, catalog)["slopes"].values())
+        want = sum(counts(every, design, catalog)["slopes"].values())
+        assert got >= 0.95 * want, (name, got, want)
+        said = {
+            c for key, cells in reasons.items() if key[1] == finish_module._STURDY for c in cells
+        }
+        assert said <= measured, (name, sorted(said - measured)[:5])
+
+
+def test_the_designed_cat_keeps_its_tiles(catalog):
+    """The cat in samples/projects, as the AI designer left it: tiles on bricks that carry two
+    parts, and a tile on the brick under the tail, cut those bricks into plates and a tile
+    that hang on the brick's own bottom plate. That is still the one brick, so it is no less
+    sturdy, and every tile the pass made before the sturdiness rule (19) is made."""
+    from bricksnap.buildable import make_buildable
+    from bricksnap.project import Project
+
+    project = Project(
+        Path(__file__).resolve().parent.parent / "samples" / "projects" / "cat-designed"
+    )
+    fixed = make_buildable(project.load_design(), catalog)
+    _, after, counted = run(fixed.design, catalog, fixed.build)
+    assert counted["tiles"] == 19, counted
+    assert not any("hanging on a single part" in note for note in after.notes)
+
+
+def test_how_the_sturdiness_sentences_read(catalog):
+    """Measured on its own, a refused swap gives its own number ("up to" when the cells of a
+    sentence differ); refused in rounds and never measured on its own, the sentence says
+    the number came from the others tried around it."""
+    reasons = {
+        ("sloped", finish_module._TOGETHER, 8, False): [(1, 2, 3), (1, 3, 3)],
+        ("smooth", finish_module._STURDY, 4, True): [(5, 5, 5)],
+    }
+    advice = (
+        "so that part of the model would come off too easily. Making that part of the model "
+        "thicker, or joining it more firmly to the rest, could change that; otherwise leave "
+        "studs there."
+    )
+    assert finish_module._reason_notes(reasons, catalog) == [
+        "2 cells marked sloped at x=1, y=2 to 3, z=3 got no slope because a slope there, with "
+        "the others tried around them at the same time, would leave up to 8 parts hanging on "
+        f"a single part, {advice}",
+        "1 cell marked smooth at x=5, y=5, z=5 kept its stud because a tile there would leave "
+        f"4 parts hanging on a single part, {advice}",
+    ]

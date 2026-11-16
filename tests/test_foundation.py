@@ -273,3 +273,28 @@ def test_the_colour_shortlist_never_changes_the_answer(catalog):
     exact = cat_module._colour_difference(cat_module._rgb_to_lab(rgb), palette).argmin(axis=1)
     want = np.array([c.code for c in solid])[exact]
     assert np.array_equal(catalog.nearest_colours(rgb), want)
+
+
+def test_the_sturdiness_measure_is_shared(catalog):
+    """The measure lives in bricksnap.connect; the layout solver's two names are the same
+    functions, and a lone link also says how many cells its group covers."""
+    import bricksnap.connect as connect
+    import bricksnap.layout as layout
+
+    assert layout.lone_links is connect.lone_links
+    assert layout.sturdiness is connect.sturdiness
+    # five 1x1 bricks stacked: the joints over the bottom two carry four and three bricks
+    parts = [Placement("3005", 4, 0, 0, 3 * k, 0, k + 1) for k in range(5)]
+    build = Build(shape=(1, 1, 15), parts=parts)
+    links = connect.lone_links(build, catalog)
+    assert [(ln.load, ln.cells, ln.joint) for ln in links] == [(4, 12, (0, 1)), (3, 9, (1, 2))]
+    assert [ln.members for ln in links] == [(1, 2, 3, 4), (2, 3, 4)]
+    assert connect.sturdiness(build, catalog) == (4, 2, 7)
+    # a lone link's cells are the cells its members cover, plates and bricks alike
+    parts[3] = Placement("3024", 4, 0, 0, 9, 0, 4)  # a plate where the fourth brick was
+    parts.insert(4, Placement("3005", 4, 0, 0, 10, 0, 4))
+    parts[5] = Placement("3024", 4, 0, 0, 13, 0, 5)
+    build = Build(shape=(1, 1, 15), parts=parts)
+    for ln in connect.lone_links(build, catalog):
+        want = sum(int(np.prod(catalog.footprint(build.parts[i]))) for i in ln.members)
+        assert ln.cells == want
