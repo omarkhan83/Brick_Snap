@@ -65,6 +65,23 @@ body {
 .report.ok { background: var(--green); color: #fff; }
 .report.bad { background: var(--red); color: #fff; }
 
+/* the build's notes: what the make-buildable and finishing passes changed */
+.notes {
+  max-width: 1200px;
+  margin: 10px auto 0;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 8px 14px;
+  font-size: 15px;
+}
+.notes[hidden] { display: none; }
+.notes-title, .notes summary { margin: 0; font-weight: 800; }
+.notes summary { cursor: pointer; }
+.notes ul { margin: 6px 0 2px; padding-left: 22px; }
+.notes li { margin: 2px 0; overflow-wrap: anywhere; }
+
 /* ---- main ---- */
 main {
   flex: 1;

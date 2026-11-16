@@ -1,9 +1,13 @@
 // BrickSnap 3D viewer. Plain ES module, no build step. Served by bricksnap/viewserver.py.
 //
 // Reads /project/project.json, /project/build.json (Build.to_json in bricksnap/types.py),
-// /catalog/parts.json and /catalog/colours.json, and draws every part as a box with studs.
+// /catalog/parts.json and /catalog/colours.json, and draws every part by its catalogue kind:
+// slopes as wedges, round parts as cylinders, cones tapering, everything else as a box; studs
+// wherever the catalogue says. Each shape is one shared unit geometry, scaled, turned and
+// moved per part with instancing, so a build of thousands of parts stays quick.
 // Grid conventions (docs/ARCHITECTURE.md): a cell is 8 x 8 x 3.2 mm, x right, y back, z up.
-// Footprints and stud positions follow bricksnap/catalog/__init__.py (footprint, local_to_cell).
+// Footprints, stud positions and slope directions follow bricksnap/catalog/__init__.py
+// (footprint, local_to_cell, low_side and the rotation table there).
 //
 // Any text that comes from the files goes into the page with textContent, never innerHTML.
 
@@ -15,11 +19,24 @@ const GAP = 0.4; // mm left between neighbouring parts so each one stands out
 const GAP_Z = 0.2;
 const STUD_R = 2.4; // stud diameter 4.8 mm
 const STUD_H = 1.7;
+const LIP_MM = 1.6; // the low edge of a real slope brick stands 4 LDU (1.6 mm) tall
+const ROUND_SEGMENTS = 32; // a multiple of 4, so a round part touches its cells' sides
+const CONE_TOP = 0.68; // a cone's top diameter, as a share of its base (a stud fits on it)
+const DISH_BOTTOM = 0.55; // a dish's foot diameter, as a share of its rim
+const CURVE_STEPS = 10; // straight pieces in a curved slope's profile
 const FALLBACK_RGB = '#9BA19D';
 const OUTLINE_MM = 0.7; // thickness of the highlight around the current step's parts
 const HIGHLIGHT = '#ff3d7f';
 const POLL_MS = 2000;
 const SKY_HAZE = 0xdcecf8; // close to the page's sky gradient near the horizon
+const FIT_MARGIN = 0.88; // the framed model reaches this far towards the view's edges (NDC)
+const BOX_MARGIN = 0.99; // and the box around it (often empty at its corners) inside the view
+const VIEW_DIR = new THREE.Vector3(0.55, -1, 0.7).normalize(); // from the model to the camera
+
+// low_side in the part's own axes -> (x, z) direction in those axes
+const SIDES = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] };
+const SLOPE_KINDS = new Set(['slope', 'curved_slope', 'slope_inverted']);
+const ROUND_KINDS = new Set(['round_brick', 'round_plate', 'round_tile']);
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,6 +51,7 @@ const state = {
   showingAll: true,
   highlightCount: 0, // parts outlined as new in the current step
   buildVersion: 0, // goes up each time a new build.json is drawn
+  notes: [], // the build's notes as shown under the verdict
   error: null,
 };
 window.__bricksnap = state;
@@ -57,6 +75,10 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = false;
 controls.screenSpacePanning = true;
 controls.addEventListener('change', requestRender);
+let userMoved = false; // the person has turned, zoomed or moved the view since it was framed
+controls.addEventListener('start', () => {
+  userMoved = true;
+});
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0xb8a888, 1.6);
 hemi.position.set(0, 0, 1); // sky above (z up)
@@ -80,15 +102,14 @@ ground.receiveShadow = true;
 scene.add(ground);
 let grid = null;
 
-// Shared unit geometries: every instance is a scaled and moved copy.
-const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+// Shared unit geometries: every instance is a scaled, turned and moved copy.
 const studGeo = new THREE.CylinderGeometry(STUD_R, STUD_R, STUD_H, 20);
 studGeo.rotateX(Math.PI / 2); // cylinder axis along z
 
 const modelGroup = new THREE.Group();
 scene.add(modelGroup);
 
-let fitted = null; // {centre, radius, portrait}: what placeCamera last framed (see fitView)
+let fitted = null; // {box, portrait}: what placeCamera last framed (see fitView)
 let renderQueued = false;
 function requestRender() {
   if (renderQueued) return;
@@ -105,13 +126,175 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  // Turning a phone or tablet between portrait and landscape changes which side limits the
-  // view, so frame the model again.
-  if (fitted && fitted.portrait !== camera.aspect < 1) placeCamera();
+  // A new shape of view frames the model again, unless the person has moved the view; turning
+  // a phone between portrait and landscape always does, as it changes which side limits it
+  // (keeping the angle the person turned it to).
+  if (fitted && (!userMoved || fitted.portrait !== camera.aspect < 1)) placeCamera(frameDir());
   requestRender();
 }
 new ResizeObserver(resize).observe(container);
 resize();
+
+// ---- part shapes --------------------------------------------------------------------------
+//
+// Every shape is a unit geometry filling the cube -0.5..0.5 on each axis, drawn scaled to
+// the part's cells. A wedge's slanted face runs down towards local +X; the instance matrix
+// turns local +X to the part's low side on the grid.
+
+const shapeCache = new Map(); // key -> {key, type, geo, edges, top, bottom, slant}
+
+/** Unique vertex positions of a geometry whose z is (about) ``z``. */
+function ringAt(geo, z) {
+  const pos = geo.getAttribute('position');
+  const seen = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    if (Math.abs(pos.getZ(i) - z) > 1e-4) continue;
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    seen.set(`${x.toFixed(4)},${y.toFixed(4)}`, [x, y, z]);
+  }
+  return [...seen.values()];
+}
+
+/** Sum of the outward normals (weighted by area) of the faces that are neither flat nor upright. */
+function slantNormal(geo) {
+  const pos = geo.getAttribute('position');
+  const index = geo.getIndex();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const sum = new THREE.Vector3();
+  const count = index ? index.count : pos.count;
+  for (let i = 0; i < count; i += 3) {
+    const [ia, ib, ic] = index ? [index.getX(i), index.getX(i + 1), index.getX(i + 2)] : [i, i + 1, i + 2];
+    a.fromBufferAttribute(pos, ia);
+    b.fromBufferAttribute(pos, ib);
+    c.fromBufferAttribute(pos, ic);
+    n.subVectors(c, b).cross(a.clone().sub(b)); // three.js's own winding: (c - b) x (a - b)
+    const len = n.length();
+    if (len < 1e-9) continue;
+    const nz = Math.abs(n.z / len);
+    if (nz > 0.05 && nz < 0.995) sum.add(n);
+  }
+  return sum.lengthSq() > 1e-12 ? sum : null;
+}
+
+/** A prism: the polygon ``profile`` ([x, z] points, counter-clockwise) swept along y. */
+function prismGeometry(profile) {
+  const pts = profile.filter((p, i) => {
+    const q = profile[(i + 1) % profile.length];
+    return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6;
+  });
+  const v = [];
+  const tri = (p, q, r) => v.push(...p, ...q, ...r);
+  const at = (p, y) => [p[0], y, p[1]];
+  for (let i = 1; i + 1 < pts.length; i++) {
+    tri(at(pts[0], -0.5), at(pts[i], -0.5), at(pts[i + 1], -0.5)); // faces -y
+    tri(at(pts[0], 0.5), at(pts[i + 1], 0.5), at(pts[i], 0.5)); // faces +y
+  }
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    tri(at(p, -0.5), at(q, 0.5), at(q, -0.5));
+    tri(at(p, -0.5), at(p, 0.5), at(q, 0.5));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  geo.computeVertexNormals(); // not indexed, so every face keeps its own flat normal
+  return geo;
+}
+
+/** The wedge profile in the x-z plane; ``s`` is the slanted share of the length, ``lip``
+ * the low edge's share of the height. */
+function wedgeProfile(type, s, lip) {
+  const lo = -0.5;
+  const hi = 0.5;
+  if (type === 'inverted') {
+    // upside down: flat top, the underside cut away towards -x and running down to +x
+    return [[lo, hi - lip], [lo + s, lo], [hi, lo], [hi, hi], [lo, hi]];
+  }
+  const profile = [[lo, lo], [hi, lo], [hi, lo + lip]];
+  if (type === 'curved') {
+    // gentle near the top, steeper towards the lip, like the real curved slope
+    const c = 0.35;
+    for (let i = 1; i < CURVE_STEPS; i++) {
+      const t = 1 - i / CURVE_STEPS;
+      profile.push([hi - s + s * t, hi - (1 - lip) * (c * t + (1 - c) * t * t)]);
+    }
+  }
+  profile.push([hi - s, hi], [lo, hi]);
+  return profile;
+}
+
+function makeShapeGeometry(shape) {
+  switch (shape.type) {
+    case 'wedge':
+    case 'curved':
+    case 'inverted':
+      return prismGeometry(wedgeProfile(shape.type, shape.s, shape.lip));
+    case 'cylinder':
+    case 'cone':
+    case 'dish': {
+      const top = shape.type === 'cone' ? CONE_TOP : 1;
+      const bottom = shape.type === 'dish' ? DISH_BOTTOM : 1;
+      const geo = new THREE.CylinderGeometry(0.5 * top, 0.5 * bottom, 1, ROUND_SEGMENTS);
+      geo.rotateX(Math.PI / 2); // axis along z, top at +z
+      return geo;
+    }
+    default:
+      return new THREE.BoxGeometry(1, 1, 1);
+  }
+}
+
+/** The shared geometry, edge lines and measurements for a shape, made once. */
+function shapeGeometry(shape) {
+  let g = shapeCache.get(shape.key);
+  if (g) return g;
+  const geo = makeShapeGeometry(shape);
+  const edgeGeo = new THREE.EdgesGeometry(geo, 25);
+  g = {
+    key: shape.key,
+    type: shape.type,
+    s: shape.s ?? null, // a wedge's slanted share of its length
+    geo,
+    edges: edgeGeo.getAttribute('position').array.slice(),
+    top: ringAt(geo, 0.5),
+    bottom: ringAt(geo, -0.5),
+    slant: shape.dir ? slantNormal(geo) : null,
+  };
+  edgeGeo.dispose();
+  shapeCache.set(shape.key, g);
+  return g;
+}
+
+/** How a catalogue part is drawn: {key, type, ...}. */
+function shapeFor(part) {
+  if (SLOPE_KINDS.has(part.kind) && part.lowSide) {
+    const [lx, lz] = SIDES[part.lowSide];
+    const along = lx !== 0 ? 0 : 1; // which own axis the slope runs along
+    const length = along === 0 ? part.sx : part.sz;
+    const heightMm = part.h * CELL.z;
+    const inverted = part.kind === 'slope_inverted';
+    // Full height over the rows with studs, slanted over the rest; upside down, it stands on
+    // the rows the catalogue says take studs from below (bottom_cells), cut away over the rest.
+    const rows = new Set((inverted ? part.bottomCells : part.studs).map((c) => c[along]));
+    let slanted = length - rows.size;
+    if (slanted <= 0 || (inverted && rows.size === 0)) {
+      // nothing to go by (no data, or studs on every row): use the slope's angle
+      const angle = THREE.MathUtils.clamp(part.angle, 5, 85);
+      slanted = Math.round((heightMm - LIP_MM) / Math.tan(THREE.MathUtils.degToRad(angle)) / CELL.x);
+    }
+    const s = THREE.MathUtils.clamp(slanted, 1, length) / length;
+    const lip = Math.min(0.5, LIP_MM / heightMm);
+    const type = inverted ? 'inverted' : part.kind === 'curved_slope' ? 'curved' : 'wedge';
+    return { key: `${type}:${s.toFixed(4)}:${lip.toFixed(4)}`, type, s, lip, dir: [lx, lz] };
+  }
+  if (ROUND_KINDS.has(part.kind)) return { key: 'cylinder', type: 'cylinder' };
+  if (part.kind === 'cone') return { key: 'cone', type: 'cone' };
+  if (part.kind === 'dish') return { key: 'dish', type: 'dish' };
+  return { key: 'box', type: 'box' };
+}
 
 // ---- catalogue ----------------------------------------------------------------------------
 
@@ -128,13 +311,20 @@ function loadCatalogue(partsJson, coloursJson) {
       studs = [];
       for (let dx = 0; dx < sx; dx++) for (let dz = 0; dz < sz; dz++) studs.push([dx, dz]);
     }
-    partsById.set(String(p.id), {
+    const slope = p.slope && typeof p.slope === 'object' ? p.slope : null;
+    const part = {
       sx,
       sz,
       h: Number(p.h_plates) || 1,
       studs: Array.isArray(studs) ? studs.map(([a, b]) => [Number(a), Number(b)]) : [],
       name: String(p.name || p.id),
-    });
+      kind: typeof p.kind === 'string' ? p.kind : 'brick',
+      lowSide: slope && Object.hasOwn(SIDES, slope.low_side) ? slope.low_side : null,
+      angle: (slope && Number(slope.angle_deg)) || 45,
+      bottomCells: Array.isArray(p.bottom_cells) ? p.bottom_cells.filter(Array.isArray).map(([a, b]) => [Number(a), Number(b)]) : [],
+    };
+    part.shape = shapeFor(part);
+    partsById.set(String(p.id), part);
   }
   colourByCode = new Map();
   for (const c of coloursJson) {
@@ -145,7 +335,7 @@ function loadCatalogue(partsJson, coloursJson) {
   }
 }
 
-const UNKNOWN_PART = { sx: 1, sz: 1, h: 3, studs: [], name: 'unknown part' };
+const UNKNOWN_PART = { sx: 1, sz: 1, h: 3, studs: [], name: 'unknown part', kind: 'unknown', shape: { key: 'box', type: 'box' } };
 
 function normRot(rot) {
   return ((Math.round(Number(rot) || 0) % 360) + 360) % 360;
@@ -167,6 +357,22 @@ function localToCell(part, rot, dx, dz) {
       return [part.sx - 1 - dx, part.sz - 1 - dz];
     case 270:
       return [dz, part.sx - 1 - dx];
+    default:
+      return null;
+  }
+}
+
+/** A direction (x, z) in the part's own axes as a grid direction (x, y). Same as low_side. */
+function ownToGrid([lx, lz], rot) {
+  switch (rot) {
+    case 0:
+      return [lx, lz];
+    case 90:
+      return [-lz, lx];
+    case 180:
+      return [-lx, -lz];
+    case 270:
+      return [lz, -lx];
     default:
       return null;
   }
@@ -194,9 +400,10 @@ let drawn = null; // what is in modelGroup now; see drawBuild
 
 function disposeDrawn() {
   if (!drawn) return;
+  const shared = new Set([studGeo, ...[...shapeCache.values()].map((g) => g.geo)]);
   for (const obj of [...modelGroup.children]) {
     modelGroup.remove(obj);
-    if (obj.geometry && obj.geometry !== boxGeo && obj.geometry !== studGeo) obj.geometry.dispose();
+    if (obj.geometry && !shared.has(obj.geometry)) obj.geometry.dispose();
     if (obj.material) obj.material.dispose();
     if (obj.isInstancedMesh) obj.dispose();
   }
@@ -221,13 +428,18 @@ function upperBound(sorted, value) {
   return lo;
 }
 
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
 function drawBuild(build) {
   disposeDrawn();
   const all = Array.isArray(build.parts) ? build.parts : [];
   // Anything in "parts" that is not an object (null, a number, a list) cannot be a part.
-  const raw = all.filter((p) => p !== null && typeof p === 'object' && !Array.isArray(p));
-  // Normalise every placement and work out its box once.
-  const parts = raw.map((p, index) => {
+  const raw = [];
+  all.forEach((p, index) => {
+    if (p !== null && typeof p === 'object' && !Array.isArray(p)) raw.push({ p, index });
+  });
+  // Normalise every placement and work out its box and shape once.
+  const parts = raw.map(({ p, index }) => {
     const part = partsById.get(String(p.part)) || UNKNOWN_PART;
     const rot = normRot(p.rot);
     const [w, d, h] = footprint(part, rot);
@@ -235,7 +447,11 @@ function drawBuild(build) {
     const y = Number(p.y) || 0;
     const z = Number(p.z) || 0;
     const code = Number(p.color);
-    return { index, part, rot, w, d, h, x, y, z, code, step: Math.max(0, Number(p.step) || 0) };
+    let shape = part.shape;
+    const dir = shape.dir ? ownToGrid(shape.dir, rot) : null;
+    if (shape.dir && !dir) shape = { key: 'box', type: 'box' }; // a turn the table does not know
+    const id = String(p.part);
+    return { index, id, part, rot, w, d, h, x, y, z, code, shape, dir, step: Math.max(0, Number(p.step) || 0) };
   });
   // Stable sort by step so "parts with step <= N" is always a prefix.
   parts.sort((a, b) => a.step - b.step || a.index - b.index);
@@ -245,23 +461,32 @@ function drawBuild(build) {
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
 
-  const boxMatrix = (p, grow = 0) => {
+  // The part's unit shape scaled to its cells (less the gap), turned so a wedge runs down
+  // towards its low side, and moved into place. ``grow`` mm is added on every side.
+  const partMatrix = (p, grow = 0) => {
     pos.set((p.x + p.w / 2) * CELL.x, (p.y + p.d / 2) * CELL.y, (p.z + p.h / 2) * CELL.z);
-    scl.set(
-      p.w * CELL.x - GAP + 2 * grow,
-      p.d * CELL.y - GAP + 2 * grow,
-      p.h * CELL.z - GAP_Z + 2 * grow,
-    );
+    const wx = p.w * CELL.x - GAP + 2 * grow;
+    const wy = p.d * CELL.y - GAP + 2 * grow;
+    const wz = p.h * CELL.z - GAP_Z + 2 * grow;
+    if (p.dir) {
+      q.setFromAxisAngle(Z_AXIS, Math.atan2(p.dir[1], p.dir[0]));
+      if (p.dir[0] !== 0) scl.set(wx, wy, wz);
+      else scl.set(wy, wx, wz);
+    } else {
+      q.identity();
+      scl.set(wx, wy, wz);
+    }
     return m.compose(pos, q, scl);
   };
 
-  // Group by colour. Each group keeps parts and studs in step order.
+  // Group by colour and shape. Each group keeps parts and studs in step order.
   const groups = new Map();
   for (const p of parts) {
-    let g = groups.get(p.code);
+    const key = `${p.code}|${p.shape.key}`;
+    let g = groups.get(key);
     if (!g) {
-      g = { code: p.code, parts: [], studs: [] };
-      groups.set(p.code, g);
+      g = { code: p.code, shape: shapeGeometry(p.shape), parts: [], studs: [] };
+      groups.set(key, g);
     }
     g.parts.push(p);
     if (p.rot === 0 || p.rot === 90 || p.rot === 180 || p.rot === 270) {
@@ -274,12 +499,17 @@ function drawBuild(build) {
     }
   }
 
+  const materials = new Map();
   const meshes = [];
   for (const g of groups.values()) {
+    let mat = materials.get(g.code);
     const colour = colourByCode.get(g.code) || { rgb: FALLBACK_RGB, transparent: false };
-    const mat = makeMaterial(colour);
-    const body = new THREE.InstancedMesh(boxGeo, mat, g.parts.length);
-    g.parts.forEach((p, i) => body.setMatrixAt(i, boxMatrix(p)));
+    if (!mat) {
+      mat = makeMaterial(colour);
+      materials.set(g.code, mat);
+    }
+    const body = new THREE.InstancedMesh(g.shape.geo, mat, g.parts.length);
+    g.parts.forEach((p, i) => body.setMatrixAt(i, partMatrix(p)));
     body.instanceMatrix.needsUpdate = true;
     body.castShadow = !colour.transparent;
     body.receiveShadow = true;
@@ -291,6 +521,7 @@ function drawBuild(build) {
     let studSteps = [];
     if (g.studs.length) {
       studs = new THREE.InstancedMesh(studGeo, mat, g.studs.length);
+      q.identity();
       scl.set(1, 1, 1);
       g.studs.forEach((s, i) => {
         pos.set(s.x, s.y, s.z);
@@ -303,29 +534,29 @@ function drawBuild(build) {
       modelGroup.add(studs);
       studSteps = g.studs.map((s) => s.step);
     }
-    meshes.push({ body, bodySteps, studs, studSteps });
+    meshes.push({ body, bodySteps, bodyParts: g.parts, shape: g.shape, studs, studSteps });
   }
 
-  // Thin dark edges on every part, in step order so a draw range shows a prefix.
-  const edgePositions = new Float32Array(parts.length * 24 * 3);
-  const corner = (p, i, j, k) => [
-    p.x * CELL.x + GAP / 2 + i * (p.w * CELL.x - GAP),
-    p.y * CELL.y + GAP / 2 + j * (p.d * CELL.y - GAP),
-    p.z * CELL.z + GAP_Z / 2 + k * (p.h * CELL.z - GAP_Z),
-  ];
-  const EDGES = [
-    [0, 0, 0, 1, 0, 0], [0, 1, 0, 1, 1, 0], [0, 0, 1, 1, 0, 1], [0, 1, 1, 1, 1, 1],
-    [0, 0, 0, 0, 1, 0], [1, 0, 0, 1, 1, 0], [0, 0, 1, 0, 1, 1], [1, 0, 1, 1, 1, 1],
-    [0, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 1], [0, 1, 0, 0, 1, 1], [1, 1, 0, 1, 1, 1],
-  ];
-  let o = 0;
-  for (const p of parts) {
-    for (const [a, b, c, d, e, f] of EDGES) {
-      edgePositions.set(corner(p, a, b, c), o);
-      edgePositions.set(corner(p, d, e, f), o + 3);
-      o += 6;
+  // Thin dark edges on every part, in step order so a draw range shows a prefix. A part's
+  // edges are its shape's edge lines, moved like its body; edgeStart[i] is where part i's
+  // begin (in vertices), and edgeStart[parts.length] is the total.
+  const edgeStart = new Uint32Array(parts.length + 1);
+  parts.forEach((p, i) => {
+    edgeStart[i + 1] = edgeStart[i] + shapeGeometry(p.shape).edges.length / 3;
+  });
+  const edgePositions = new Float32Array(edgeStart[parts.length] * 3);
+  const v = new THREE.Vector3();
+  parts.forEach((p, i) => {
+    const unit = shapeGeometry(p.shape).edges;
+    partMatrix(p);
+    let o = edgeStart[i] * 3;
+    for (let k = 0; k < unit.length; k += 3) {
+      v.set(unit[k], unit[k + 1], unit[k + 2]).applyMatrix4(m);
+      edgePositions[o++] = v.x;
+      edgePositions[o++] = v.y;
+      edgePositions[o++] = v.z;
     }
-  }
+  });
   const edgeGeo = new THREE.BufferGeometry();
   edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
   const edges = new THREE.LineSegments(
@@ -345,19 +576,36 @@ function drawBuild(build) {
   newEdges.renderOrder = 1;
   modelGroup.add(newEdges);
 
-  // Highlight: a slightly larger box drawn inside-out behind the current step's parts,
-  // which shows as a thick coloured outline.
-  const outline = new THREE.InstancedMesh(
-    boxGeo,
-    new THREE.MeshBasicMaterial({ color: HIGHLIGHT, side: THREE.BackSide }),
-    Math.max(1, parts.length),
-  );
-  outline.count = 0;
-  outline.frustumCulled = false;
-  modelGroup.add(outline);
+  // Highlight: a slightly larger copy of each new part's shape drawn inside-out behind it,
+  // which shows as a thick coloured outline. One instanced mesh per shape.
+  const outlineMat = new THREE.MeshBasicMaterial({ color: HIGHLIGHT, side: THREE.BackSide });
+  const outlines = new Map();
+  for (const p of parts) {
+    const o = outlines.get(p.shape.key);
+    if (o) o.capacity += 1;
+    else outlines.set(p.shape.key, { capacity: 1, mesh: null });
+  }
+  for (const [key, o] of outlines) {
+    o.mesh = new THREE.InstancedMesh(shapeCache.get(key).geo, outlineMat, o.capacity);
+    o.mesh.count = 0;
+    o.mesh.frustumCulled = false;
+    modelGroup.add(o.mesh);
+  }
 
   const steps = parts.map((p) => p.step);
-  drawn = { parts, steps, meshes, edges, newEdges, outline, boxMatrix, skipped: all.length - raw.length };
+  drawn = {
+    parts,
+    steps,
+    meshes,
+    edges,
+    newEdges,
+    edgeStart,
+    outlines,
+    outlineMat,
+    highlightParts: 0,
+    partMatrix,
+    skipped: all.length - raw.length,
+  };
   state.partCount = parts.length;
   state.maxStep = parts.length ? parts[parts.length - 1].step : 0;
 }
@@ -374,20 +622,25 @@ function applyStep(n, showAll) {
     if (g.studs) g.studs.count = upperBound(g.studSteps, limit);
   }
   const visible = upperBound(drawn.steps, limit);
-  drawn.edges.geometry.setDrawRange(0, visible * 24);
+  const starts = drawn.edgeStart;
+  drawn.edges.geometry.setDrawRange(0, starts[visible]);
 
+  for (const o of drawn.outlines.values()) o.mesh.count = 0;
   let k = 0;
   if (!showAll) {
     const first = upperBound(drawn.steps, n - 1);
     for (let i = first; i < visible; i++) {
-      drawn.outline.setMatrixAt(k++, drawn.boxMatrix(drawn.parts[i], OUTLINE_MM));
+      const p = drawn.parts[i];
+      const mesh = drawn.outlines.get(p.shape.key).mesh;
+      mesh.setMatrixAt(mesh.count++, drawn.partMatrix(p, OUTLINE_MM));
+      k++;
     }
-    drawn.outline.instanceMatrix.needsUpdate = true;
-    drawn.newEdges.geometry.setDrawRange(first * 24, k * 24);
+    for (const o of drawn.outlines.values()) o.mesh.instanceMatrix.needsUpdate = true;
+    drawn.newEdges.geometry.setDrawRange(starts[first], starts[visible] - starts[first]);
   } else {
     drawn.newEdges.geometry.setDrawRange(0, 0);
   }
-  drawn.outline.count = k;
+  drawn.highlightParts = k;
 
   state.step = n;
   state.showingAll = showAll;
@@ -397,18 +650,158 @@ function applyStep(n, showAll) {
   requestRender();
 }
 
+/** Grid direction (dx, dy) a wedge's slanted face runs down, read off the drawn geometry. */
+function downhill(shape, world) {
+  if (!shape.slant) return null;
+  const n = shape.slant.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(world));
+  // A face looking up runs down the way it leans; one looking down (an inverted slope's
+  // underside) runs down the other way.
+  const sign = Math.sign(n.z) || 1;
+  const hx = sign * n.x;
+  const hy = sign * n.y;
+  const len = Math.hypot(hx, hy);
+  if (len < 1e-9) return null;
+  return [Math.round(hx / len) + 0, Math.round(hy / len) + 0];
+}
+
+const DIAGONAL = [Math.SQRT1_2, Math.SQRT1_2];
+
+/** The cached shape whose geometry ``mesh`` really draws (measured from, not assumed). */
+function drawnShape(mesh) {
+  for (const g of shapeCache.values()) if (g.geo === mesh.geometry) return g;
+  return null;
+}
+
+/** How a flat face (its ring of unit-shape points, taken into the world by ``world``) is
+ * outlined: {points: its corners on the rim, diagonal: mm from the face's centre to its rim
+ * along the grid diagonal (1, 1)}. A circle of radius r gives r, a square of half-width r
+ * gives r x 1.41. Null when the face is only an edge or a point. */
+function faceRim(ring, world) {
+  const v = new THREE.Vector3();
+  const pts = ring.map(([x, y, z]) => {
+    v.set(x, y, z).applyMatrix4(world);
+    return [v.x, v.y];
+  });
+  if (pts.length < 3) return null;
+  const xs = pts.map((q) => q[0]);
+  const ys = pts.map((q) => q[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  if (Math.max(...xs) - Math.min(...xs) < 1e-3 || Math.max(...ys) - Math.min(...ys) < 1e-3) return null;
+  // the rim's corners in order round the centre (a cap's own centre point is not one)
+  const rim = pts
+    .filter(([x, y]) => Math.hypot(x - cx, y - cy) > 1e-3)
+    .sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  let best = Infinity;
+  const [dx, dy] = DIAGONAL;
+  for (let i = 0; i < rim.length; i++) {
+    const [ax, ay] = rim[i];
+    const [bx, by] = rim[(i + 1) % rim.length];
+    // centre + t * d = a + u * (b - a), with 0 <= u <= 1 and t > 0
+    const ex = bx - ax;
+    const ey = by - ay;
+    const det = ex * dy - ey * dx;
+    if (Math.abs(det) < 1e-12) continue;
+    const t = (ex * (ay - cy) - ey * (ax - cx)) / det;
+    const u = (dx * (ay - cy) - dy * (ax - cx)) / det;
+    if (t > 0 && u >= -1e-9 && u <= 1 + 1e-9) best = Math.min(best, t);
+  }
+  return { points: rim.length, diagonal: Number.isFinite(best) ? best : null };
+}
+
+/** The unit shape's triangles, as flat [x, y, z, ...] arrays of 9 numbers. */
+function shapeTriangles(shape) {
+  if (shape.triangles) return shape.triangles;
+  const pos = shape.geo.getAttribute('position');
+  const index = shape.geo.getIndex();
+  const count = index ? index.count : pos.count;
+  const out = [];
+  for (let i = 0; i < count; i += 3) {
+    const tri = [];
+    for (let k = 0; k < 3; k++) {
+      const j = index ? index.getX(i + k) : i + k;
+      tri.push(pos.getX(j), pos.getY(j), pos.getZ(j));
+    }
+    out.push(tri);
+  }
+  shape.triangles = out;
+  return out;
+}
+
+/** The farthest (mm) any of the given world points lies from the shape drawn with ``world``. */
+function gapToSurface(shape, world, points) {
+  const tris = shapeTriangles(shape).map((t) => {
+    const [a, b, c] = [0, 3, 6].map((o) => new THREE.Vector3(t[o], t[o + 1], t[o + 2]).applyMatrix4(world));
+    return new THREE.Triangle(a, b, c);
+  });
+  const p = new THREE.Vector3();
+  const q = new THREE.Vector3();
+  let worst = 0;
+  for (let i = 0; i < points.length; i += 3) {
+    p.set(points[i], points[i + 1], points[i + 2]);
+    let nearest = Infinity;
+    for (const t of tris) {
+      t.closestPointToPoint(p, q);
+      nearest = Math.min(nearest, q.distanceTo(p));
+      if (nearest < 1e-4) break;
+    }
+    worst = Math.max(worst, nearest);
+  }
+  return worst;
+}
+
+const probeMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+probeMesh.matrixAutoUpdate = false;
+const probeRay = new THREE.Raycaster();
+
+/** For an upright wedge: how high (mm above its bottom) the drawn top surface is near the
+ * start of the slanted run, in its middle, and near its end at the lip, found by casting a
+ * ray straight down onto the drawn part. */
+function slopeHeights(shape, world, bottom, top) {
+  if ((shape.type !== 'wedge' && shape.type !== 'curved') || shape.s === null) return null;
+  probeMesh.geometry = shape.geo;
+  probeMesh.matrixWorld.copy(world);
+  const v = new THREE.Vector3();
+  const heights = [0.02, 0.5, 0.98].map((f) => {
+    v.set(0.5 - shape.s + shape.s * f, 0, 0).applyMatrix4(world);
+    probeRay.set(new THREE.Vector3(v.x, v.y, top + 10), new THREE.Vector3(0, 0, -1));
+    const hit = probeRay.intersectObject(probeMesh, false)[0];
+    return hit ? hit.point.z - bottom : null;
+  });
+  probeMesh.geometry = null;
+  return { high: heights[0], mid: heights[1], low: heights[2] };
+}
+
 // For tests: what is drawn right now, in world millimetres after every transform, so it can
 // be compared with the Python catalogue. Only instances currently shown are listed. Each
-// entry is the axis-aligned box {min: [x, y, z], max: [x, y, z]} the instance covers.
+// entry is the axis-aligned box {min: [x, y, z], max: [x, y, z]} the instance covers. A body
+// also says which part it is (part, entry: its index in build.json's "parts"), its catalogue
+// kind, the shape drawn (box, wedge, curved, inverted, cylinder, cone, dish), the x-y extent
+// of its top and bottom faces ({min: [x, y], max: [x, y]}, null when the face is only an
+// edge or a point), ``topRim`` and ``bottomRim`` (see faceRim: how round the face is), for
+// wedges ``downhill``: the grid direction [dx, dy] the slanted face runs down, worked out
+// from the drawn faces (compare with Catalog.low_side), and ``edges``: how many line ends
+// its dark edge lines have. Outlines (the current step's highlight) give their box,
+// ``topRim`` and ``downhill`` in the same way.
+// With {detail: true}, slower measurements are added to each body: ``edgeBox`` (the box its
+// edge lines cover), ``edgeGap`` (the farthest, in mm, any edge line end lies from the drawn
+// body) and, for upright wedges, ``slope`` (see slopeHeights).
 // ndc: where the shown model falls in the view, -1..1 on each axis being inside it.
-state.inspect = () => {
-  const out = { bodies: [], studs: [], outlines: [], highlightEdgeParts: 0, outlineColour: null, ndc: null };
+// meshCount: the three.js objects drawing the model (instancing keeps it small).
+// camera: {position, target}, where the camera is and the point it looks at.
+state.inspect = (options = {}) => {
+  const detail = Boolean(options && options.detail);
+  const out = { bodies: [], studs: [], outlines: [], highlightEdgeParts: 0, outlineColour: null, ndc: null, meshCount: 0 };
+  out.camera = { position: camera.position.toArray(), target: controls.target.toArray() };
   if (!drawn) return out;
+  const order = new Map(drawn.parts.map((p, i) => [p, i]));
+  out.meshCount = modelGroup.children.length;
   scene.updateMatrixWorld(true);
   camera.updateMatrixWorld(true);
   const m = new THREE.Matrix4();
   const box = new THREE.Box3();
   const whole = new THREE.Box3();
+  const v = new THREE.Vector3();
   const aabb = (mesh, i) => {
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     mesh.getMatrixAt(i, m);
@@ -416,11 +809,47 @@ state.inspect = () => {
     box.copy(mesh.geometry.boundingBox).applyMatrix4(m);
     return { min: box.min.toArray(), max: box.max.toArray() };
   };
+  const extent = (ring) => {
+    const lo = [Infinity, Infinity];
+    const hi = [-Infinity, -Infinity];
+    for (const [x, y, z] of ring) {
+      v.set(x, y, z).applyMatrix4(m);
+      lo[0] = Math.min(lo[0], v.x);
+      lo[1] = Math.min(lo[1], v.y);
+      hi[0] = Math.max(hi[0], v.x);
+      hi[1] = Math.max(hi[1], v.y);
+    }
+    if (!ring.length || (hi[0] - lo[0] < 1e-3 && hi[1] - lo[1] < 1e-3)) return null;
+    if (hi[0] - lo[0] < 1e-3 || hi[1] - lo[1] < 1e-3) return null; // only an edge
+    return { min: lo, max: hi };
+  };
   for (const g of drawn.meshes) {
     const colour = `#${g.body.material.color.getHexString()}`;
     for (let i = 0; i < g.body.count; i++) {
-      out.bodies.push({ ...aabb(g.body, i), colour, step: g.bodySteps[i] });
+      const entry = { ...aabb(g.body, i), colour, step: g.bodySteps[i] };
       whole.union(box);
+      const p = g.bodyParts[i];
+      Object.assign(entry, {
+        part: p.id,
+        entry: p.index,
+        kind: p.part.kind,
+        shape: g.shape.type,
+        top: extent(g.shape.top),
+        bottom: extent(g.shape.bottom),
+        topRim: faceRim(g.shape.top, m),
+        bottomRim: faceRim(g.shape.bottom, m),
+        downhill: downhill(g.shape, m),
+      });
+      const k = order.get(p);
+      const ends = drawn.edges.geometry.getAttribute('position').array.subarray(drawn.edgeStart[k] * 3, drawn.edgeStart[k + 1] * 3);
+      entry.edges = ends.length / 3;
+      if (detail) {
+        const eb = new THREE.Box3().setFromArray(ends);
+        entry.edgeBox = { min: eb.min.toArray(), max: eb.max.toArray() };
+        entry.edgeGap = gapToSurface(g.shape, m, ends);
+        entry.slope = slopeHeights(g.shape, m, entry.min[2], entry.max[2]);
+      }
+      out.bodies.push(entry);
     }
     if (g.studs) {
       for (let i = 0; i < g.studs.count; i++) {
@@ -429,12 +858,23 @@ state.inspect = () => {
       }
     }
   }
-  for (let i = 0; i < drawn.outline.count; i++) out.outlines.push(aabb(drawn.outline, i));
-  out.outlineColour = `#${drawn.outline.material.color.getHexString()}`;
-  out.highlightEdgeParts = drawn.newEdges.geometry.drawRange.count / 24;
+  for (const o of drawn.outlines.values()) {
+    const shape = drawnShape(o.mesh);
+    for (let i = 0; i < o.mesh.count; i++) {
+      const entry = aabb(o.mesh, i);
+      out.outlines.push({ ...entry, topRim: shape && faceRim(shape.top, m), downhill: shape && downhill(shape, m) });
+    }
+  }
+  out.outlineColour = `#${drawn.outlineMat.color.getHexString()}`;
+  // parts whose highlight edges are drawn: the draw range covers exactly theirs
+  const range = drawn.newEdges.geometry.drawRange;
+  for (let i = 0; i < drawn.parts.length; i++) {
+    const a = drawn.edgeStart[i];
+    const b = drawn.edgeStart[i + 1];
+    if (range.count > 0 && a >= range.start && b <= range.start + range.count) out.highlightEdgeParts += 1;
+  }
   if (!whole.isEmpty()) {
     const ndc = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
-    const v = new THREE.Vector3();
     for (let c = 0; c < 8; c++) {
       v.set(c & 1 ? whole.max.x : whole.min.x, c & 2 ? whole.max.y : whole.min.y, c & 4 ? whole.max.z : whole.min.z);
       v.project(camera);
@@ -452,46 +892,140 @@ state.inspect = () => {
 
 let fittedFor = '';
 
-/** Put the camera in front of the model, far enough away to see all of it. */
-function placeCamera() {
-  const { centre, radius } = fitted;
-  // The sphere around the model must fit both the height and the width of the view; on a
-  // portrait screen the width is the tighter one.
+/** The 8 corners of a box, as a flat [x, y, z, x, y, z, ...] array. */
+function boxCorners(box) {
+  const out = [];
+  for (let c = 0; c < 8; c++) {
+    out.push(c & 1 ? box.max.x : box.min.x, c & 2 ? box.max.y : box.min.y, c & 4 ? box.max.z : box.min.z);
+  }
+  return out;
+}
+
+/** Where the points (a flat x, y, z array) land in the view with the camera ``dist`` from
+ * ``target`` along ``dir``: their NDC extent, or null when one is behind the camera. */
+function projectedExtent(points, target, dist, dir) {
+  camera.position.copy(target).addScaledVector(dir, dist);
+  camera.lookAt(target);
+  camera.updateMatrixWorld(true);
+  const ext = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  const v = new THREE.Vector3();
+  for (let i = 0; i < points.length; i += 3) {
+    v.set(points[i], points[i + 1], points[i + 2]).applyMatrix4(camera.matrixWorldInverse);
+    if (v.z > -1e-3 * dist) return null;
+    v.applyMatrix4(camera.projectionMatrix);
+    ext.minX = Math.min(ext.minX, v.x);
+    ext.maxX = Math.max(ext.maxX, v.x);
+    ext.minY = Math.min(ext.minY, v.y);
+    ext.maxY = Math.max(ext.maxY, v.y);
+  }
+  return ext;
+}
+
+const within = (e, margin) => e && Math.max(-e.minX, e.maxX) <= margin && Math.max(-e.minY, e.maxY) <= margin;
+
+/** The shortest distance from ``target`` at which the model's own corners are inside
+ * FIT_MARGIN and the corners of its box (never smaller than 4 x 4 x 3 cells) inside BOX_MARGIN. */
+function fitDistance(fit, target, radius, dir) {
+  const fits = (d) =>
+    within(projectedExtent(fit.corners, target, d, dir), BOX_MARGIN) &&
+    within(projectedExtent(fit.points, target, d, dir), FIT_MARGIN);
+  let lo = radius * 0.05;
+  let hi = radius * 4 + target.distanceTo(fit.box.getCenter(new THREE.Vector3()));
+  for (let i = 0; i < 40 && !fits(hi); i++) hi *= 2;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
+/** From the point looked at towards the camera, as the view is now. */
+function currentViewDir() {
+  const dir = camera.position.clone().sub(controls.target);
+  return dir.lengthSq() > 1e-9 ? dir.normalize() : VIEW_DIR.clone();
+}
+
+/** The direction to frame the model from: the person's own, once they have turned the view. */
+function frameDir() {
+  return userMoved ? currentViewDir() : VIEW_DIR;
+}
+
+/** Put the camera as close to the model as it can be while seeing all of it, looking along
+ * ``dir`` (from the model towards the camera). */
+function placeCamera(dir = VIEW_DIR) {
+  const { box, points } = fitted;
+  camera.updateProjectionMatrix();
+  const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
+  const target = box.getCenter(new THREE.Vector3());
   const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
-  const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-  const dist = (radius / Math.sin(Math.min(halfV, halfH))) * 1.05;
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  let dist = fitDistance(fitted, target, radius, dir);
+  // In perspective the near end of the model looks bigger, so its picture is off-centre:
+  // move the point looked at until the picture sits in the middle, then fit again.
+  for (let pass = 0; pass < 4; pass++) {
+    const e = projectedExtent(points, target, dist, dir);
+    const cx = (e.minX + e.maxX) / 2;
+    const cy = (e.minY + e.maxY) / 2;
+    if (Math.abs(cx) < 0.01 && Math.abs(cy) < 0.01) break;
+    const halfH = Math.tan(halfV) * dist;
+    right.setFromMatrixColumn(camera.matrixWorld, 0);
+    up.setFromMatrixColumn(camera.matrixWorld, 1);
+    target.addScaledVector(right, cx * halfH * camera.aspect).addScaledVector(up, cy * halfH);
+    dist = fitDistance(fitted, target, radius, dir);
+  }
   fitted.portrait = camera.aspect < 1;
-  // In front (y < 0), a little to the right and above.
-  const dir = new THREE.Vector3(0.55, -1, 0.7).normalize();
-  camera.position.copy(centre).addScaledVector(dir, dist);
+  camera.position.copy(target).addScaledVector(dir, dist);
   camera.near = Math.max(0.5, dist / 100);
   camera.far = dist * 40;
   camera.updateProjectionMatrix();
   // Fade the far ground into the sky so there is no hard edge at the horizon.
   scene.fog = new THREE.Fog(SKY_HAZE, dist * 1.6, dist * 7);
-  controls.target.copy(centre);
+  controls.target.copy(target);
   controls.update();
   requestRender();
 }
 
 function fitView(build) {
-  let nx = 0;
-  let ny = 0;
-  let nz = 0;
-  if (Array.isArray(build.shape) && build.shape.length === 3) [nx, ny, nz] = build.shape.map(Number);
+  // The model's box in millimetres: what the parts cover (studs included), or the build's
+  // grid when there are no parts. Never smaller than 4 x 4 x 3 cells, so a single part is
+  // not blown up to fill the screen.
+  const box = new THREE.Box3();
+  // The corners the camera must keep in view: for each (x, y) grid corner of any part, its
+  // lowest and highest point. Far fewer than every part's eight corners, and enough, since
+  // the points between them on that vertical line are in view when both ends are.
+  const columns = new Map();
   if (drawn && drawn.parts.length) {
     for (const p of drawn.parts) {
-      nx = Math.max(nx, p.x + p.w);
-      ny = Math.max(ny, p.y + p.d);
-      nz = Math.max(nz, p.z + p.h);
+      const top = (p.z + p.h) * CELL.z + (p.part.studs.length ? STUD_H : 0);
+      const bottom = p.z * CELL.z;
+      box.expandByPoint(new THREE.Vector3(p.x * CELL.x, p.y * CELL.y, bottom));
+      box.expandByPoint(new THREE.Vector3((p.x + p.w) * CELL.x, (p.y + p.d) * CELL.y, top));
+      for (const cx of [p.x, p.x + p.w]) {
+        for (const cy of [p.y, p.y + p.d]) {
+          const k = `${cx},${cy}`;
+          const col = columns.get(k);
+          if (col) {
+            col[2] = Math.min(col[2], bottom);
+            col[3] = Math.max(col[3], top);
+          } else columns.set(k, [cx * CELL.x, cy * CELL.y, bottom, top]);
+        }
+      }
     }
+  } else {
+    let [nx, ny, nz] = [0, 0, 0];
+    if (Array.isArray(build.shape) && build.shape.length === 3) [nx, ny, nz] = build.shape.map((n) => Number(n) || 0);
+    box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(nx * CELL.x, ny * CELL.y, nz * CELL.z));
   }
-  nx = Math.max(nx, 4);
-  ny = Math.max(ny, 4);
-  nz = Math.max(nz, 3);
-  const size = new THREE.Vector3(nx * CELL.x, ny * CELL.y, nz * CELL.z);
-  const centre = size.clone().multiplyScalar(0.5);
-  const radius = Math.max(size.length() / 2, 20);
+  const least = new THREE.Vector3(4 * CELL.x, 4 * CELL.y, 3 * CELL.z);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const half = size.max(least).multiplyScalar(0.5);
+  box.set(centre.clone().sub(half), centre.clone().add(half));
+  if (box.min.z < 0) box.translate(new THREE.Vector3(0, 0, -box.min.z)); // stays on the ground
+  box.getCenter(centre);
+  const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
 
   // Ground: a big plane just under z = 0, with a faint stud grid under the model.
   const span = radius * 80;
@@ -502,10 +1036,11 @@ function fitView(build) {
     grid.geometry.dispose();
     grid.material.dispose();
   }
-  const gridCells = Math.ceil(Math.max(nx, ny) / 2) * 2 + 8;
+  const cells = Math.max(box.max.x - box.min.x, box.max.y - box.min.y) / CELL.x;
+  const gridCells = Math.ceil(cells / 2) * 2 + 8;
   grid = new THREE.GridHelper(gridCells * CELL.x, gridCells, 0xc9c2ad, 0xd9d3c0);
   grid.rotation.x = Math.PI / 2; // GridHelper lies in x-z; turn it into x-y
-  grid.position.set(centre.x, centre.y, 0);
+  grid.position.set(Math.round(centre.x / CELL.x) * CELL.x, Math.round(centre.y / CELL.y) * CELL.y, 0);
   scene.add(grid);
 
   // Sun from the front-left, high; fill from the back-right.
@@ -522,13 +1057,16 @@ function fitView(build) {
   fill.position.set(centre.x + radius * 2, centre.y + radius * 2, centre.z + radius);
   fill.target.position.copy(centre);
 
-  // Camera: framed again only when the model's size changes, so a rebuild of the same
-  // size keeps the angle the person turned it to.
-  const key = `${nx}x${ny}x${nz}`;
+  // Camera: framed again only when the model's box changes. Once the person has turned the
+  // view, it keeps looking from their angle: only the distance and the point looked at change.
+  const key = [...box.min.toArray(), ...box.max.toArray()].map((n) => n.toFixed(2)).join(',');
   if (key !== fittedFor) {
     fittedFor = key;
-    fitted = { centre, radius, portrait: camera.aspect < 1 };
-    placeCamera();
+    const corners = boxCorners(box);
+    const points = [];
+    for (const [x, y, lo, hi] of columns.values()) points.push(x, y, lo, x, y, hi);
+    fitted = { box, corners, points: points.length ? points : corners, portrait: camera.aspect < 1 };
+    placeCamera(frameDir());
   }
   requestRender();
 }
@@ -540,11 +1078,47 @@ const prevBtn = $('prev');
 const nextBtn = $('next');
 const allBtn = $('all');
 const stepLabel = $('stepLabel');
+const NOTES_OPEN_UP_TO = 3; // more notes than this are folded away behind a summary line
 
 function setNotice(text) {
   const el = $('notice');
   el.textContent = text || '';
   el.hidden = !text;
+}
+
+/** build.json's notes (plain sentences from the make-buildable and finishing passes), as a
+ * small list under the verdict; folded behind "What the software changed (N)" when long. */
+function showNotes(build) {
+  const box = $('notes');
+  const notes =
+    build && Array.isArray(build.notes)
+      ? build.notes.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim())
+      : [];
+  const wasOpen = Boolean(box.querySelector('details[open]'));
+  box.replaceChildren();
+  box.hidden = notes.length === 0;
+  state.notes = notes;
+  if (!notes.length) return;
+  const list = document.createElement('ul');
+  for (const n of notes) {
+    const li = document.createElement('li');
+    li.textContent = n;
+    list.append(li);
+  }
+  const title = `What the software changed`;
+  if (notes.length > NOTES_OPEN_UP_TO) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = `${title} (${notes.length})`;
+    details.open = wasOpen;
+    details.append(summary, list);
+    box.append(details);
+  } else {
+    const head = document.createElement('p');
+    head.className = 'notes-title';
+    head.textContent = title;
+    box.append(head, list);
+  }
 }
 
 function showHeader(project, build) {
@@ -565,6 +1139,7 @@ function showHeader(project, build) {
     rep.textContent = first.trim();
     rep.classList.add(report.ok ? 'ok' : 'bad');
   }
+  showNotes(build);
 }
 
 function updateStepUi(outlined) {

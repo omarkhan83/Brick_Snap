@@ -607,9 +607,10 @@ class Page:
             (ARTIFACTS / f"viewer-{name}-view.png").write_bytes(png)
         return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(int)
 
-    def inspect(self) -> dict[str, Any]:
-        """What the page draws now, in world millimetres (see state.inspect in viewer.js)."""
-        return self.page.evaluate("() => window.__bricksnap.inspect()")
+    def inspect(self, detail: bool = False) -> dict[str, Any]:
+        """What the page draws now, in world millimetres (see state.inspect in viewer.js);
+        ``detail`` adds the slower measurements of edge lines and slopes."""
+        return self.page.evaluate("(o) => window.__bricksnap.inspect(o)", {"detail": detail})
 
     def poll_now(self) -> None:
         """Make the page look at build.json now rather than at its next 2-second poll."""
@@ -961,6 +962,117 @@ def test_current_step_is_highlighted(page: Page, catalog: Catalog) -> None:
     page.assert_clean()
 
 
+@pytest.mark.browser
+def test_highlight_is_the_part_s_own_shape(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """The outline round a new round part is round, and round a new slope it is a wedge
+    running down the same way; its dark and highlight edge lines are the part's own."""
+    parts = [Placement("3003", 15, x, 0, 0, 0, 1) for x in (0, 2, 4)]
+    parts += [
+        Placement("6143", RED, 0, 0, 3, 0, 2),
+        Placement("3039", BLUE, 2, 0, 3, 90, 2),
+        Placement("3003", YELLOW, 4, 0, 3, 0, 2),
+    ]
+    with viewing(browser, tmp_path / "outl", pawn_path, Build((6, 2, 6), parts)) as (p, _):
+        p.page.locator("#step").fill("2")
+        drawn = p.inspect(detail=True)
+        new = [b for b in drawn["bodies"] if b["step"] == 2]
+        assert len(new) == 3 and len(drawn["outlines"]) == 3
+        assert drawn["highlightEdgeParts"] == 3
+        for body in new:
+            lo, hi = _box(body)
+            centre = (lo + hi) / 2
+            outline = min(
+                drawn["outlines"],
+                key=lambda o: np.abs((_box(o)[0] + _box(o)[1]) / 2 - centre).sum(),
+            )
+            # the outline is the same shape, grown by 0.7 mm on every side
+            olo, ohi = _box(outline)
+            assert np.allclose(olo, lo - 0.7, atol=0.05) and np.allclose(ohi, hi + 0.7, atol=0.05)
+            assert outline["downhill"] == body["downhill"], body["part"]
+            rim, orim = body["topRim"], outline["topRim"]
+            assert orim["points"] == rim["points"], body["part"]
+            if body["part"] == "3039":  # a wedge: its flat top grows with it, in proportion
+                low = catalog.low_side(parts[4])
+                assert low is not None and body["downhill"] == list(low)
+                assert outline["downhill"] is not None
+            else:  # a circle's radius grows by 0.7 mm, a square's corner by 0.7 x 1.41
+                grow = 0.7 if body["shape"] == "cylinder" else 0.7 * np.sqrt(2)
+                assert orim["diagonal"] == pytest.approx(rim["diagonal"] + grow, abs=0.05)
+            assert body["edgeGap"] < 0.01
+        assert sorted(b["shape"] for b in new) == ["box", "cylinder", "wedge"]
+        round_outline = [o for o in drawn["outlines"] if o["topRim"]["points"] >= 24]
+        assert len(round_outline) == 1
+        assert round_outline[0]["topRim"]["diagonal"] == pytest.approx(7.8 + 0.7, abs=0.05)
+        assert near(p.view_pixels("highlight-shapes"), HIGHLIGHT_RGB, 30) > 300
+        p.assert_clean()
+
+
+def _view_dir(p: Page) -> np.ndarray:
+    cam = p.inspect()["camera"]
+    d = np.array(cam["position"]) - np.array(cam["target"])
+    return d / np.linalg.norm(d)
+
+
+def _drag(p: Page, dx: float, dy: float) -> None:
+    box = p.page.locator("#view").bounding_box()
+    assert box
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    p.page.mouse.move(cx, cy)
+    p.page.mouse.down()
+    p.page.mouse.move(cx + dx, cy + dy, steps=8)
+    p.page.mouse.up()
+    p.settle()
+
+
+@pytest.mark.browser
+def test_a_rebuild_keeps_the_angle_the_view_was_turned_to(
+    browser: Any, tmp_path: Path, pawn_path: Path
+) -> None:
+    """Turn the view, then rebuild with one more part on top (the model's box grows by a
+    tile): the camera still looks from the person's angle, closer or further as needed, and
+    the whole model stays in view. Turning a phone keeps that angle too. A view nobody has
+    turned is framed from the usual front-right angle."""
+    base = [
+        Placement("3001", RED, x, y, z, 0, 1)
+        for x in (0, 4)
+        for y in (0, 2, 4, 6)
+        for z in (0, 3, 6)
+    ]
+    shape = (8, 8, 12)
+    with viewing(browser, tmp_path / "keep", pawn_path, Build(shape, base)) as (p, proj):
+        default = _view_dir(p)
+        _drag(p, 220, 40)
+        turned = _view_dir(p)
+        assert np.degrees(np.arccos(np.clip(turned @ default, -1, 1))) > 20  # really turned
+
+        for extra in ("3068b", "3022", "3001"):  # a tile; a plate (studs only); a brick
+            _show(p, proj, Build(shape, [*base, Placement(extra, BLUE, 0, 0, 9, 0, 2)]))
+            p.settle()
+            now = _view_dir(p)
+            assert np.degrees(np.arccos(np.clip(now @ turned, -1, 1))) < 0.5, extra
+            _fits(p)
+
+        p.page.set_viewport_size({"width": 375, "height": 740})
+        p.page.wait_for_function(
+            "() => { const r = document.getElementById('view')"
+            ".getBoundingClientRect(); return r.width < r.height; }"
+        )
+        p.settle()
+        assert np.degrees(np.arccos(np.clip(_view_dir(p) @ turned, -1, 1))) < 0.5
+        _fits(p)
+        p.assert_clean()
+
+    with viewing(browser, tmp_path / "fresh", pawn_path, Build(shape, base)) as (p, proj):
+        first = _view_dir(p)
+        _show(p, proj, Build(shape, [*base, Placement("3001", BLUE, 0, 0, 9, 0, 2)]))
+        p.settle()
+        assert np.allclose(_view_dir(p), first, atol=1e-6)
+        assert np.allclose(first, default, atol=1e-6)
+        p.assert_clean()
+
+
 def _fits(p: Page) -> dict[str, float]:
     p.settle()
     ndc = p.inspect()["ndc"]
@@ -1270,3 +1382,403 @@ def test_narrow_screen_has_no_sideways_scroll(browser: Any, running: Running) ->
         p.assert_clean()
     finally:
         p.close()
+
+
+# ---- part shapes (stage 2) ----------------------------------------------------------------
+
+ROUND_KINDS = ("round_brick", "round_plate", "round_tile")
+SLOPE_KINDS = ("slope", "curved_slope", "slope_inverted")
+
+
+def expected_shape(kind: str) -> str:
+    """What the page should draw for a catalogue kind (the contract in viewserver.py)."""
+    return {
+        "slope": "wedge",
+        "curved_slope": "curved",
+        "slope_inverted": "inverted",
+        "cone": "cone",
+        "dish": "dish",
+    }.get(kind, "cylinder" if kind in ROUND_KINDS else "box")
+
+
+def every_part_at_every_turn(catalog: Catalog) -> list[Placement]:
+    parts = []
+    for i, (part, rot) in enumerate(
+        (part, rot) for part in catalog.parts.values() for rot in (0, 90, 180, 270)
+    ):
+        colour = sorted(part.colours)[i % len(part.colours)]
+        parts.append(Placement(part.id, colour, (i % 14) * 6, (i // 14) * 6, 0, rot, 1))
+    return parts
+
+
+def _extent(face: dict[str, Any] | None) -> tuple[np.ndarray, np.ndarray]:
+    assert face is not None
+    return np.array(face["min"]), np.array(face["max"])
+
+
+def check_wedge(catalog: Catalog, p: Placement, body: dict[str, Any]) -> None:
+    """The slanted face runs down towards Catalog.low_side; the part is full height over its
+    stud cells (or, upside down, stands on its full rows) and has a low lip on the far side."""
+    part = catalog.parts[p.part]
+    low = catalog.low_side(p)
+    assert low is not None
+    assert body["downhill"] == list(low), (p, body["downhill"], low)
+    lo, hi = _box(body)
+    axis = 0 if low[0] else 1
+    # the edge the face runs down to, and the high edge opposite it
+    low_edge = hi[axis] if low[axis] > 0 else lo[axis]
+    high_edge = lo[axis] if low[axis] > 0 else hi[axis]
+    if part.kind == "slope_inverted":
+        tlo, thi = _extent(body["top"])
+        assert np.allclose(tlo, lo[:2], atol=1e-3) and np.allclose(thi, hi[:2], atol=1e-3)
+        blo, bhi = _extent(body["bottom"])  # it stands on the rows at its low side only
+        assert min(abs(blo[axis] - low_edge), abs(bhi[axis] - low_edge)) < 1e-3, p
+        assert min(abs(blo[axis] - high_edge), abs(bhi[axis] - high_edge)) > 4, p
+        return
+    blo, bhi = _extent(body["bottom"])
+    assert np.allclose(blo, lo[:2], atol=1e-3) and np.allclose(bhi, hi[:2], atol=1e-3)
+    if not part.studs_top:
+        assert body["top"] is None, p  # slanted all the way: the top is only its high edge
+        return
+    tlo, thi = _extent(body["top"])
+    assert min(abs(tlo[axis] - high_edge), abs(thi[axis] - high_edge)) < 1e-3, p
+    assert min(abs(tlo[axis] - low_edge), abs(thi[axis] - low_edge)) > 4, p
+    for cx, cy in catalog.stud_cells(p):  # every stud stands on the flat top
+        c = np.array([(cx + 0.5) * 8, (cy + 0.5) * 8])
+        assert (c >= tlo + 2).all() and (c <= thi - 2).all(), (p, c, tlo, thi)
+
+
+@pytest.mark.browser
+def test_part_kinds_and_shapes_match_the_catalogue(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """Every catalogue part at every turn: the page reports the catalogue's kind, draws the
+    shape the contract names, and every wedge runs down towards Catalog.low_side."""
+    parts = every_part_at_every_turn(catalog)
+    with viewing(browser, tmp_path / "kinds", pawn_path, Build((84, 90, 3), parts)) as (p, _):
+        drawn = p.inspect(detail=True)
+        bodies = sorted(drawn["bodies"], key=lambda b: b["entry"])
+        assert [b["entry"] for b in bodies] == list(range(len(parts)))
+        slopes = 0
+        for placement, body in zip(parts, bodies, strict=True):
+            part = catalog.parts[placement.part]
+            assert body["part"] == part.id
+            assert body["kind"] == part.kind, placement
+            assert body["shape"] == expected_shape(part.kind), placement
+            check_edges(body, placement)
+            if part.kind in SLOPE_KINDS:
+                check_wedge(catalog, placement, body)
+                check_slope_surface(part.kind, placement, body)
+                slopes += 1
+            else:
+                assert body["downhill"] is None, placement
+                assert body["slope"] is None, placement
+        assert slopes == 4 * len([q for q in catalog.parts.values() if q.kind in SLOPE_KINDS])
+        p.assert_clean()
+
+
+def check_edges(body: dict[str, Any], p: Placement) -> None:
+    """The part's dark edge lines follow its own drawn shape: every line end lies on the
+    drawn body, and together they reach its whole box. A cylinder's lines are its two rims."""
+    assert body["edges"] > 0 and body["edges"] % 2 == 0, p
+    assert body["edgeGap"] < 0.01, (p, body["edgeGap"])
+    elo, ehi = _box(body["edgeBox"])
+    lo, hi = _box(body)
+    assert np.allclose(elo, lo, atol=1e-3) and np.allclose(ehi, hi, atol=1e-3), p
+    if body["shape"] in ("cylinder", "cone", "dish"):
+        assert body["edges"] >= 2 * 2 * 24, (p, body["edges"])  # two rims of 24+ lines each
+    elif body["shape"] == "box":
+        assert body["edges"] == 24, (p, body["edges"])  # 12 lines
+
+
+def check_slope_surface(kind: str, p: Placement, body: dict[str, Any]) -> None:
+    """Heights of the drawn slanted face, near its top, half way down and near the lip: a
+    straight slope is a straight line; the curved slope bulges above that line."""
+    height = body["max"][2] - body["min"][2]
+    if kind == "slope_inverted":
+        assert body["slope"] is None, p
+        return
+    s = body["slope"]
+    assert s is not None and None not in s.values(), (p, s)
+    assert s["high"] > 0.85 * height and s["low"] < 0.4 * height, (p, s, height)
+    straight = (s["high"] + s["low"]) / 2
+    if kind == "curved_slope":
+        assert s["mid"] > straight + 0.3, (p, s)  # a curve, gentle at the top
+    else:
+        assert s["mid"] == pytest.approx(straight, abs=0.05), (p, s)
+
+
+@pytest.mark.browser
+def test_round_parts_cones_and_tiles(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """Round parts are round (as wide as their cells, not cut to boxes), a cone tapers, a dish
+    widens upwards, and a tile is a flat box with no studs."""
+    ids = ["6141", "98138", "3062b", "6143", "14769", "59900", "4740", "3068b", "3070b", "3001"]
+    parts = [Placement(pid, 15, i * 4, 0, 0, 0, 1) for i, pid in enumerate(ids)]
+    with viewing(browser, tmp_path / "round", pawn_path, Build((40, 2, 3), parts)) as (p, _):
+        drawn = p.inspect()
+        by_part = {b["part"]: b for b in drawn["bodies"]}
+        for pid in ids:
+            body = by_part[pid]
+            lo, hi = _box(body)
+            width = (hi - lo)[:2]
+            tlo, thi = _extent(body["top"])
+            blo, bhi = _extent(body["bottom"])
+            top, bottom = thi - tlo, bhi - blo
+            kind = catalog.parts[pid].kind
+            if kind == "cone":
+                assert np.allclose(bottom, width, atol=1e-3)
+                assert (top < 0.75 * width).all() and (top > 4.8).all(), top  # a stud fits
+            elif kind == "dish":
+                assert np.allclose(top, width, atol=1e-3) and (bottom < 0.75 * width).all()
+            else:
+                assert np.allclose(top, width, atol=1e-3) and np.allclose(bottom, width, atol=1e-3)
+            # Measured on the drawn faces: from its centre along the diagonal of its square, a
+            # round face reaches only its radius (a box reaches 1.41 times as far, a diamond
+            # 0.71 times), and its rim has many corners.
+            for face, rim in ((top, body["topRim"]), (bottom, body["bottomRim"])):
+                radius = face[0] / 2
+                if kind in ROUND_KINDS or kind in ("cone", "dish"):
+                    assert rim["diagonal"] == pytest.approx(radius, abs=0.05), (pid, rim, radius)
+                    assert rim["points"] >= 24, (pid, rim)
+                else:  # a box: the diagonal reaches the corner of its narrower side
+                    corner = min(face) / 2 * np.sqrt(2)
+                    assert rim["diagonal"] == pytest.approx(corner, abs=0.05), (pid, rim)
+                    assert rim["points"] == 4, (pid, rim)
+        assert by_part["3062b"]["topRim"]["diagonal"] == pytest.approx(3.8, abs=0.05)
+        assert by_part["6143"]["topRim"]["diagonal"] == pytest.approx(7.8, abs=0.05)
+        assert by_part["3062b"]["shape"] == "cylinder" and by_part["3001"]["shape"] == "box"
+        assert by_part["3068b"]["shape"] == "box" and by_part["3068b"]["kind"] == "tile"
+        stud_x = sorted(round((s["min"][0] + s["max"][0]) / 2 / 8 - 0.5) for s in drawn["studs"])
+        expected = sorted(
+            cx for q in parts for cx, _ in catalog.stud_cells(q) if catalog.parts[q.part].studs_top
+        )
+        assert stud_x == expected  # tiles, round tiles and the dish have none
+        p.assert_clean()
+
+
+def roof_build() -> Build:
+    """Slopes in all four directions round a white base, and a row of every other slope in
+    front of it (all turned to run down towards the front, -y)."""
+    parts = [Placement("3003", 15, x, y, 0, 0, 1) for x in (2, 4, 6) for y in (5, 7, 9)]
+    for x in (2, 4, 6):
+        parts.append(Placement("3039", RED, x, 5, 3, 0, 2))  # runs down to the front (-y)
+        parts.append(Placement("3039", YELLOW, x, 9, 3, 180, 2))  # to the back (+y)
+    parts.append(Placement("3039", GREEN, 2, 7, 3, 270, 2))  # to the left (-x)
+    parts.append(Placement("3039", BLUE, 6, 7, 3, 90, 2))  # to the right (+x)
+    parts.append(Placement("3003", 15, 4, 7, 3, 0, 2))
+    gallery = [("3040b", RED), ("54200", BLUE), ("85984", YELLOW), ("4286", GREEN)]
+    gallery += [("11477", 15), ("3665b", 0)]
+    for i, (pid, colour) in enumerate(gallery):
+        parts.append(Placement(pid, colour, i * 2, 0, 0, 0, 3))
+    return Build((12, 11, 9), parts)
+
+
+def tiled_build() -> Build:
+    """An 8 x 8 grey plate covered in tiles: square and round, in a few colours."""
+    parts = [Placement("3034", 72, 0, y, 0, 0, 1) for y in (0, 2, 4, 6)]
+    tiles = [
+        ("14769", 15, 0, 0, 0),
+        ("3068b", 1, 2, 0, 0),
+        ("14769", 4, 4, 0, 0),
+        ("3068b", 15, 6, 0, 0),
+        ("87079", 14, 0, 2, 0),
+        ("3069b", 4, 6, 2, 0),
+        ("3069b", 0, 6, 3, 0),
+        ("3068b", 4, 4, 4, 0),
+        ("14769", 1, 6, 4, 0),
+        ("2431", 0, 0, 6, 0),
+        ("2431", 15, 0, 7, 0),
+    ]
+    tiles += [("98138", (14, 0)[(x + y) % 2], x, y, 0) for x in (4, 5) for y in (2, 3)]
+    tiles += [("3070b", (15, 1)[(x + y) % 2], x, y, 0) for x in range(4) for y in (4, 5)]
+    tiles += [("98138", (4, 15)[(x + y) % 2], x, y, 0) for x in range(4, 8) for y in (6, 7)]
+    parts += [Placement(pid, c, x, y, 1, rot, 2) for pid, c, x, y, rot in tiles]
+    return Build((8, 8, 2), parts)
+
+
+def round_build() -> Build:
+    """Round bricks, round plates, a dish and cones."""
+    parts = [Placement("3062b", RED, 0, 0, z, 0, 1 + z // 3) for z in (0, 3, 6)]
+    parts.append(Placement("59900", YELLOW, 0, 0, 9, 0, 4))
+    parts += [Placement("6143", BLUE, 2, 0, z, 0, 1 + z // 3) for z in (0, 3)]
+    parts.append(Placement("4740", 15, 2, 0, 6, 0, 3))
+    parts += [Placement("6141", GREEN, 5, 0, z, 0, 1) for z in range(4)]
+    parts.append(Placement("98138", 15, 5, 0, 4, 0, 2))
+    parts.append(Placement("3795", 72, 0, 3, 0, 0, 1))
+    parts += [Placement("59900", (RED, YELLOW, BLUE)[i], i * 2, 3, 1, 0, 2) for i in range(3)]
+    parts += [Placement("3062b", 15, i * 2 + 1, 4, 1, 0, 2) for i in range(3)]
+    return Build((7, 5, 12), parts)
+
+
+def _show(p: Page, proj: Project, build: Build) -> dict[str, Any]:
+    version = p.state()["buildVersion"]
+    proj.save_build(build)
+    p.poll_now()
+    assert p.state()["buildVersion"] > version
+    return p.inspect()
+
+
+@pytest.mark.browser
+def test_part_shapes_pictures(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """Pictures of a roof of slopes, a tiled plate and round parts, to look at by eye
+    (tests/artifacts/viewer-roof.png, viewer-tiles.png, viewer-round.png)."""
+    roof = roof_build()
+    with viewing(browser, tmp_path / "shapes", pawn_path, roof) as (p, proj):
+        drawn = p.inspect()
+        downhill = {
+            tuple(b["downhill"]) for b in drawn["bodies"] if b["part"] == "3039" and b["downhill"]
+        }
+        assert downhill == {(0, -1), (0, 1), (-1, 0), (1, 0)}
+        px = p.view_pixels("roof")
+        for code in (RED, YELLOW, GREEN, BLUE):
+            assert near(px, colour_rgb(catalog, code)) > 300, code
+        _fits(p)
+
+        drawn = _show(p, proj, tiled_build())
+        # a tiled plate is smooth: only the plate's own studs, hidden under the tiles
+        assert len(drawn["studs"]) == 64
+        assert all(st["max"][2] < 2 * 3.2 for st in drawn["studs"])
+        assert sum(b["shape"] == "cylinder" for b in drawn["bodies"]) == 3 + 4 + 8
+        px = p.view_pixels("tiles")
+        assert near(px, colour_rgb(catalog, YELLOW)) > 1000
+        _fits(p)
+
+        drawn = _show(p, proj, round_build())
+        shapes = [b["shape"] for b in drawn["bodies"]]
+        assert shapes.count("cone") == 4 and shapes.count("dish") == 1
+        px = p.view_pixels("round")
+        for code in (RED, YELLOW, GREEN, BLUE):
+            assert near(px, colour_rgb(catalog, code)) > 300, code
+        _fits(p)
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_model_fills_the_view(browser: Any, tmp_path: Path, pawn_path: Path) -> None:
+    """A 16-stud model fills most of the view (it used to fill about 40% of its height),
+    while every part stays in view."""
+    parts = [
+        Placement("3003", (RED, BLUE)[(x + y + z) % 2], x * 2, y * 2, z * 3, 0, 1 + z)
+        for x in range(8)
+        for y in range(8)
+        for z in range(4)
+    ]
+    with viewing(browser, tmp_path / "fill", pawn_path, Build((16, 16, 12), parts)) as (p, _):
+        ndc = _fits(p)
+        tall, wide = (ndc["maxY"] - ndc["minY"]) / 2, (ndc["maxX"] - ndc["minX"]) / 2
+        assert max(tall, wide) > 0.85, ndc
+        assert abs(ndc["maxY"] + ndc["minY"]) < 0.1 and abs(ndc["maxX"] + ndc["minX"]) < 0.1, ndc
+        p.view_pixels("fill")
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_thousands_of_shaped_parts_stay_instanced(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """3,000 parts of every shape load quickly and are drawn with a handful of meshes."""
+    ids = ["3001", "3039", "4286", "3665b", "11477", "3062b", "59900", "6143", "3068b", "4740"]
+    parts = []
+    for n in range(3000):
+        layer, rest = divmod(n, 300)
+        i, j = divmod(rest, 15)
+        parts.append(
+            Placement(
+                ids[n % len(ids)],
+                (RED, BLUE, YELLOW)[n % 3],
+                i * 4,
+                j * 4,
+                layer * 3,
+                (0, 90, 180, 270)[n % 4],
+                layer + 1,
+            )
+        )
+    start = time.monotonic()
+    with viewing(browser, tmp_path / "many", pawn_path, Build((80, 60, 30), parts)) as (p, _):
+        assert time.monotonic() - start < 15
+        assert p.state()["partCount"] == 3000
+        drawn = p.inspect()
+        assert len(drawn["bodies"]) == 3000
+        # one mesh per colour and shape (bodies and studs), plus edges and outlines
+        assert drawn["meshCount"] < 80, drawn["meshCount"]
+        p.view_pixels("many-shapes")
+        p.assert_clean()
+
+
+# ---- notes under the verdict --------------------------------------------------------------
+
+
+@pytest.mark.browser
+def test_build_notes_are_shown_under_the_verdict(
+    browser: Any, tmp_path: Path, pawn_path: Path
+) -> None:
+    short = Build(
+        shape=(6, 6, 15),
+        parts=layered_build().parts,
+        report=layered_build().report,
+        notes=["Added 2 plates to hold the arm.", "Moved a brick <b>left</b> & down."],
+    )
+    with viewing(browser, tmp_path / "notes", pawn_path, layered_build()) as (p, proj):
+        notes = p.page.locator("#notes")
+        assert not notes.is_visible()  # no notes, no list
+
+        proj.save_build(short)
+        p.poll_now()
+        assert notes.is_visible()
+        assert p.text("#notes .notes-title") == "What the software changed"
+        items = p.page.locator("#notes li")
+        assert items.all_text_contents() == list(short.notes)
+        assert p.page.locator("#notes li b").count() == 0  # shown as text, never as HTML
+        assert p.page.locator("#notes details").count() == 0
+        # under the verdict
+        verdict = p.page.locator("#report").bounding_box()
+        box = notes.bounding_box()
+        assert verdict and box and box["y"] >= verdict["y"] + verdict["height"]
+        p.view_pixels("notes-short")
+
+        long_notes = [
+            f"Change number {i + 1}: a plate was added at x={i}, y=2, z=3." for i in range(5)
+        ]
+        raw = short.to_json()
+        raw["notes"] = long_notes[:2] + ["", 7, None] + long_notes[2:]
+        proj.build_path.write_text(json.dumps(raw), "utf-8")
+        p.poll_now()
+        summary = p.page.locator("#notes summary")
+        assert summary.text_content() == "What the software changed (5)"
+        assert not p.page.locator("#notes li").first.is_visible()  # folded away
+        p.view_pixels("notes-folded")
+        summary.click()
+        assert p.page.locator("#notes li").all_text_contents() == long_notes
+        assert p.page.locator("#notes li").first.is_visible()
+        p.view_pixels("notes-open")
+
+        # a rebuild keeps the list open if the person opened it
+        raw["notes"] = long_notes + ["One more change."]
+        proj.build_path.write_text(json.dumps(raw), "utf-8")
+        p.poll_now()
+        assert p.text("#notes summary") == "What the software changed (6)"
+        assert p.page.locator("#notes li").first.is_visible()
+
+        proj.save_build(layered_build())
+        p.poll_now()
+        assert not notes.is_visible()
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_notes_fit_a_phone_screen(browser: Any, tmp_path: Path, pawn_path: Path) -> None:
+    long = "A very long note that goes on and on " * 8
+    build = Build((6, 6, 15), layered_build().parts, layered_build().report, notes=[long, "x"])
+    with viewing(browser, tmp_path / "phone", pawn_path, build, width=375, height=740) as (p, _):
+        assert p.page.locator("#notes").is_visible()
+        overflow = p.page.evaluate(
+            "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+        )
+        assert overflow <= 0
+        ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        p.page.screenshot(path=str(ARTIFACTS / "viewer-notes-phone.png"))
+        p.assert_clean()

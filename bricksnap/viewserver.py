@@ -20,8 +20,6 @@ and svg. Responses carry "Cache-Control: no-store" so a rebuilt project shows im
 address, optionally opens the browser, and runs until interrupted.
 
 STAGE 2 ADDITION TO THE CONTRACT: real part shapes in the 3D viewer
-(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
-not in the code yet.)
 
 The page draws each part by its catalogue ``kind`` (parts.json already carries ``kind``,
 ``studs_top`` and, for slopes, ``slope.low_side``):
@@ -55,6 +53,59 @@ Implementation notes
 - Errors the user can cause (missing folder, a port that is not a whole number from 0 to
   65535, port already in use) raise ``ProjectError`` with a plain-language message, which the
   command line prints without a traceback.
+
+Implementation notes: part shapes and notes (viewer/viewer.js)
+--------------------------------------------------------------
+- Each shape is one shared unit geometry (box, wedge, curved wedge, inverted wedge, cylinder,
+  cone, dish) drawn with one instanced mesh per colour and shape, scaled to the part's cells
+  less the small gap, turned about z and moved into place. A 3,000-part build is about 50
+  meshes. A wedge's geometry runs down towards its own +x; the instance turns that to the
+  grid direction given by ``slope.low_side`` and ``rot`` through the same table as
+  ``Catalog.low_side``. A turn outside 0/90/180/270 falls back to a box.
+- Wedge profile: full height over the rows (along the slope) that have studs, slanted over
+  the others, ending in a 1.6 mm (4 LDU) lip, as real slope bricks do. A slope without studs
+  (the 1 x 1 and 1 x 2 31-degree slopes, the curved slope) slants over its whole length. An
+  inverted slope stands on the rows its ``bottom_cells`` name and is cut away over the rest,
+  its thin edge at the top on the side away from ``low_side``. Without that data the slanted
+  length comes from ``slope.angle_deg``. The curved slope's top is a curve, gentle near
+  the top and steeper towards the lip.
+- Round kinds are 32-sided cylinders as wide as their cells. A cone's top is 0.68 of its
+  base (a stud fits on it). The dish widens upwards from a foot 0.55 of its rim. Studs are
+  only those in ``studs_top``: the dish's off-grid centre stud is not drawn, and the corner
+  studs of a 2 x 2 round brick stick out of its sides a little, as the cells say.
+- Edge lines come from each shape's own outline (three.js EdgesGeometry), so a wedge shows its
+  slope edge and a cylinder its rims. The current step's highlight is the part's own shape,
+  grown by 0.7 mm and drawn inside-out.
+- ``inspect()`` gives each body ``part``, ``entry`` (its index in build.json's "parts"),
+  ``kind``, ``shape``, ``top`` and ``bottom`` (the x-y extent of the flat top and bottom
+  faces, or null when that face is only an edge), and ``downhill`` for wedges. ``downhill``
+  is worked out from the drawn faces, not copied from the catalogue: the sum of the slanted
+  faces' normals is taken into the world, and a face that looks down (an inverted slope's
+  underside) counts the other way. ``meshCount`` is the number of objects drawing the model.
+  So the tests measure the drawn shapes rather than trust a label, each body also gives
+  ``topRim`` and ``bottomRim`` (how many corners the face's rim has, and how far it reaches
+  from its centre along the grid diagonal: a radius for a round face, 1.41 times the
+  half-width for a square one) and ``edges`` (how many line ends its edge lines have);
+  each highlight outline gives its box, ``topRim`` and ``downhill``, measured on the geometry
+  that outline really draws. ``inspect({detail: true})`` adds slower measurements:
+  ``edgeBox`` and ``edgeGap`` (the box the part's edge lines cover, and how far any line end
+  lies from the drawn body), and for upright wedges ``slope``, the heights of the drawn
+  slanted face near its top, half way down and near its lip, found by casting a ray down
+  onto the part. ``camera`` gives the camera's position and the point it looks at.
+- Notes: only non-empty strings are shown. Up to three appear as a list under the heading
+  "What the software changed"; more are folded into a ``<details>`` whose summary reads
+  "What the software changed (N)". A rebuild keeps it open if the person opened it.
+  ``window.__bricksnap.notes`` holds the notes shown.
+- Framing: the camera looks from the front-right and above. It moves as close as it can while
+  the parts' own corners stay within 88% of the way to the view's edges and the corners of
+  the box around the model (at least 4 x 4 x 3 cells) stay inside the view. The point it
+  looks at is shifted so the picture sits in the middle. A 16 x 16 stud model now fills
+  about 85% of the view's height, where it used to fill about 40%. Resizing the window
+  frames the model again until the person turns or zooms it; after that, only turning a
+  phone between portrait and landscape does. A rebuild frames it again only when the box
+  round the parts changes; once the person has turned the view, framing again (after a
+  rebuild or turning a phone) keeps their viewing direction and changes only the distance
+  and the point looked at, so live reload during design edits does not snap the view back.
 """
 
 from __future__ import annotations

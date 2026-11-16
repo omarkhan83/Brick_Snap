@@ -996,3 +996,897 @@ def test_compare_sheet_for_5000_parts_is_fast(catalog):
     elapsed = time.perf_counter() - start
     assert sheet.width > 0
     assert elapsed < 5.0, elapsed
+
+
+# ---- stage 2: real part shapes ---------------------------------------------------------------
+
+SLOPES = ("3040b", "3039", "54200", "85984", "4286", "11477")
+ROUNDS = ("98138", "6141", "14769", "3062b", "6143", "59900", "4740")
+ROTS = (0, 90, 180, 270)
+SIDE_VIEWS = ("front", "right", "back", "left")
+# grid direction of picture right, and of "towards the viewer", in each side view
+PICTURE_RIGHT = {"front": (1, 0), "right": (0, 1), "back": (-1, 0), "left": (0, -1)}
+TOWARDS = {"front": (0, -1), "right": (1, 0), "back": (0, 1), "left": (-1, 0)}
+
+
+def colour_for(catalog, pid: str) -> int:
+    for c in (RED, BLUE, YELLOW, GREEN):
+        if catalog.exists(pid, c):
+            return c
+    raise AssertionError(f"no test colour for {pid}")
+
+
+def lone(catalog, pid: str, rot: int = 0, z: int = 0) -> tuple[Build, Placement]:
+    """One part with a free cell all round it (and above it)."""
+    p = Placement(pid, colour_for(catalog, pid), 1, 1, z, rot, 1)
+    w, d, h = catalog.footprint(p)
+    return Build((w + 2, d + 2, z + h + 2), [p]), p
+
+
+def dot(a, b) -> int:
+    return a[0] * b[0] + a[1] * b[1]
+
+
+def body_box(frame, catalog, p):
+    """Picture (col0, col1, row_top, row_bottom) of the part's body, pixel indices inclusive."""
+    w, d, h = catalog.footprint(p)
+    lo = np.array([p.x, p.y, p.z], float)
+    hi = lo + (w, d, h)
+    corners = np.array(
+        [[a, b, c] for a in (lo[0], hi[0]) for b in (lo[1], hi[1]) for c in (lo[2], hi[2])]
+    )
+    pic = frame.project(corners)
+    c0, c1 = pic[:, 0].min(), pic[:, 0].max()
+    r0, r1 = pic[:, 1].min(), pic[:, 1].max()
+    # pixels whose centres fall inside
+    return (
+        int(math.ceil(c0 - 0.5)),
+        int(math.floor(c1 - 0.5)),
+        int(math.ceil(r0 - 0.5)),
+        int(math.floor(r1 - 0.5)),
+    )
+
+
+def plain(im) -> np.ndarray:
+    return drawn_mask(arr(im))
+
+
+def stud_row_columns(frame, catalog, p, c0: int, c1: int, read_leftwards: bool) -> list[int]:
+    """Indices (counted from the high end, as the profile is read) of the body columns whose
+    pixel centres lie over the part's stud rows."""
+    low = catalog.low_side(p)
+    axis = 0 if low[0] != 0 else 1
+    rows = {(x, y)[axis] for x, y in catalog.stud_cells(p)}
+    out = []
+    for k, col in enumerate(range(c0, c1 + 1)):
+        g = [p.x + 0.5, p.y + 0.5, p.z + 0.5]
+        # the grid coordinate along the slope's axis at this column's centre
+        a0 = frame.project([[*(g[:axis] + [0.0] + g[axis + 1 :])]])[0, 0]
+        a1 = frame.project([[*(g[:axis] + [1.0] + g[axis + 1 :])]])[0, 0]
+        coord = (col + 0.5 - a0) / (a1 - a0)
+        if any(r < coord < r + 1 for r in rows):
+            out.append(c1 - col if read_leftwards else k)
+    return sorted(out)
+
+
+def assert_falls_towards_low_side(catalog, build, p, *, alone: bool = True, s: int = 16) -> None:
+    """In both side views across its slope, the part's columns fall from full height over its
+    stud rows to a low lip at its low side."""
+    low = catalog.low_side(p)
+    assert low is not None
+    views = [v for v in SIDE_VIEWS if dot(PICTURE_RIGHT[v], low) != 0]
+    assert len(views) == 2
+    for view in views:
+        f = R.view_frame(build.shape, view, labels=False, px_per_stud=s)
+        m = plain(R.render_build(build, catalog, view, labels=False, px_per_stud=s))
+        c0, c1, r0, r1 = body_box(f, catalog, p)
+        full = r1 - r0 + 1
+        heights = m[r0 : r1 + 1, c0 : c1 + 1].sum(axis=0)
+        leftwards = dot(PICTURE_RIGHT[view], low) < 0
+        if leftwards:  # low side on the picture's left: read leftwards
+            heights = heights[::-1]
+        # from the high end to the low end the columns only get shorter
+        assert (np.diff(heights) <= 1).all(), (view, heights.tolist())
+        assert heights[0] >= full - 1, (view, heights.tolist())
+        assert heights[-1] <= 0.4 * full, (view, heights.tolist())
+        assert heights[-1] >= 1  # the low lip is there
+        # full height over the stud rows, and already lower a little past them
+        studded = stud_row_columns(f, catalog, p, c0, c1, leftwards)
+        if catalog.stud_cells(p):
+            assert studded, (view, p)
+            assert (heights[studded] >= full - 1).all(), (view, heights.tolist(), studded)
+            past = max(studded) + 3
+            assert heights[past] < heights[studded].min(), (view, heights.tolist(), studded)
+        if alone:  # nothing is drawn beside the part
+            assert not m[r0 : r1 + 1, : c0 - 1].any() and not m[r0 : r1 + 1, c1 + 2 :].any()
+
+
+@pytest.mark.parametrize("pid", SLOPES)
+@pytest.mark.parametrize("rot", ROTS)
+def test_wedge_seen_from_the_side_falls_towards_its_low_side(catalog, pid, rot):
+    build, p = lone(catalog, pid, rot)
+    assert_falls_towards_low_side(catalog, build, p)
+    if catalog.stud_cells(p):  # at a larger scale the flat top and the crease are sharper
+        build, p = lone(catalog, pid, rot)
+        assert_falls_towards_low_side(catalog, build, p, s=32)
+
+
+@pytest.mark.parametrize("pid", ("3039", "3040b", "4286", "11477"))
+def test_the_same_slope_in_four_rotations_in_one_build_each_falls_its_own_way(catalog, pid):
+    """Copies of one part in different rotations are not drawn alike: each falls towards its
+    own low side (a gable roof is two 3039 back to back)."""
+    colour = colour_for(catalog, pid)
+    parts, pos = [], 1
+    for step, rot in enumerate(ROTS, start=1):
+        p = Placement(pid, colour, pos, pos, 0, rot, step)
+        w, d, _ = catalog.footprint(p)
+        parts.append(p)
+        pos += max(w, d) + 1  # along a diagonal, so no two overlap in any side view
+    build = Build((pos, pos, 5), parts)
+    for p in parts:
+        assert_falls_towards_low_side(catalog, build, p, alone=False)
+    # a gable: rot 0 and rot 180 back to back, seen from the side, peak in the middle
+    gable = Build(
+        (2, 4, 4), [Placement("3039", RED, 0, 0, 0, 0), Placement("3039", RED, 0, 2, 0, 180)]
+    )
+    f = R.view_frame(gable.shape, "right", labels=False)
+    m = plain(R.render_build(gable, catalog, "right", labels=False))
+    _, _, r0, r1 = body_box(f, catalog, Placement("3039", RED, 0, 0, 0, 0))
+    cols = [int(f.project([[0, y, 0]])[0, 0]) for y in (0.1, 1.5, 2.5, 3.9)]
+    heights = [int(m[r0 : r1 + 1, c].sum()) for c in cols]
+    full = r1 - r0 + 1
+    assert heights[0] < 0.5 * full and heights[3] < 0.5 * full, heights
+    assert heights[1] >= full - 1 and heights[2] >= full - 1, heights
+
+
+@pytest.mark.parametrize("pid", ("3039", "3040b", "4286", "11477", "3665b", "3062b"))
+def test_a_turned_design_detail_looks_like_the_same_part_in_a_build(catalog, pid):
+    colour = colour_for(catalog, pid)
+    for rot in ROTS:
+        p = Placement(pid, colour, 1, 1, 0, rot)
+        w, d, h = catalog.footprint(p)
+        shape = (w + 2, d + 2, h + 2)
+        design = Design(
+            colors=np.full(shape, EMPTY, dtype=np.int16),
+            details=[Detail(part=pid, color=colour, x=1, y=1, z=0, rot=rot)],
+        )
+        build = Build(shape, [p])
+        for view in R.VIEWS:
+            sd = R.silhouette(design, catalog, view, px_per_stud=16)
+            sb = R.silhouette(build, catalog, view, px_per_stud=16)
+            assert sd.sum() > 50 and (sd == sb).all(), (pid, rot, view, (sd != sb).sum())
+            a = R.render_design(design, catalog, view).tobytes()
+            assert a == R.render_build(build, catalog, view).tobytes(), (pid, rot, view)
+
+
+@pytest.mark.parametrize("pid", SLOPES + ("3665b",))
+@pytest.mark.parametrize("rot", ROTS)
+def test_wedge_seen_end_on_is_a_rectangle(catalog, pid, rot):
+    build, p = lone(catalog, pid, rot)
+    low = catalog.low_side(p)
+    for view in SIDE_VIEWS:
+        if dot(TOWARDS[view], low) == 0:
+            continue
+        f = R.view_frame(build.shape, view, labels=False)
+        m = plain(R.render_build(build, catalog, view, labels=False))
+        c0, c1, r0, r1 = body_box(f, catalog, p)
+        assert m[r0 : r1 + 1, c0 : c1 + 1].all(), view
+        outside = m.copy()
+        outside[: r1 + 1, c0 : c1 + 1] = False  # the body, and studs standing on it
+        assert not outside.any(), view
+
+
+@pytest.mark.parametrize("pid", SLOPES)
+@pytest.mark.parametrize("rot", ROTS)
+def test_slanted_face_seen_from_the_low_side_is_lighter_than_the_back(catalog, pid, rot):
+    build, p = lone(catalog, pid, rot)
+    low = catalog.low_side(p)
+    pics = {}
+    for view in SIDE_VIEWS:
+        if dot(TOWARDS[view], low) != 0:
+            f = R.view_frame(build.shape, view, labels=False)
+            c0, c1, r0, r1 = body_box(f, catalog, p)
+            im = R.render_build(build, catalog, view, labels=False)
+            row = r0 + (r1 - r0) // 3  # in the upper part of the body: on the slanted face
+            pics[dot(TOWARDS[view], low)] = sum(sample(im, (c0 + c1) / 2 + 0.5, row + 0.5))
+    assert pics[1] > pics[-1] + 30, pics
+
+
+@pytest.mark.parametrize("pid", SLOPES + ("3665b",))
+@pytest.mark.parametrize("rot", ROTS)
+def test_wedge_from_above_has_studs_only_on_its_stud_cells(catalog, pid, rot):
+    build, p = lone(catalog, pid, rot, z=1)
+    low = catalog.low_side(p)
+    f = R.view_frame(build.shape, "top")
+    im = R.render_build(build, catalog, "top")
+    w, d, h = catalog.footprint(p)
+    studs = set(catalog.stud_cells(p))
+    across = (0.0, 0.42) if low[0] != 0 else (0.42, 0.0)  # along the face, not down it
+    top = p.z + h
+    # a flat top of the same height, for comparison: a 1x1 brick whose top is level with it
+    ref = Build(build.shape, [Placement("3005", p.color, 0, 0, top - 3)])
+    ref_im = R.render_build(ref, catalog, "top")
+    flat = sum(sample(ref_im, *f.project([[0.08, 0.92, top]])[0, :2]))
+    for x in range(p.x, p.x + w):
+        for y in range(p.y, p.y + d):
+            centre = sum(sample(im, *f.project([[x + 0.5, y + 0.5, top]])[0, :2]))
+            side = sum(
+                sample(im, *f.project([[x + 0.5 + across[0], y + 0.5 + across[1], top]])[0, :2])
+            )
+            if (x, y) in studs:
+                assert centre > side + 20, (x, y)
+            else:
+                assert abs(centre - side) < 12, (x, y)
+                if pid != "3665b":  # a slanted face is darker than a flat top
+                    assert centre < 0.9 * flat, (x, y, centre, flat)
+
+
+@pytest.mark.parametrize("pid", SLOPES)
+def test_slanted_face_from_above_darkens_towards_the_low_edge(catalog, pid):
+    for rot in ROTS:
+        build, p = lone(catalog, pid, rot)
+        low = catalog.low_side(p)
+        f = R.view_frame(build.shape, "top")
+        im = R.render_build(build, catalog, "top")
+        w, d, h = catalog.footprint(p)
+        slanted = [
+            c
+            for c in ((x, y) for x in range(p.x, p.x + w) for y in range(p.y, p.y + d))
+            if c not in set(catalog.stud_cells(p))
+        ]
+        # the slanted cell nearest the low edge is darker than the one nearest the top
+        ranked = sorted(slanted, key=lambda c, low=low: dot(c, low))
+        lo_cell, hi_cell = ranked[-1], ranked[0]
+        lo_pt = (lo_cell[0] + 0.5 + 0.3 * low[0], lo_cell[1] + 0.5 + 0.3 * low[1], h)
+        hi_pt = (hi_cell[0] + 0.5 - 0.3 * low[0], hi_cell[1] + 0.5 - 0.3 * low[1], h)
+        assert (
+            sum(sample(im, *f.project([lo_pt])[0, :2]))
+            < sum(sample(im, *f.project([hi_pt])[0, :2])) - 12
+        ), (pid, rot)
+
+
+@pytest.mark.parametrize("pid", SLOPES + ("3665b",))
+@pytest.mark.parametrize("rot", ROTS)
+def test_mirrored_views_show_the_mirror_image(catalog, pid, rot):
+    build, _ = lone(catalog, pid, rot)
+    for a, b in (("front", "back"), ("right", "left")):
+        ma = plain(R.render_build(build, catalog, a, labels=False))
+        mb = plain(R.render_build(build, catalog, b, labels=False))
+        assert ma.shape == mb.shape
+        assert (ma != mb[:, ::-1]).sum() <= 2, (a, b, (ma != mb[:, ::-1]).sum())
+
+
+@pytest.mark.parametrize("pid", SLOPES + ("3665b",))
+def test_wedge_in_iso_is_cut_away_and_turns_with_rot(catalog, pid):
+    masks = {}
+    for rot in ROTS:
+        build, p = lone(catalog, pid, rot)
+        w, d, h = catalog.footprint(p)
+        colors = np.full(build.shape, EMPTY, dtype=np.int16)
+        colors[catalog.cells(p)] = p.color
+        box = Design(colors=colors, finish=np.full(colors.shape, FINISH_SMOOTH, np.uint8))
+        mw = plain(R.render_build(build, catalog, "iso"))
+        mb = plain(R.render_design(box, catalog, "iso"))
+        assert mw.sum() < mb.sum() and (mw != mb).sum() > 30, (rot, mw.sum(), mb.sum())
+        masks[rot] = mw
+    for a, b in ((0, 180), (90, 270)):
+        if masks[a].shape == masks[b].shape:
+            assert (masks[a] != masks[b]).sum() > 30, (pid, a, b)
+
+
+@pytest.mark.parametrize("rot", ROTS)
+def test_inverted_slope_is_cut_away_underneath(catalog, rot):
+    build, p = lone(catalog, "3665b", rot)
+    low = catalog.low_side(p)
+    assert low is not None
+    for view in SIDE_VIEWS:
+        if dot(PICTURE_RIGHT[view], low) == 0:
+            continue
+        f = R.view_frame(build.shape, view, labels=False)
+        m = plain(R.render_build(build, catalog, view, labels=False))
+        c0, c1, r0, r1 = body_box(f, catalog, p)
+        cols = m[r0 : r1 + 1, c0 : c1 + 1]
+        if dot(PICTURE_RIGHT[view], low) > 0:  # full end on the right: read from the left
+            cols = cols[:, ::-1]
+        # read from the full end (low side) to the thin end
+        assert cols[:, 1].all() and cols[0].all()  # full column, and the whole top row
+        assert not cols[-2, -2] and not cols[-1, -2]  # under the thin end: nothing
+        heights = cols.sum(axis=0)
+        assert heights[-1] <= 0.4 * (r1 - r0 + 1)
+        assert (np.diff(heights) <= 1).all()
+
+
+@pytest.mark.parametrize("pid", ROUNDS)
+@pytest.mark.parametrize("rot", ROTS)
+def test_round_parts_are_round_from_above(catalog, pid, rot):
+    build, p = lone(catalog, pid, rot)
+    w, d, h = catalog.footprint(p)
+    f = R.view_frame(build.shape, "top", labels=False)
+    m = plain(R.render_build(build, catalog, "top", labels=False))
+    for cx, cy in ((p.x, p.y), (p.x + w, p.y), (p.x, p.y + d), (p.x + w, p.y + d)):
+        ix = 0.08 if cx == p.x else -0.08
+        iy = 0.08 if cy == p.y else -0.08
+        col, row = f.project([[cx + ix, cy + iy, h]])[0, :2]
+        assert not m[int(row), int(col)], (pid, rot, cx, cy)
+    col, row = f.project([[p.x + w / 2, p.y + d / 2, h]])[0, :2]
+    assert m[int(row), int(col)]
+    # the outline is a circle: as wide as it is deep, and narrower along the diagonals
+    rows, cols = np.nonzero(m)
+    assert abs((rows.max() - rows.min()) - (cols.max() - cols.min())) <= 1
+    assert m.sum() < 0.85 * (w * 16) * (d * 16) * 1.0
+
+
+@pytest.mark.parametrize("pid", ROUNDS)
+def test_round_parts_are_round_in_iso(catalog, pid):
+    build, p = lone(catalog, pid)
+    colors = np.full(build.shape, EMPTY, dtype=np.int16)
+    colors[catalog.cells(p)] = p.color
+    box = Design(colors=colors, finish=np.full(colors.shape, FINISH_SMOOTH, np.uint8))
+    mr = plain(R.render_build(build, catalog, "iso"))
+    mb = plain(R.render_design(box, catalog, "iso"))
+    assert mr.sum() < 0.92 * mb.sum(), (mr.sum(), mb.sum())
+    # the far corner of the box (top left of the iso picture) is cut away
+    f = R.view_frame(build.shape, "iso")
+    w, d, h = catalog.footprint(p)
+    col, row = f.project([[p.x + 0.04, p.y + d - 0.04, h]])[0, :2]
+    assert mb[int(row), int(col)] and not mr[int(row), int(col)]
+
+
+def test_cone_tapers_from_the_side(catalog):
+    for rot in ROTS:
+        build, p = lone(catalog, "59900", rot)
+        for view in SIDE_VIEWS:
+            f = R.view_frame(build.shape, view, labels=False)
+            m = plain(R.render_build(build, catalog, view, labels=False))
+            c0, c1, r0, r1 = body_box(f, catalog, p)
+            near_top = m[r0 + 2].sum()
+            near_bottom = m[r1 - 3].sum()
+            assert near_top < near_bottom - 3, (view, near_top, near_bottom)
+
+
+@pytest.mark.parametrize(
+    "pid", ("3070b", "3069b", "2431", "3068b", "87079", "98138", "14769", "4740")
+)
+def test_parts_without_studs_show_none(catalog, pid):
+    for rot in (0, 90):
+        build, p = lone(catalog, pid, rot)
+        for view in SIDE_VIEWS:
+            f = R.view_frame(build.shape, view, labels=False)
+            m = plain(R.render_build(build, catalog, view, labels=False))
+            _, _, r0, _ = body_box(f, catalog, p)
+            assert m[r0 : r0 + 3].any() and not m[: r0 - 1].any(), view
+        f = R.view_frame(build.shape, "top")
+        im = R.render_build(build, catalog, "top")
+        w, d, h = catalog.footprint(p)
+        if pid == "4740":  # the dish has rings of its own
+            continue
+        mid = np.array([p.x + w / 2, p.y + d / 2])
+        for x in range(p.x, p.x + w):
+            for y in range(p.y, p.y + d):
+                c = np.array([x + 0.5, y + 0.5])
+                inwards = np.sign(mid - c) / max(1.0, float(np.abs(np.sign(mid - c)).sum()) ** 0.5)
+                if not inwards.any():
+                    inwards = np.array([1.0, 0.0])
+                ring = sum(sample(im, *f.project([[*(c + 0.27 * inwards), h]])[0, :2]))
+                inner = sum(sample(im, *f.project([[*(c + 0.1 * inwards), h]])[0, :2]))
+                assert abs(ring - inner) < 12, (pid, x, y)
+
+
+def test_studs_on_round_parts_and_slopes_are_drawn(catalog):
+    for pid in ("3062b", "6141", "59900", "3040b"):
+        build, p = lone(catalog, pid)
+        w, d, h = catalog.footprint(p)
+        (sx, sy), *_ = catalog.stud_cells(p)
+        f = R.view_frame(build.shape, "top")
+        im = R.render_build(build, catalog, "top")
+        centre = sum(sample(im, *f.project([[sx + 0.5, sy + 0.5, h]])[0, :2]))
+        ring = sum(sample(im, *f.project([[sx + 0.5 + 0.27, sy + 0.5, h]])[0, :2]))
+        assert centre > ring + 30, pid
+        f = R.view_frame(build.shape, "right")
+        im = R.render_build(build, catalog, "right")
+        _, row = f.project([[0, 0, h + 0.25]])[0, :2]
+        col, _ = f.project([[0, sy + 0.5, 0]])[0, :2]
+        assert drawn_mask(arr(im))[int(row), int(col)], pid
+
+
+def test_a_part_on_a_slope_hides_its_stud(catalog):
+    p = Placement("3039", RED, 0, 0, 0, 0)
+    alone = Build((2, 2, 5), [p])
+    covered = Build((2, 2, 5), [p, Placement("3069b", BLUE, 0, 1, 3, 0)])
+    f = R.view_frame(alone.shape, "top")
+    for build, stud in ((alone, True), (covered, False)):
+        im = R.render_build(build, catalog, "top")
+        centre = sum(sample(im, *f.project([[0.5, 1.5, 4]])[0, :2]))
+        side = sum(sample(im, *f.project([[0.08, 1.5, 4]])[0, :2]))
+        assert (centre > side + 20) == stud
+
+
+@pytest.mark.parametrize("front", ("3062b", "3040b", "6143"))
+def test_a_stud_behind_a_shaped_part_is_hidden(catalog, front):
+    """Seen from the front, a blue brick's stud stands behind a red round brick or slope that
+    is as tall as it is: none of it shows."""
+    w, d, h = catalog.footprint(Placement(front, RED, 0, 0, 3, 0))
+    parts = [Placement("3005", BLUE, 0, d, 0), Placement("3005", YELLOW, 0, 0, 0)]
+    parts.append(Placement(front, colour_for(catalog, front), 0, 0, 3, 0))
+    b = Build((w, d + 1, 7), parts)
+    for s in (16, 32):
+        assert blue_mask(arr(R.render_build(b, catalog, "front", px_per_stud=s))).sum() == 0
+    # with only a stack of yellow plates and a tile in front, the blue stud shows above it
+    stack = [Placement(pid, YELLOW, 0, 0, z) for z, pid in enumerate(("3024", "3024", "3070b"))]
+    bare = Build(b.shape, parts[:1] + stack)
+    assert blue_mask(arr(R.render_build(bare, catalog, "front"))).sum() > 20
+
+
+def test_a_stud_behind_the_cut_away_of_a_wedge_is_drawn(catalog):
+    """Seen from the right, a red 1x3 slope stands in front of a blue plate. Near its low lip
+    the slope is lower than the plate's stud, so the stud shows above it."""
+    b = Build((2, 3, 4), [Placement("3024", BLUE, 0, 0, 0), Placement("4286", RED, 1, 0, 0, 0)])
+    f = R.view_frame(b.shape, "right", px_per_stud=32)
+    im = arr(R.render_build(b, catalog, "right", px_per_stud=32))
+    col, row = f.project([[0, 0.3, 1.3]])[0, :2]
+    assert blue_mask(im[int(row), int(col)][None, None])[0, 0]
+    col, row = f.project([[0, 2.5, 1.3]])[0, :2]  # where the slope is full height: red
+    assert is_red(im[int(row), int(col)])
+
+
+@pytest.mark.parametrize("above", ("3070b", "3062b", "3005"))
+def test_a_stud_under_a_part_higher_up_is_hidden_from_above(catalog, above):
+    """A blue brick's stud with a red part floating two plates above it: from above the red
+    part's top covers the stud."""
+    b = Build((1, 1, 9), [Placement("3005", BLUE, 0, 0, 0), Placement(above, RED, 0, 0, 5)])
+    f = R.view_frame(b.shape, "top")
+    im = R.render_build(b, catalog, "top")
+    for dx in (0.0, 0.2, -0.2):
+        assert is_red(sample(im, *f.project([[0.5 + dx, 0.5, 9]])[0, :2])), (above, dx)
+    if above != "3062b":  # the round brick leaves the blue corners of the brick showing
+        assert blue_mask(arr(im)).sum() == 0
+
+
+def inverted_over_stud() -> Build:
+    """A red inverted slope on a blue 1x2 brick: its thin end overhangs the brick's stud at
+    y=0 with an open space under it."""
+    return Build(
+        (1, 2, 7), [Placement("3004", BLUE, 0, 0, 0, 90), Placement("3665b", RED, 0, 0, 3, 0)]
+    )
+
+
+def test_a_stud_under_the_open_end_of_an_inverted_slope_is_drawn(catalog):
+    b = inverted_over_stud()
+    assert catalog.low_side(b.parts[1]) == (0, 1)  # full at y=1, cut away over y=0
+    for view in ("right", "left", "front"):
+        f = R.view_frame(b.shape, view, px_per_stud=32)
+        im = arr(R.render_build(b, catalog, view, px_per_stud=32))
+        col, row = f.project([[0.5 if view == "front" else 0, 0.35, 3.25]])[0, :2]
+        assert blue_mask(im[int(row), int(col)][None, None])[0, 0], (view, im[int(row), int(col)])
+    # under the full end there is no stud: the slope sits on it
+    f = R.view_frame(b.shape, "right", px_per_stud=32)
+    im = arr(R.render_build(b, catalog, "right", px_per_stud=32))
+    col, row = f.project([[0, 1.5, 3.25]])[0, :2]
+    assert is_red(im[int(row), int(col)])
+    # from above the slope's flat top hides it
+    assert blue_mask(arr(R.render_build(b, catalog, "top"))).sum() == 0
+    # iso shows more blue than with the full end over the stud as well
+    full = Build(b.shape, [b.parts[0], Placement("3004", RED, 0, 0, 3, 90)])
+    blue_iso = blue_mask(arr(R.render_build(b, catalog, "iso"))).sum()
+    assert blue_iso > blue_mask(arr(R.render_build(full, catalog, "iso"))).sum() + 10
+
+
+def test_a_stud_under_an_inverted_slope_detail_is_drawn_in_a_design(catalog):
+    colors = np.full((1, 2, 7), EMPTY, dtype=np.int16)
+    colors[:, :, 0:3] = BLUE
+    d = Design(colors=colors, details=[Detail(part="3665b", color=RED, x=0, y=0, z=3)])
+    f = R.view_frame(d.shape, "right", px_per_stud=32)
+    im = arr(R.render_design(d, catalog, "right", px_per_stud=32))
+    col, row = f.project([[0, 0.35, 3.25]])[0, :2]
+    assert blue_mask(im[int(row), int(col)][None, None])[0, 0]
+    col, row = f.project([[0, 1.5, 3.25]])[0, :2]
+    assert is_red(im[int(row), int(col)])
+    # and the Design looks like the Build of it
+    b = inverted_over_stud()
+    for view in R.VIEWS:
+        assert (R.silhouette(d, catalog, view) == R.silhouette(b, catalog, view)).all(), view
+
+
+def test_slopes_and_bricks_hide_each_other_by_depth(catalog):
+    """Seen from the right: a red slope in front of a blue brick shows the brick above its
+    slanted face; a red brick in front hides a blue slope completely."""
+    slope_front = Build(
+        (4, 2, 4), [Placement("3003", BLUE, 0, 0, 0), Placement("3039", RED, 2, 0, 0, 0)]
+    )
+    f = R.view_frame(slope_front.shape, "right")
+    im = R.render_build(slope_front, catalog, "right")
+    low_end = sample(im, *f.project([[4, 0.4, 2.6]])[0, :2])
+    high_end = sample(im, *f.project([[4, 1.5, 1.5]])[0, :2])
+    assert blue_mask(np.array([[low_end]]))[0, 0] and is_red(high_end)
+    brick_front = Build(
+        (4, 2, 4), [Placement("3039", BLUE, 0, 0, 0, 0), Placement("3003", RED, 2, 0, 0)]
+    )
+    assert blue_mask(arr(R.render_build(brick_front, catalog, "right"))).sum() == 0
+    # in iso, the brick behind shows above the slope too
+    im = arr(R.render_build(slope_front, catalog, "iso"))
+    assert blue_mask(im).sum() > 100
+
+
+def test_shaped_parts_line_up_with_box_parts(catalog):
+    """Shaped parts are drawn in the same frame: a slope's high end and a brick beside it
+    share the top edge, and the picture size does not change."""
+    b = Build((4, 2, 4), [Placement("3003", BLUE, 0, 0, 0), Placement("3039", RED, 2, 0, 0, 0)])
+    plain_b = Build((4, 2, 4), [Placement("3003", BLUE, 0, 0, 0), Placement("3003", RED, 2, 0, 0)])
+    for view in R.VIEWS:
+        assert R.render_build(b, catalog, view).size == R.render_build(plain_b, catalog, view).size
+    f = R.view_frame(b.shape, "front", labels=False)
+    m = plain(R.render_build(b, catalog, "front", labels=False))
+    mp = plain(R.render_build(plain_b, catalog, "front", labels=False))
+    # seen from the front (the low side) the slope covers exactly the brick's rectangle
+    assert (m != mp).sum() == 0
+    f = R.view_frame(b.shape, "right", labels=False)
+    m = plain(R.render_build(b, catalog, "right", labels=False))
+    c0, c1, r0, r1 = body_box(f, catalog, Placement("3003", BLUE, 2, 0, 0))
+    assert m[r0, c1 - 2] and m[r1, c0]
+
+
+def test_design_details_are_drawn_by_shape(catalog):
+    colors = np.full((5, 4, 6), EMPTY, dtype=np.int16)
+    colors[:, :, 0] = WHITE
+    details = [
+        Detail(part="14769", color=RED, x=0, y=0, z=1),
+        Detail(part="3040b", color=RED, x=2, y=0, z=1, rot=0),
+        Detail(part="6141", color=YELLOW, x=4, y=3, z=1),
+    ]
+    d = Design(colors=colors, details=details)
+    f = R.view_frame(d.shape, "top")
+    im = R.render_design(d, catalog, "top")
+    assert is_red(sample(im, *f.cell_center(0, 0, 1)))
+    corner = sample(im, *f.project([[0.15, 0.15, 2]])[0, :2])
+    assert not is_red(corner) and sum(corner) > 500  # the white floor shows at the corner
+    # the slope detail falls to the front: from the right its columns shrink towards -y
+    f = R.view_frame(d.shape, "right", labels=False)
+    m = plain(R.render_design(d, catalog, "right", labels=False))
+    c0, c1, r0, r1 = body_box(f, catalog, Placement("3040b", RED, 2, 0, 1))
+    heights = m[r0 : r1 + 1, c0 : c1 + 1].sum(axis=0)
+    assert heights[0] < heights[-1] - 8
+    # the round plate carries its stud
+    f = R.view_frame(d.shape, "top")
+    centre = sum(sample(im, *f.project([[4.5, 3.5, 2]])[0, :2]))
+    ring = sum(sample(im, *f.project([[4.77, 3.5, 2]])[0, :2]))
+    assert centre > ring + 30
+
+
+def test_box_parts_draw_as_before_next_to_shaped_ones(catalog):
+    """A brick's own pixels do not change when a slope stands elsewhere in the grid."""
+    brick = Placement("3001", BLUE, 0, 0, 0)
+    alone = Build((6, 4, 6), [brick])
+    both = Build((6, 4, 6), [brick, Placement("3039", RED, 4, 2, 0, 90)])
+    for view in R.VIEWS:
+        a = arr(R.render_build(alone, catalog, view))
+        b = arr(R.render_build(both, catalog, view))
+        blue = blue_mask(a)
+        assert blue.sum() > 100
+        assert (a[blue] == b[blue]).all(), view
+
+
+def test_iso_shades_a_slanted_face_between_top_and_sides(catalog):
+    """In iso a slope's flat sides take exactly the box shades, and its slanted face has a
+    shade of its own: lighter than the front and the right side, unlike the flat top."""
+    slope = Build((4, 4, 5), [Placement("3039", RED, 1, 1, 0, 0)])
+    box = Build((4, 4, 5), [Placement("3003", RED, 1, 1, 0, 0)])
+    f = R.view_frame(slope.shape, "iso")
+    si, bi = R.render_build(slope, catalog, "iso"), R.render_build(box, catalog, "iso")
+
+    def at(im, pt):
+        return np.array(sample(im, *f.project([pt])[0, :2]), dtype=int)
+
+    right, top = (3.0, 2.0, 1.5), (2.0, 2.2, 3.0)
+    assert np.abs(at(si, right) - at(bi, right)).sum() <= 3  # same right side shade
+    assert np.abs(at(si, top) - at(bi, top)).sum() <= 3  # same flat top shade
+    slant = at(si, (2.0, 1.5, 1.75))
+    assert slant.sum() > at(bi, (2.0, 1.0, 1.5)).sum() + 20  # lighter than the box front
+    assert slant.sum() > at(si, right).sum() + 60
+    assert np.abs(slant - at(si, top)).sum() >= 8  # and told apart from the flat top
+
+
+def outline_rows(im, col: int, r0: int, r1: int) -> list[int]:
+    """Rows in [r0, r1] of column col drawn markedly darker than both neighbours."""
+    a = arr(im).sum(axis=2)
+    return [r for r in range(r0, r1 + 1) if a[r, col] < 0.8 * min(a[r - 1, col], a[r + 1, col])]
+
+
+def test_the_crease_between_flat_top_and_slanted_face_is_outlined_from_above(catalog):
+    for rot in ROTS:
+        build, p = lone(catalog, "3039", rot)
+        low = catalog.low_side(p)
+        f = R.view_frame(build.shape, "top")
+        im = R.render_build(build, catalog, "top")
+        a = arr(im).sum(axis=2)
+        # walk from the high edge to the low edge, half-way between the two studs
+        line = []
+        for k in range(1, 64):
+            t = k / 64 * 2
+            c = (p.x + 1 - low[0] * (1 - t), p.y + 1 - low[1] * (1 - t))
+            col, row = f.project([[c[0], c[1], 3]])[0, :2]
+            line.append(int(a[int(row), int(col)]))
+        mid = len(line) // 2  # the crease is at the middle of the part
+        window = line[mid - 4 : mid + 4]
+        assert min(window) < 0.8 * min(line[mid - 12], line[mid + 12]), (rot, line)
+
+
+def test_a_round_side_outlines_like_a_box_from_the_side(catalog):
+    """Seen from the side a round brick, and the bands of a dish, have no outline inside
+    them: only around the part."""
+    for pid in ("3062b", "6143", "4740", "59900"):
+        build, p = lone(catalog, pid)
+        f = R.view_frame(build.shape, "front", px_per_stud=32)
+        im = R.render_build(build, catalog, "front", px_per_stud=32)
+        c0, c1, r0, r1 = body_box(f, catalog, p)
+        sx, _ = catalog.stud_cells(p)[0] if catalog.stud_cells(p) else (p.x, p.y)
+        for x in {p.x + catalog.footprint(p)[0] / 2, sx + 0.5}:
+            col = int(f.project([[x, 0, 0]])[0, 0])
+            assert outline_rows(im, col, r0 + 1, r1 - 1) == [], (pid, x)
+
+
+def test_upto_step_leaves_out_later_shaped_parts(catalog):
+    parts = [
+        Placement("3001", BLUE, 0, 0, 0, 0, 1),
+        Placement("3039", RED, 0, 0, 3, 0, 2),
+        Placement("3062b", RED, 3, 1, 3, 0, 2),
+        Placement("6143", RED, 2, 0, 6, 0, 3),
+    ]
+    b = Build((4, 2, 10), parts)
+    for view in R.VIEWS:
+        first = arr(R.render_build(b, catalog, view, upto_step=1))
+        only = arr(R.render_build(Build(b.shape, parts[:1]), catalog, view))
+        assert (first == only).all(), view
+        assert red_mask(first).sum() == 0
+        second = arr(R.render_build(b, catalog, view, upto_step=2))
+        assert (second == arr(R.render_build(Build(b.shape, parts[:3]), catalog, view))).all()
+        assert red_mask(second).sum() > 30
+
+
+def test_leaving_out_hidden_shaped_parts_changes_no_pixel(catalog, monkeypatch):
+    """Straight views skip shaped parts that cannot show (behind an identical part, or behind
+    box cells); the pictures are exactly those drawn with every part."""
+    # a wall of identical round bricks, and a stack of identical round plates
+    parts = [Placement("3062b", RED, x, y, 6, 0) for x in range(0, 5, 2) for y in range(0, 5, 2)]
+    parts += [Placement("6141", YELLOW, 6, 6, z) for z in range(3)]
+    # a round brick half behind a box (front view), and a slope wholly behind boxes
+    parts += [Placement("3005", BLUE, 0, 0, 0), Placement("6143", YELLOW, 0, 3, 0)]
+    parts += [Placement("3005", BLUE, 3, 0, 0), Placement("3005", BLUE, 4, 0, 0)]
+    parts += [Placement("3039", RED, 3, 2, 0, 0)]
+    # a narrow cone in front of a round brick of the same size: the brick shows around it
+    parts += [Placement("59900", YELLOW, 5, 0, 0), Placement("3062b", RED, 5, 3, 0)]
+    # in line with the wall seen from the front, but beside it seen from above
+    parts += [Placement("3062b", RED, 4, 6, 0)]
+    # two identical inverted slopes in a line, and a slope seen end-on
+    parts += [Placement("3665b", RED, 6, 0, 6, 0), Placement("3665b", RED, 6, 3, 6, 0)]
+    parts += [Placement("4286", GREEN, 0, 6, 3, 90)]
+    b = Build((7, 7, 10), parts)
+    scene = R._build_scene(b, catalog, None)
+    assert len(scene.inst_key) == len([p for p in parts if not p.part.startswith("300")])
+    hidden = {}
+    for view in STRAIGHT:
+        cells = R._to_view_axes(scene.cells, view)
+        hidden[view] = R._hidden_parts(scene, view, R._first_hit(cells)[1])
+    assert hidden["front"].sum() >= 8 and hidden["top"].sum() >= 2  # the test does skip parts
+    culled = {
+        (v, s): R.render_build(b, catalog, v, px_per_stud=s).tobytes()
+        for v in STRAIGHT
+        for s in (3, 16, 21)
+    }
+    monkeypatch.setattr(
+        R, "_hidden_parts", lambda scene, view, box_depth: np.zeros(len(scene.inst_key), bool)
+    )
+    for (v, s), pic in culled.items():
+        assert R.render_build(b, catalog, v, px_per_stud=s).tobytes() == pic, (v, s)
+
+
+def test_shaped_output_is_deterministic(catalog):
+    parts = [
+        Placement(pid, colour_for(catalog, pid), 3 * i % 12, 3 * (i // 4), 0, (90 * i) % 360)
+        for i, pid in enumerate(SLOPES + ROUNDS + ("3665b",))
+    ]
+    b = Build((12, 12, 5), parts)
+    for view in R.VIEWS:
+        assert (
+            R.render_build(b, catalog, view).tobytes() == R.render_build(b, catalog, view).tobytes()
+        )
+
+
+# ---- stage 2: silhouette ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("view", R.VIEWS)
+def test_silhouette_of_box_seed_and_its_build_are_identical(catalog, view):
+    box = ((0, 0, 0), (4, 2, 6))
+    offset = (1, 1, 1)
+    seed = seed_of(box)
+    b = Build((6, 4, 9), [Placement("3001", RED, 1, 1, 1), Placement("3001", BLUE, 1, 1, 4)])
+    s_seed = R.silhouette(seed, catalog, view, grid_shape=b.shape, seed_offset=offset)
+    s_build = R.silhouette(b, catalog, view)
+    f = R.view_frame(b.shape, view, px_per_stud=8, labels=False)
+    assert s_seed.shape == s_build.shape == (f.height, f.width)
+    assert s_seed.dtype == bool and s_seed.sum() > 50
+    if view == "iso":
+        assert (s_seed != s_build).sum() <= 0.01 * s_seed.sum()
+    else:
+        assert (s_seed == s_build).all()
+    # and the Design of those cells gives the same outline
+    d = design_of(b.shape, offset, box)
+    assert (R.silhouette(d, catalog, view) == s_build).all()
+
+
+def test_silhouette_follows_the_scale_and_leaves_out_studs(catalog):
+    b = one_brick((1, 1, 0), shape=(3, 3, 6))
+    for s in (5, 8, 16):
+        sil = R.silhouette(b, catalog, "front", px_per_stud=s)
+        f = R.view_frame(b.shape, "front", px_per_stud=s, labels=False)
+        assert sil.shape == (f.height, f.width)
+        rows = np.nonzero(sil.any(axis=1))[0]
+        _, top = f.project([[0, 0, 3]])[0, :2]
+        assert rows.min() >= int(top) - 1  # no stud bumps above the top face
+        # exactly the brick's body: s columns by 1.2 s rows (sampled at pixel centres)
+        assert sil.sum() in (s * math.floor(1.2 * s), s * math.ceil(1.2 * s)), (s, sil.sum())
+
+
+def test_wedge_build_has_a_smaller_side_silhouette(catalog):
+    base = [Placement("3001", RED, 0, 0, 0)]
+    brick = Build((4, 2, 6), base + [Placement("3003", RED, 0, 0, 3)])
+    wedge = Build((4, 2, 6), base + [Placement("3039", RED, 0, 0, 3, 0)])
+    for view in ("right", "left"):
+        sb = R.silhouette(brick, catalog, view)
+        sw = R.silhouette(wedge, catalog, view)
+        assert sw.sum() < sb.sum() - 20
+        assert not (sw & ~sb).any()  # the wedge lies inside the brick's outline
+    assert (
+        R.silhouette(wedge, catalog, "front").sum() == R.silhouette(brick, catalog, "front").sum()
+    )
+
+
+def test_silhouette_errors_are_plain(catalog):
+    seed = seed_of(((0, 0, 0), (2, 2, 3)))
+    with pytest.raises(ValueError, match="grid"):
+        R.silhouette(seed, catalog, "front")
+    with pytest.raises(ValueError, match="seed, a Design or a Build"):
+        R.silhouette("not a model", catalog, "front")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="Unknown view"):
+        R.silhouette(one_brick((0, 0, 0)), catalog, "under")
+
+
+# ---- stage 2: the rough row ------------------------------------------------------------------
+
+
+def yellow_mask(a: np.ndarray) -> np.ndarray:
+    return (a[..., 0] > 150) & (a[..., 1] > 120) & (a[..., 2] < 80)
+
+
+def test_compare_sheet_with_rough_has_three_rows_in_order(catalog):
+    d = shapes.box(4, 2, 2, colour=RED)
+    two = [Placement("3001", RED, 0, 0, 0, 0, 1), Placement("3001", RED, 0, 0, 3, 0, 2)]
+    b = Build(d.shape, two)
+    rough = Build(d.shape, [Placement(p.part, YELLOW, p.x, p.y, p.z, p.rot, p.step) for p in two])
+    sheet = arr(R.compare_sheet(blue_seed(), d, b, catalog, rough=rough))
+    blue_rows = np.nonzero(blue_mask(sheet).any(axis=1))[0]
+    yellow_rows = np.nonzero(yellow_mask(sheet).any(axis=1))[0]
+    red_rows = np.nonzero(red_mask(sheet).any(axis=1))[0]
+    assert len(blue_rows) and len(yellow_rows) and len(red_rows)
+    assert blue_rows.max() < yellow_rows.min() and yellow_rows.max() < red_rows.min()
+    # same columns and same scale in the rough and build rows
+    ycols = np.nonzero(yellow_mask(sheet).any(axis=0))[0]
+    rcols = np.nonzero(red_mask(sheet).any(axis=0))[0]
+    assert ycols.min() == rcols.min() and ycols.max() == rcols.max()
+    assert (
+        abs(int(yellow_mask(sheet).sum()) - int(red_mask(sheet).sum()))
+        < 0.1 * red_mask(sheet).sum()
+    )
+    # the extra row makes the sheet taller
+    two_rows = arr(R.compare_sheet(blue_seed(), d, b, catalog))
+    assert sheet.shape[0] > two_rows.shape[0] * 1.3
+    # each row's pictures are exactly the single renders
+    views = ("front", "right", "top", "iso")
+    items = [(f"seed - {v}", R.render_seed(blue_seed(), v, d.shape)) for v in views]
+    items += [(f"rough - {v}", R.render_build(rough, catalog, v)) for v in views]
+    items += [(f"build - {v}", R.render_build(b, catalog, v)) for v in views]
+    title = "Seed (top row), rough conversion (middle row) and build (bottom row)"
+    expected = R.contact_sheet(items, columns=4, title=title)
+    assert R.compare_sheet(blue_seed(), d, b, catalog, rough=rough).tobytes() == expected.tobytes()
+
+
+def test_compare_sheet_rough_captions_and_titles(catalog):
+    d = shapes.box(2, 2, 1, colour=RED)
+    b = Build(d.shape, [Placement("3003", RED, 0, 0, 0)])
+    views = ("front", "top")
+    items, title = R._compare_items(
+        blue_seed((2, 2, 3)), d, b, catalog, views=views, px_per_stud=16, rough=b
+    )
+    assert [c for c, _ in items] == [
+        "seed - front",
+        "seed - top",
+        "rough - front",
+        "rough - top",
+        "build - front",
+        "build - top",
+    ]
+    assert "rough" in title.lower() and title.lower().index("seed") < title.lower().index("rough")
+    for (_, a), (_, c) in zip(items[2:4], items[4:6], strict=True):
+        assert a.tobytes() == c.tobytes()  # same build: same picture, same scale
+    items, title = R._compare_items(None, d, None, catalog, views=views, px_per_stud=16, rough=b)
+    assert [c for c, _ in items] == [
+        "rough - front",
+        "rough - top",
+        "design - front",
+        "design - top",
+    ]
+    assert title.lower().startswith("rough")
+
+
+def test_compare_sheet_without_rough_is_unchanged(catalog):
+    d = shapes.box(4, 2, 2, colour=RED)
+    b = Build(d.shape, [Placement("3001", RED, 0, 0, 0, 0, 1), Placement("3001", RED, 0, 0, 3)])
+    views = ("front", "right", "top", "iso")
+    for seed, build in ((blue_seed(), b), (blue_seed(), None), (None, b)):
+        # without rough the sheet is the seed row (if any) above the build or design row,
+        # each picture exactly the single render, as before stage 2
+        items = []
+        if seed is not None:
+            items += [(f"seed - {v}", R.render_seed(seed, v, d.shape)) for v in views]
+        if build is not None:
+            items += [(f"build - {v}", R.render_build(build, catalog, v)) for v in views]
+        else:
+            items += [(f"design - {v}", R.render_design(d, catalog, v)) for v in views]
+        what = "build" if build is not None else "design"
+        title = f"Seed (top row) and {what} (bottom row)" if seed is not None else "Build"
+        expected = R.contact_sheet(items, columns=4, title=title).tobytes()
+        assert R.compare_sheet(seed, d, build, catalog).tobytes() == expected
+        assert R.compare_sheet(seed, d, build, catalog, rough=None).tobytes() == expected
+    items, title = R._compare_items(
+        blue_seed(),
+        d,
+        b,
+        catalog,
+        views=("front", "right", "top", "iso"),
+        px_per_stud=16,
+        rough=None,
+    )
+    assert title == "Seed (top row) and build (bottom row)" and len(items) == 8
+
+
+def test_compare_sheet_with_shaped_parts_is_fast(catalog):
+    nx, ny, courses = 25, 20, 10
+    kinds = ("3005", "3062b", "54200", "3005", "59900", "3070b", "98138", "6141")
+    parts = []
+    for x in range(nx):
+        for y in range(ny):
+            for c in range(courses):
+                pid = (
+                    kinds[(x + 2 * y + c) % len(kinds)]
+                    if c == courses - 1
+                    else ("3062b" if (x + y + c) % 3 == 0 else "3005")
+                )
+                parts.append(
+                    Placement(pid, colour_for(catalog, pid), x, y, 3 * c, 90 * (x % 4), c + 1)
+                )
+    assert len(parts) == 5000
+    b = Build((nx, ny, 3 * courses), parts)
+    m = trimesh.creation.icosphere(subdivisions=4, radius=80.0)
+    v = m.vertices - m.vertices.min(axis=0)
+    seed = Seed(vertices=v * np.array([200 / 160, 160 / 160, 96 / 160]), faces=np.asarray(m.faces))
+    d = Design(colors=np.full(b.shape, RED, dtype=np.int16))
+    start = time.perf_counter()
+    sheet = R.compare_sheet(seed, d, b, catalog, rough=b)
+    elapsed = time.perf_counter() - start
+    assert sheet.width > 0
+    assert elapsed < 5.0, elapsed
+
+
+def test_compare_sheet_of_5000_round_parts_is_fast(catalog):
+    """A hard case: every part is a 2x2 dish (many slanted facets), with a rough row."""
+    parts = [
+        Placement("4740", RED, 2 * (i % 25), 2 * ((i // 25) % 20), i // 500, 0, 1)
+        for i in range(5000)
+    ]
+    b = Build((50, 40, 10), parts)
+    d = Design(colors=np.full(b.shape, EMPTY, dtype=np.int16))
+    start = time.perf_counter()
+    sheet = R.compare_sheet(None, d, b, catalog, rough=Build(b.shape, list(parts)))
+    elapsed = time.perf_counter() - start
+    assert sheet.width > 0
+    assert elapsed < 5.0, elapsed
