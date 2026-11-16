@@ -74,6 +74,50 @@ STAGE 2 ADDITION TO THE CONTRACT: the seed keeps its place on the grid
   cells, colours and finish are mirror-symmetric too (cell x against nx - 1 - x), up to the
   tie-breaking of colour votes.
 
+STAGE 2 CHANGE TO THE CONTRACT: a cell is filled when the model fills most of it
+Replaces steps 1 and 2 of "Which cells are filled" above. Stage 1 filled every cell the
+surface passed through. That never lost a thin feature, but it made everything fat: a leg
+1.6 studs wide that straddles a stud line came out 3 studs wide, two such legs with a clear
+gap between them merged into one block, and a bottle neck doubled in width. Now:
+
+- Coverage. Each cell has a coverage: the share of its volume that lies inside the model,
+  from 0 to 1, right to within about 0.1. "Inside" is as before: what the outside cannot
+  reach, so scans with small holes still work.
+- Rule 1. A cell whose coverage is at least 0.5 is filled.
+- Rule 2, so that nothing vanishes. A cell with less coverage that the surface passes
+  through hands its material to the cell behind it: the neighbour across the face that the
+  surface in the cell faces away from. If that neighbour is filled by rule 1, this cell is
+  left empty (it was only the skin of something that is there anyway). Otherwise the
+  material has no better home (the model is thinner than a cell here: a whisker, a fin, a
+  brim) and one cell keeps it: this one, or that neighbour if it holds more.
+- Rule 3, so that nothing comes apart. Wherever stage 1's fill connected two parts of the
+  model through cell faces, the new fill connects them through cell faces too. Where rules
+  1 and 2 leave a gap (a thin rod running diagonally), the gap is closed with the cells of
+  stage 1's fill that hold the most.
+- Never fill a cell that stage 1 would have left empty.
+
+What must be true, and is tested
+- A box w studs wide, wherever it sits on the grid, comes out round(w) cells wide (either
+  neighbour when w is within 0.05 of a half), never wider than ceil(w). The same in y and,
+  in plates, in z. Two boxes with a gap of one cell or more between them stay apart.
+- A sphere or cylinder 8 studs or more across has a filled volume within 5% of its true
+  volume (stage 1 was far above).
+- A rod 0.3 studs thick, along any axis, at any position (inside a row of cells, on the
+  boundary between two rows, on the edge where four meet) is still there from end to end,
+  connected through faces, one cell thick (two where it sits exactly on a boundary, so the
+  result stays symmetric). The same for a sheet 0.2 studs thick, level or upright: no holes,
+  one cell thick. A rod or sheet running diagonally stays connected through faces.
+- A thin feature stays joined, through cell faces, to the body it grows from.
+- The number of face-connected pieces is the same as in stage 1's fill, for every sample
+  model in samples/models at 12, 16 and 24 studs.
+- A mirror-symmetric model still gives a mirror-symmetric Design.
+- Colour and slope hints: a filled cell takes them from the surface inside it and, when the
+  surface that bounds it lies in a neighbouring cell that was left empty (always the case
+  for a cell filled without the surface passing through it), from that surface: the cell
+  directly above for the slope hint, the nearest such neighbour for the colour. A top cell
+  must not lose its hint or its colour because its skin cell was dropped.
+- Hollowing, padding, determinism and the speed limits are as before.
+
 Implementation notes
 --------------------
 - Everything is done in cell units (millimetres divided by CELL_MM), where a cell is a unit
@@ -93,7 +137,9 @@ Implementation notes
   snapped onto it. Binary STL, GLB and PLY store single precision, so a face meant to sit on
   a boundary comes back up to about 3e-5 of a cell off it; without the snap, the faces at
   right angles to it would reach into the next cell and fatten blocky models.
-- Step 1 is exact rather than sampled. Point sampling at half-cell spacing (the prototype's
+- Stage 1's fill is still worked out, as the bound of the new one and the judge of what
+  belongs together (see "Coverage and the three rules" below). Its surface cells are found
+  exactly rather than sampled. Point sampling at half-cell spacing (the prototype's
   method) misses about one surface cell in ten where a triangle only clips a cell's corner.
   Instead each triangle is clipped against the cell slabs, one axis after the other
   (Sutherland-Hodgman, vectorised; a piece has at most 9 corners), so every final piece is
@@ -117,12 +163,121 @@ Implementation notes
   square millimetres, so the vote follows visible surface area. Votes within one part in a
   million of the best count as a tie, and a tie goes to the lower LDraw code. "The most
   common colour of the whole surface" counts surface cells (ties again to the lower code).
+- Each surface cell's own colour is its own vote (what stage 1 showed there). The colour
+  moves with the material: a filled cell that emptied surface cells handed their material
+  to (rule 2, also along a chain) takes the own colour of those cells, and of itself when
+  it has surface of its own, that has the most area (each cell counts the area of its own
+  colour; a lone giver needs no areas). So a top whose skin was emptied keeps its colour,
+  and so does a painted or thin feature in another colour (an eye, a stripe) whose cells
+  were only skin; mixing all of those cells' surface by area instead lost such features to
+  the larger surface around them, and counting cells let one side skin tie with the whole
+  top and win on the lower code. On top of that, a cell with nothing filled above it takes
+  the colour of the emptied cell right above it, when that gave it its material: the
+  colour seen from above stays. A filled cell no material came to takes its own surface,
+  else the surface of its emptied face-neighbours by area, else the colour of the inside.
 - Colours are snapped with ``Catalog.nearest_colours`` (closest as eyes judge it; the
   first catalogue colour wins an exact tie).
   ``default_colour`` must be a solid colour of the catalogue.
 - The flood fill labels the empty space (6-connected) and keeps the pieces that touch any
   face of the grid; beyond every face of the grid, including below z = 0, is outside.
 - The hollow rule is a box erosion, done as three 1-D minimum filters.
+
+Coverage and the three rules (implementation notes)
+- Coverage is measured per sub-cell: each surface cell of stage 1 is cut into s x s x s
+  sub-cells, s = 3 (27 per cell), or 2 when the surface cells would have over 4 million
+  sub-cells (about 148,000 surface cells; none of the sample models at 96 studs gets
+  there). Cells stage 1 found inside have coverage 1, all others 0.
+- Rays run along each axis through the middle of every sub-cell, and are cut by the
+  triangles exactly (a scanline over each triangle's projection, across its shorter side,
+  half-open so a ray on an edge two triangles share counts once; each edge is worked out
+  from its lower end, so both triangles compute it alike). The rays meet the triangles as
+  they are, not nudged: nudging each triangle along its own normal opens hair-thin gaps
+  between neighbours, and a ray through one missed a crossing on one side of a symmetric
+  model and not on the other. Instead each crossing is moved 1e-6 of a cell into the solid
+  along the ray, so a face on a cell boundary still lies in the cell behind it. Along a
+  ray, the surface cells come in runs bounded by cells stage 1 knows to be outside or
+  inside. The winding (+1 crossing into a part, -1 out of one) starts at the lower bound's
+  own (0 outside, the ray's own count but at least 1 inside, so overlapping parts are one
+  solid); where it ends at the upper bound's own the run agrees and a point is inside where
+  the winding is 1 or more. A run that does not agree crosses a hole, a lone sheet or a
+  part open at one end: then what the outside can reach along the ray is outside (nothing
+  is inside between two outside bounds; up to the first crossing from an outside bound into
+  an inside one; all of it between two inside bounds; half where an outside and an inside
+  bound have no crossing between them). Each sub-cell takes the inside share of its length
+  along the ray.
+- Of the three rays through a sub-cell, the agreeing ones are used (all three if none
+  agrees), and of those the one that crosses the surface most squarely inside the sub-cell
+  (for a flat surface that is exact; within 1e-3 of the squarest, the first axis, so noise
+  does not choose); a sub-cell no used ray crosses takes their mean. A closed part wound
+  inside out (corners joined where equal; each edge used twice, once each way; negative
+  volume) counts as wound outward, so a hollow made by an inverted inner shell is solid, as
+  stage 1 had it.
+- Mirror images measure alike. Files store single precision, so the mirror image of a cell
+  in a symmetric model measures up to about 1e-5 differently (its corners are up to 1e-3 mm
+  off). Each surface cell whose mirror image (left to right, and front to back) has the
+  model in the same sub-cells, with shares within 1e-3 of its own, takes the mean of the
+  two; a cell's coverage is the sum of its sub-cells in sorted order, so the two come out
+  exactly equal. Coverages within 1e-5 of each other count as equal throughout rule 2.
+- Measured: the coverage summed over a sphere of 8 to 16 studs is within 0.1% of its
+  volume; box faces come out exact. Rule 1 alone puts a sphere 1 to 4% over its volume
+  (thresholding a curved surface), 4% at 8 studs, and an upright cylinder up to 8.5% over
+  (at 9 studs: 69 cells per layer are at least half covered, against an area of 63.6).
+- Rule 1 counts coverage from 0.5 - 1e-5 (the nudge into the solid takes up to 1e-6 from
+  each face), so a box covering exactly half of two cells fills both, symmetrically.
+- Rule 2: "the side the surface faces away from" is taken as the side the cell's material
+  lies on: along each axis where the middle of the material (from the sub-cells) is at
+  least 0.1 of a cell from the cell's middle, the neighbour on that side, when the material
+  reaches it across their shared face (both sub-layers next to the face hold some, at the
+  same place). Material in the middle of the cell stays (the model is thin here). Where
+  the material meets that neighbour over half of the face or more it is a skin and is
+  handed on; over less (the end of a rod or a fin) only when it reaches less than half way
+  into the cell on average, so a thin feature ends where it covers half of its last cell,
+  as a thick one does, or when the cell meets fuller neighbours on two axes or more (it is
+  the corner or edge of something larger, as at the corner of a box, not the end of a
+  rod: kept, it made a lone bump). Of the candidates, the one holding most is taken (the
+  first axis among equals), and the material is handed on when it holds more. Handing on
+  repeats along the chain (a skin of a skin ends in the rule-1 cell it lies on): material
+  that reaches a rule-1 cell adds nothing; otherwise the cell where it stops is filled.
+  Ties stay where they are, so a rod exactly on a boundary keeps both cells.
+- Rule 2 for a cell where the rays found no material at all. Its surface's net area (each
+  piece's area times its outward normal, from clipping the triangles to it) tells which:
+  a sliver of skin (the model reaches only a hair into the cell, as at the corner of a box
+  off the grid) has its surface facing one way, net area at least half its area, and
+  hands its share to the fullest cell behind that surface (on each axis where the net area
+  has at least a fifth of its length) that holds material, or that a sliver handed its
+  share to before: a row of slivers along an edge empties into the body one step at a
+  time. Slivers with nothing of the model behind them stay. Before, a sliver whose
+  neighbours were slivers too stayed, and rule 3 then joined it on through more slivers:
+  stray cells holding under 0.01% of a cell, wider than ceil(w). Any other such cell (a
+  sheet with no thickness, a thin feature the rays all miss, whose surface faces both ways)
+  hands its share to the fullest neighbour its surface runs on into when that holds more,
+  and otherwise stays, so such features do not vanish.
+- Rule 3: two face-neighbours of stage 1's fill belong together when a triangle crosses
+  their shared face (found while finding stage 1's surface cells), or when the model in
+  them comes within a cell of each other across it (fewer than s - 1 empty sub-layers
+  between; an inside cell is full). So two boxes a cell or more apart do not belong
+  together even where stage 1 joined them. Where one such group's filled cells fall into
+  several face-connected pieces, the pieces are joined along the cheapest paths through
+  the group's emptied cells, a cell costing 1.5 minus its coverage (scipy's Dijkstra from
+  all pieces at once, then a minimum spanning tree over the pieces it found next to each
+  other); a tiny cost that grows away from the middle in x and y breaks ties the same way
+  on both sides. A spanning tree keeps only one of two equally cheap joins that are mirror
+  images of each other, so where the fill so far, stage 1's fill and the coverage are all
+  mirror-symmetric, every cell added is added with its mirror images too. A group left
+  without a filled cell keeps its fullest one (and its mirror images).
+- Standing (not in the contract's rules; it keeps "it stands" true): a cell of the bottom
+  layer that stage 1 filled is filled too when the model reaches the ground inside it (its
+  lowest sub-layer holds some of the model) and the cell above it is filled. Otherwise a
+  model resting on round parts (a car's wheels, a ball) lost the cells it stands on, which
+  hold less than half, and floated or tipped over. Applied before rule 3. After rule 3, if
+  the centre of mass of the filled cells is not over the convex hull of the bottom layer's
+  cells (the sample spaceship rests on a small part of itself and leans out; stage 1's
+  wider bottom layer hid it), the bottom cells of stage 1's fill under filled cells are
+  added, nearest the centre of mass first and mirror images together, as few as make it
+  stand (found by halving); none if even all of them do not.
+- Slope hints of an open-topped filled cell count the upward surface in the emptied surface
+  cells stacked right above it (up to the first cell that is not an emptied surface cell)
+  as its own, and leave out their walls, which belong to cells that are not there.
 
 Slope hints (implementation notes)
 - Only the surface that faces up (n_z above cos 70 degrees, in millimetres) is averaged.
@@ -165,7 +320,9 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from scipy import ndimage
+from scipy import ndimage, sparse
+from scipy.sparse import csgraph
+from scipy.spatial import ConvexHull
 
 from bricksnap.catalog import Catalog
 from bricksnap.types import (
@@ -187,6 +344,13 @@ _TIE = 1e-6  # relative; colour votes this close to the best count as a tie
 _PIECES = 250_000  # (triangle, cell) pieces made per batch, to bound memory
 _STEEP = float(np.cos(np.radians(70.0)))  # n_z at or below this: a wall or an underside
 _FLAT = float(np.cos(np.radians(20.0)))  # n_z at or above this: a flat top
+_SUB_LIMIT = 4_000_000  # sub-cells of surface cells at 3 per axis; beyond this, 2 per axis
+_MATERIAL = 1e-6  # share of a sub-cell below which it holds none of the model
+_EVEN = 1e-5  # coverages this close count as equal (files store single precision)
+_NOISE = 1e-3  # sub-cell shares this close in mirror-image cells differ only by file noise
+_SQUARE = 1e-3  # rays whose squareness to the surface differs by less meet it alike
+_HALF = 1e-5  # coverage this close below 0.5 counts as half (the nudge takes up to 6e-6)
+_SIDE = 0.1  # cells; material this far off a cell's middle lies on that side of it
 
 
 def voxelize(
@@ -231,25 +395,49 @@ def voxelize(
     else:
         codes, face_code = _snap(face_colors, catalog)
 
-    # 1. every cell the surface passes through, and the colour vote in it
-    cell_flat, piece_code, weight = _surface_cells(tris, body, face_code, len(codes))
-    surface_colour = np.full(nx * ny * nz, EMPTY, dtype=np.int64)
-    if len(cell_flat):
-        win_cell, win_code = _vote(cell_flat, piece_code, weight, len(codes))
-        surface_colour[win_cell] = codes[win_code]
-    surface_colour = surface_colour.reshape(body)
-    surface = surface_colour != EMPTY
+    # 1. stage 1's fill: every cell the surface passes through, and what the outside cannot
+    # reach; it bounds the new fill and says which parts belong together
+    keep, nudged, estimate, axes = _prepare(tris)
+    kept_code = face_code[keep]
+    surface, pairs, crossed = _surface_pass(nudged, estimate, axes, body, kept_code, len(codes))
+    stage1 = _fill_inside(surface)
+    interior = stage1 & ~surface
 
-    # 2. flood the empty space from outside the grid; what it cannot reach is inside
-    filled = _fill_inside(surface)
-    inside_colour = _most_common(surface_colour[surface]) if surface.any() else default_colour
-    colours = np.where(surface, surface_colour, np.where(filled, inside_colour, EMPTY))
+    # 2. how much of each cell the model fills, and which cells keep its material
+    s = _subdivision(int(surface.sum()))
+    flip = _turned_out(tris[keep])
+    sub, occupied, index = _coverage(tris[keep], flip, body, surface, interior, s)
+    _even_out(sub, occupied, index)
+    coverage = interior.astype(np.float64)
+    # summed in sorted order, so that mirror-image cells come out exactly equal
+    coverage[surface] = np.sort(sub.reshape(len(sub), -1), axis=1).sum(axis=1) / s**3
+    empty_handed = surface & (coverage * s**3 <= _MATERIAL)  # cells the rays found nothing in
+    net, area = _facing(nudged, flip, estimate, axes, body, index, empty_handed)
+    filled, went = _choose(coverage, sub, occupied, net, area, index, surface, stage1, crossed)
 
-    # 3. slope hints, on the solid shape, so hollowing cannot change them
+    # 3. colours, from the surface in each filled cell and in the emptied cells around it
+    dropped = surface & ~filled
+    colours = _colours(
+        nudged, estimate, axes, body, kept_code, codes, pairs, filled, dropped, went,
+        default_colour,
+    )  # fmt: skip
+
+    # 4. slope hints, on the solid shape, so hollowing cannot change them
     finish = np.full(body, FINISH_STUDS, dtype=np.uint8)
     if slope_hints:
         open_top = filled & ~np.concatenate([filled[:, :, 1:], np.zeros((nx, ny, 1), bool)], 2)
-        finish[_sloped(tris, body, open_top)] = FINISH_SLOPED
+        # the emptied surface cells stacked right above an open top are its skin: for each,
+        # the flat index of that top (-1 for every other cell)
+        z = np.arange(nz)
+        base = np.maximum.accumulate(np.where(dropped, -1, z), axis=2)  # last cell not dropped
+        home = np.full(body, -1, dtype=np.int64)
+        xs, ys, zs = np.nonzero(dropped & (base >= 0))
+        top = base[xs, ys, zs]
+        on_top = open_top[xs, ys, top]
+        home[xs[on_top], ys[on_top], zs[on_top]] = np.ravel_multi_index(
+            (xs[on_top], ys[on_top], top[on_top]), body
+        )
+        finish[_sloped(tris, body, open_top, home)] = FINISH_SLOPED
 
     if hollow:
         colours[filled & ~_keep_shell(filled, shell_studs)] = EMPTY
@@ -344,63 +532,987 @@ def _most_common(values: np.ndarray) -> int:
     return int(found[np.argmax(counts)])  # np.unique sorts, so ties go to the lower code
 
 
-def _surface_cells(
-    tris: np.ndarray, body: tuple[int, int, int], face_code: np.ndarray, n_codes: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Every (cell, triangle) pair where the triangle passes through the cell's inside.
-
-    ``tris`` is (m, 3, 3) in cell units, ``face_code`` the colour index of each triangle.
-    Returns flat body-cell indices, the colour index of each pair, and its vote weight: the
-    area (mm²) of the triangle inside the cell where colours compete, else 1. Exact areas
-    take a full clip, so they are only worked out for the cells that need them.
-    """
-    keep, nudged, estimate, axes = _prepare(tris)
+def _flat_cells(body: tuple[int, int, int]) -> Callable[[np.ndarray], np.ndarray]:
+    """A function from cells (q, 3) to flat body-cell indices, clamping anything beyond."""
     shape = np.asarray(body, dtype=np.int64)
+    strides = np.array([body[1] * body[2], body[2], 1], dtype=np.int64)
 
     def flat(cell: np.ndarray) -> np.ndarray:
-        cell = np.clip(cell, 0, shape - 1)
-        return np.ravel_multi_index((cell[:, 0], cell[:, 1], cell[:, 2]), body)
+        return np.clip(cell, 0, shape - 1) @ strides
 
-    # pass 1: which cells each triangle passes through (no areas)
-    cells_out, which_out = [], []
-    for batch in _batches(np.arange(len(keep)), estimate):
+    return flat
+
+
+def _surface_pass(
+    nudged: np.ndarray,
+    estimate: np.ndarray,
+    axes: tuple[int, ...],
+    body: tuple[int, int, int],
+    code: np.ndarray,
+    n_codes: int,
+) -> tuple[np.ndarray, np.ndarray, list[np.ndarray]]:
+    """Stage 1's surface cells: every cell a triangle passes through the inside of.
+
+    ``nudged`` and ``estimate`` come from ``_prepare``; ``code`` is each triangle's colour
+    index. Returns the cells (bool, shape ``body``), the distinct (cell, colour) pairs as
+    flat cell * n_codes + code (empty with one colour), and for each axis the faces some
+    triangle crosses: ``crossed[a][cell]`` is the face between the cell and the next one
+    along axis a (a triangle with pieces in two face-neighbours crosses the face between).
+    """
+    n_cells = int(np.prod(body))
+    flat = _flat_cells(body)
+    shape = np.asarray(body, dtype=np.int64)
+    surface = np.zeros(n_cells, dtype=bool)
+    crossed = [np.zeros(n_cells, dtype=bool) for _ in range(3)]
+    # a cell index in the order the clip cuts the axes, so each batch's pieces come out
+    # sorted by (triangle, that index) and a neighbour is found by binary search
+    order_stride = np.zeros(3, dtype=np.int64)
+    order_stride[axes[2]] = 1
+    order_stride[axes[1]] = body[axes[2]]
+    order_stride[axes[0]] = body[axes[1]] * body[axes[2]]
+    pairs_out = []
+    for batch in _batches(np.arange(len(nudged)), estimate):
         _, _, owner, cell = _clip_to_cells(nudged[batch], axes)
-        if n_codes == 1:  # one colour: only the set of cells matters
-            cells_out.append(np.unique(flat(cell)))
-            continue
-        cells_out.append(flat(cell))
-        which_out.append(batch[owner])
-    if not cells_out:
-        empty = np.zeros(0, dtype=np.int64)
-        return empty, empty, np.zeros(0)
-    cell_flat = np.concatenate(cells_out)
-    weight = np.ones(len(cell_flat))
-    if n_codes == 1:
-        return cell_flat, np.zeros(len(cell_flat), dtype=np.int64), weight
-    which = np.concatenate(which_out)  # position in `keep` of each piece's triangle
-    code = face_code[keep[which]]
+        cell = np.clip(cell, 0, shape - 1)
+        where = flat(cell)
+        surface[where] = True
+        if n_codes > 1:
+            pairs_out.append(np.unique(where * n_codes + code[batch[owner]]))
+        key = owner * n_cells + cell @ order_stride
+        for axis in range(3):
+            if body[axis] == 1:
+                continue
+            target = key + order_stride[axis]
+            at = np.minimum(np.searchsorted(key, target), len(key) - 1)
+            found = (key[at] == target) & (cell[:, axis] < body[axis] - 1)
+            crossed[axis][where[found]] = True
+    pairs = np.unique(np.concatenate(pairs_out)) if pairs_out else np.zeros(0, dtype=np.int64)
+    return surface.reshape(body), pairs, [c.reshape(body) for c in crossed]
 
-    # pass 2: exact areas for the pieces in cells where more than one colour meets
-    pairs = np.unique(cell_flat * n_codes + code) // n_codes
-    contested = np.zeros(int(np.prod(shape)), dtype=bool)
-    contested[pairs[1:][pairs[1:] == pairs[:-1]]] = True
-    in_contest = contested[cell_flat]
-    if not in_contest.any():
-        return cell_flat, code, weight
-    involved = np.unique(which[in_contest])
-    cells_out, codes_out, weights_out = [], [], []
-    for batch in _batches(involved, estimate[involved]):
+
+def _facing(
+    nudged: np.ndarray,
+    flip: np.ndarray,
+    estimate: np.ndarray,
+    axes: tuple[int, ...],
+    body: tuple[int, int, int],
+    index: np.ndarray,
+    wanted: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The surface inside each ``wanted`` cell: its net area as a vector (each piece's area
+    times its outward unit normal, in cell units) and its total area, indexed like the
+    surface cells (zero for cells not wanted)."""
+    n = int(index.max()) + 1 if index.size else 0
+    net = np.zeros((n, 3))
+    area = np.zeros(n)
+    if not wanted.any():
+        return net, area
+    flat = _flat_cells(body)
+    wanted_flat = wanted.ravel()
+    index_flat = index.ravel()
+    for batch in _batches(np.arange(len(nudged)), estimate):
         poly, count, owner, cell = _clip_to_cells(
-            nudged[batch], axes, select=lambda c: contested[flat(c)]
+            nudged[batch], axes, select=lambda c: wanted_flat[flat(c)]
         )
-        cells_out.append(flat(cell))
-        codes_out.append(face_code[keep[batch[owner]]])
-        weights_out.append(_polygon_area_mm(poly, count))
-    return (
-        np.concatenate([cell_flat[~in_contest], *cells_out]),
-        np.concatenate([code[~in_contest], *codes_out]),
-        np.concatenate([weight[~in_contest], *weights_out]),
+        if len(owner) == 0:
+            continue
+        rel = poly[:, 1:] - poly[:, :1]
+        fan = np.cross(rel[:, :-1], rel[:, 1:])
+        real = (np.arange(1, poly.shape[1] - 1)[None, :] + 1) < count[:, None]
+        vector = 0.5 * (fan * real[:, :, None]).sum(axis=1) * flip[batch[owner], None]
+        where = index_flat[flat(cell)]
+        for k in range(3):
+            net[:, k] += np.bincount(where, vector[:, k], minlength=n)
+        area += np.bincount(where, np.linalg.norm(vector, axis=1), minlength=n)
+    return net, area
+
+
+def _even_out(sub: np.ndarray, occupied: np.ndarray, index: np.ndarray) -> None:
+    """Make the measurements of mirror-image cells (left to right, and front to back) equal
+    where they differ only by the noise of a file's single precision, in place.
+
+    Each surface cell whose mirror image is a surface cell too, with the model in the same
+    sub-cells, and whose sub-cells' shares agree with the mirror image's to within _NOISE,
+    takes the mean of the two, so the rules that follow treat both sides alike."""
+    for axis in (0, 1):
+        mirror = np.flip(index, axis)
+        both = (index >= 0) & (mirror >= 0)
+        mine, theirs = index[both], mirror[both]
+        a, b = sub[mine], np.flip(sub[theirs], 1 + axis)
+        same = (occupied[mine] == np.flip(occupied[theirs], 1 + axis)).all(axis=(1, 2, 3))
+        close = same & (np.abs(a - b).max(axis=(1, 2, 3)) <= _NOISE)
+        sub[mine[close]] = (a[close] + b[close]) / 2
+
+
+def _subdivision(n_surface: int) -> int:
+    """Sub-cells per axis for the coverage: 3 (27 per cell), or 2 on very large models."""
+    return 3 if n_surface * 27 <= _SUB_LIMIT else 2
+
+
+def _turned_out(tris: np.ndarray) -> np.ndarray:
+    """+1 for each triangle, -1 for those of a closed part wound inside out.
+
+    Corners are joined where their coordinates are equal. A part is closed when each of its
+    edges is used by exactly two of its triangles, once in each direction; a closed part
+    whose volume comes out negative is wound inside out and is solid all the same."""
+    m = len(tris)
+    flip = np.ones(m, dtype=np.int64)
+    if m == 0:
+        return flip
+    _, vertex = np.unique(tris.reshape(-1, 3), axis=0, return_inverse=True)
+    vertex = vertex.reshape(m, 3)
+    n_vertices = int(vertex.max()) + 1
+    start, end = vertex.ravel(), vertex[:, [1, 2, 0]].ravel()
+    key = np.minimum(start, end) * n_vertices + np.maximum(start, end)
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    first = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    count = np.diff(np.r_[first, len(ks)])
+    forward = np.add.reduceat((start < end)[order].astype(np.int64), first)
+    good = np.repeat((count == 2) & (forward == 1), count)  # per half-edge, in `order`
+    twice = first[count == 2]
+    graph = sparse.coo_matrix(
+        (np.ones(len(twice)), (order[twice] // 3, order[twice + 1] // 3)), shape=(m, m)
     )
+    n_parts, part = csgraph.connected_components(graph, directed=False)
+    open_part = np.zeros(n_parts, dtype=bool)
+    open_part[part[order[~good] // 3]] = True
+    volume = np.einsum("ij,ij->i", tris[:, 0], np.cross(tris[:, 1], tris[:, 2]))
+    part_volume = np.bincount(part, volume, minlength=n_parts)
+    inverted = ~open_part & (part_volume < 0)
+    flip[inverted[part]] = -1
+    return flip
+
+
+def _coverage(
+    exact: np.ndarray,
+    flip: np.ndarray,
+    body: tuple[int, int, int],
+    surface: np.ndarray,
+    interior: np.ndarray,
+    s: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """How much of each sub-cell of each surface cell lies inside the model.
+
+    Each surface cell is cut into s x s x s sub-cells. Rays run along each axis through the
+    middle of every sub-cell; along each ray, what is inside is worked out from the
+    surface crossings (see ``_axis_coverage``), and a sub-cell takes the share of its
+    length that is inside. Of the three rays through a sub-cell, the one whose run of cells
+    agrees with the cells known to be outside or inside is preferred, and among those the
+    one crossing the surface most squarely inside the sub-cell (for a flat surface that is
+    exact); a sub-cell no agreeing ray crosses takes their mean.
+
+    Returns the share inside, (n_surface, s, s, s) indexed [cell, x, y, z]; which sub-cells
+    hold any of the model (material or a ray crossing); and the surface-cell index of each
+    body cell (-1 elsewhere)."""
+    n = int(surface.sum())
+    index = np.full(body, -1, dtype=np.int64)
+    index[surface] = np.arange(n)
+    estimate = np.zeros((3, n, s, s, s))
+    weight = np.zeros((3, n, s, s, s))
+    agree = np.zeros((3, n, s, s, s), dtype=bool)
+    sub_tris = exact * s  # not nudged: triangles that share an edge must still share it
+    normal = np.cross(sub_tris[:, 1] - sub_tris[:, 0], sub_tris[:, 2] - sub_tris[:, 0])
+    length = np.linalg.norm(normal, axis=1)
+    for axis in range(3):
+        _axis_coverage(
+            sub_tris, normal, length, flip, axis, body, surface, interior, index, s,
+            estimate[axis], weight[axis], agree[axis],
+        )  # fmt: skip
+    use = agree | ~agree.any(axis=0)[None]
+    score = np.where(use, weight, -1.0)
+    # the first axis whose ray is within _SQUARE of the squarest, so that the choice does not
+    # turn on noise where two rays meet the surface alike (mirror images stay alike)
+    best = (score >= score.max(axis=0) - _SQUARE).argmax(axis=0)[None]
+    mean = (estimate * use).sum(axis=0) / use.sum(axis=0)
+    share = np.where(
+        np.take_along_axis(score, best, 0)[0] > 0, np.take_along_axis(estimate, best, 0)[0], mean
+    )
+    occupied = (share > _MATERIAL) | (weight.max(axis=0) > 0)
+    return share, occupied, index
+
+
+def _axis_coverage(
+    sub_tris: np.ndarray,
+    normal: np.ndarray,
+    length: np.ndarray,
+    flip: np.ndarray,
+    axis: int,
+    body: tuple[int, int, int],
+    surface: np.ndarray,
+    interior: np.ndarray,
+    index: np.ndarray,
+    s: int,
+    estimate: np.ndarray,
+    weight: np.ndarray,
+    agree: np.ndarray,
+) -> None:
+    """Fill ``estimate``, ``weight`` and ``agree`` (each (n_surface, s, s, s)) for one axis.
+
+    Rays run along ``axis`` through the middle of each sub-cell. Along a ray the surface
+    cells come in runs, bounded by cells known to be outside (or the edge of the grid) or
+    inside. Coming from the lower end, the winding (+1 for each crossing into a part, -1
+    out of one) starts at the lower bound's own: 0 outside, at least 1 inside. Where it
+    ends at the upper bound's own winding the run agrees, and a point is inside where the
+    winding is 1 or more (so parts that overlap make one solid). Where it does not agree
+    (a hole in the surface, a lone sheet, a part open at one end), what the outside can
+    reach along the ray is outside: between two outside ends, all of it; from an outside
+    end up to the first crossing towards an inside end; with an inside cell at both ends
+    nothing; with no crossing between an outside and an inside end, half. ``weight`` is how
+    squarely the steepest crossing inside a sub-cell meets the ray (0 with none)."""
+    b, c = (d for d in range(3) if d != axis)
+    nb, nc, na = body[b], body[c], body[axis]
+    ub, uc, ua = nb * s, nc * s, na * s
+    ray, pos, step, steep = _cast(
+        sub_tris, normal, length, flip, axis, b, c, ub, uc, ua, _NUDGE * s
+    )
+    span = ua + 2.0
+    key = ray * span + pos
+    order = np.argsort(key, kind="stable")
+    ray, pos, step, steep, key = ray[order], pos[order], step[order], steep[order], key[order]
+    wind = np.r_[0, np.cumsum(step)]  # winding before crossing k is wind[k] (whole ray)
+
+    # runs of surface cells along the axis, line by line
+    lines = surface.transpose(b, c, axis)
+    inside_t = interior.transpose(b, c, axis)
+    pad = np.zeros((nb, nc, 1), dtype=bool)
+    starts = lines & ~np.concatenate([pad, lines[:, :, :-1]], axis=2)
+    ends = lines & ~np.concatenate([lines[:, :, 1:], pad], axis=2)
+    lb, lc, r0 = np.nonzero(starts)
+    r1 = np.nonzero(ends)[2]
+    lo_in = np.zeros(len(r0), dtype=bool)
+    hi_in = np.zeros(len(r0), dtype=bool)
+    below, above = r0 > 0, r1 < na - 1
+    lo_in[below] = inside_t[lb[below], lc[below], r0[below] - 1]
+    hi_in[above] = inside_t[lb[above], lc[above], r1[above] + 1]
+
+    # one row per (run, ray through it)
+    s2 = s * s
+    run = np.repeat(np.arange(len(r0)), s2)
+    pb = np.tile(np.repeat(np.arange(s), s), len(r0))
+    pc = np.tile(np.tile(np.arange(s), s), len(r0))
+    ray_id = (lb[run] * s + pb) * uc + (lc[run] * s + pc)
+    a0 = (r0[run] * s).astype(np.float64)
+    a1 = ((r1[run] + 1) * s).astype(np.float64)
+    k_ray = np.searchsorted(key, ray_id * span)
+    k_end = np.searchsorted(key, ray_id * span + span - 1)
+    k0 = np.searchsorted(key, ray_id * span + a0)
+    k1 = np.searchsorted(key, ray_id * span + a1)
+    w0 = wind[k0] - wind[k_ray]  # winding from the lower end, just before the run
+    w1 = wind[k1] - wind[k_ray]  # and just after it
+    total = wind[k_end] - wind[k_ray]
+    lo = np.where(lo_in[run], np.maximum(1, w0), 0)
+    hi = np.where(hi_in[run], np.maximum(1, w1 - total), 0)
+    offset = lo - w0
+    ok = (w1 + offset) == hi
+    n_cross = k1 - k0
+    padded = np.r_[pos, 0.0]  # so that rows without a crossing can index it
+    first = np.where(n_cross > 0, padded[k0], a0)
+    last = np.where(n_cross > 0, padded[np.maximum(k1 - 1, 0)], a1)
+
+    # inside length from the run's start up to each crossing in an agreeing run
+    rows = np.repeat(np.arange(len(run)), n_cross)
+    cross = np.repeat(k0 - np.cumsum(n_cross) + n_cross, n_cross) + np.arange(len(rows))
+    after = (wind[cross + 1] - wind[k_ray[rows]] + offset[rows]) >= 1
+    is_first = cross == k0[rows]
+    before = np.where(is_first, lo[rows] >= 1, np.r_[False, after[:-1]])
+    gap = pos[cross] - np.where(is_first, a0[rows], np.r_[0.0, pos[cross][:-1]])
+    piece = before * gap
+    total_len = np.cumsum(piece)
+    upto = np.zeros(len(pos) + 1)
+    upto[cross] = total_len - np.repeat((total_len - piece)[is_first], n_cross[n_cross > 0])
+    inside_after = np.zeros(len(pos) + 1, dtype=bool)
+    inside_after[cross] = after
+
+    # the inside length from the run's start at every sub-cell boundary along each row
+    n_pos = (r1[run] - r0[run] + 1) * s + 1
+    erow = np.repeat(np.arange(len(run)), n_pos)
+    at = a0[erow] + (np.arange(len(erow)) - np.repeat(np.cumsum(n_pos) - n_pos, n_pos))
+    last_cross = np.searchsorted(key, ray_id[erow] * span + at, side="right") - 1
+    last_cross = np.minimum(last_cross, k1[erow] - 1)
+    has = last_cross >= k0[erow]
+    lc_safe = np.maximum(last_cross, 0)
+    agreeing = np.where(
+        has,
+        upto[lc_safe] + inside_after[lc_safe] * (at - padded[lc_safe]),
+        (lo[erow] >= 1) * (at - a0[erow]),
+    )
+    lo_out, hi_out = ~lo_in[run[erow]], ~hi_in[run[erow]]
+    some = n_cross[erow] > 0
+    f, g = first[erow], last[erow]
+    from_start = at - a0[erow]
+    fallback = np.where(
+        lo_out & hi_out,
+        0.0,
+        np.where(
+            lo_out,
+            np.where(some, np.maximum(0.0, at - f), 0.5 * from_start),
+            np.where(hi_out, np.where(some, np.minimum(at, g) - a0[erow], 0.5 * from_start),
+                     from_start),
+        ),
+    )  # fmt: skip
+    length_in = np.where(ok[erow], agreeing, fallback)
+
+    # each sub-cell: the difference between its two boundaries
+    seg = np.flatnonzero(np.r_[erow[1:] == erow[:-1], False])
+    share = np.clip(length_in[seg + 1] - length_in[seg], 0.0, 1.0)
+    srow = erow[seg]
+    j = (at[seg] - a0[srow]).astype(np.int64)
+    cell = np.zeros((len(seg), 3), dtype=np.int64)
+    cell[:, axis] = r0[run[srow]] + j // s
+    cell[:, b] = lb[run[srow]]
+    cell[:, c] = lc[run[srow]]
+    local = np.zeros((len(seg), 3), dtype=np.int64)
+    local[:, axis] = j % s
+    local[:, b] = pb[srow]
+    local[:, c] = pc[srow]
+    sub = _sub_index(index, cell, local, s)
+    estimate.reshape(-1)[sub] = share
+    agree.reshape(-1)[sub] = ok[srow]
+
+    # how squarely the steepest crossing in each sub-cell meets the ray
+    if len(rows):
+        j = np.clip(np.floor(pos[cross] - a0[rows]).astype(np.int64), 0, None)
+        j = np.minimum(j, (r1[run[rows]] - r0[run[rows]] + 1) * s - 1)
+        cell = np.zeros((len(rows), 3), dtype=np.int64)
+        cell[:, axis] = r0[run[rows]] + j // s
+        cell[:, b] = lb[run[rows]]
+        cell[:, c] = lc[run[rows]]
+        local = np.zeros((len(rows), 3), dtype=np.int64)
+        local[:, axis] = j % s
+        local[:, b] = pb[rows]
+        local[:, c] = pc[rows]
+        np.maximum.at(weight.reshape(-1), _sub_index(index, cell, local, s), steep[cross])
+
+
+def _choose(
+    coverage: np.ndarray,
+    sub: np.ndarray,
+    occupied: np.ndarray,
+    net: np.ndarray,
+    area: np.ndarray,
+    index: np.ndarray,
+    surface: np.ndarray,
+    stage1: np.ndarray,
+    crossed: list[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Rules 1 to 3: which cells are filled (bool, the body's shape), and for each surface
+    cell under half full, the flat index of the cell its material went to (-1 elsewhere)."""
+    interior = stage1 & ~surface
+    rule1 = stage1 & (coverage >= 0.5 - _HALF)
+    low = surface & ~rule1
+    kept, went = _keepers(coverage, sub, occupied, net, area, index, low, rule1, interior, crossed)
+    filled = rule1 | kept
+    # the model keeps standing where it stood: a bottom cell of stage 1's fill in whose lowest
+    # sub-layer the model reaches the ground, under a filled cell, is filled
+    resting = np.zeros(coverage.shape, dtype=bool)
+    where = np.flatnonzero(surface[:, :, 0].ravel())
+    if len(where) and coverage.shape[2] > 1:
+        xy = np.stack(np.unravel_index(where, coverage.shape[:2]), axis=1)
+        floor = occupied[index[xy[:, 0], xy[:, 1], 0]][:, :, :, 0].any(axis=(1, 2))
+        up = filled[xy[:, 0], xy[:, 1], 1]
+        resting[xy[floor & up, 0], xy[floor & up, 1], 0] = True
+    filled |= resting
+    filled = _join(filled, coverage, occupied, index, surface, stage1, crossed)
+    return _stand(filled, stage1, coverage), went
+
+
+def _stands(filled: np.ndarray) -> bool:
+    """Whether the centre of mass of the filled cells (each weighing the same, at its middle)
+    lies over the convex hull of the corners of the filled cells of the bottom layer."""
+    total = filled.sum()
+    centre = np.array(
+        [filled.sum(axis=(1, 2)) @ (np.arange(filled.shape[0]) + 0.5),
+         filled.sum(axis=(0, 2)) @ (np.arange(filled.shape[1]) + 0.5)]
+    ) / total  # fmt: skip
+    base = np.argwhere(filled[:, :, 0]).astype(np.float64)
+    corners = np.unique(
+        np.concatenate([base + d for d in ((0, 0), (1, 0), (0, 1), (1, 1))]), axis=0
+    )
+    hull = ConvexHull(corners)  # cell corners always span an area
+    return bool((hull.equations[:, :2] @ centre + hull.equations[:, 2] <= 1e-9).all())
+
+
+def _stand(filled: np.ndarray, stage1: np.ndarray, coverage: np.ndarray) -> np.ndarray:
+    """Standing, part two: if the model's centre of mass is not over its footprint (a model
+    that rests on a small part of itself and leans out, which stage 1's wider bottom layer
+    hid), the cells of stage 1's bottom layer under filled cells are added, the ones nearest
+    the centre of mass first (mirror images together), as few as make it stand. If even all
+    of them do not, none are added."""
+    if filled.shape[2] < 2 or not filled[:, :, 0].any() or _stands(filled):
+        return filled
+    spare = np.argwhere(stage1[:, :, 0] & ~filled[:, :, 0] & filled[:, :, 1])
+    if len(spare) == 0:
+        return filled
+    total = filled.sum()
+    centre = np.array(
+        [filled.sum(axis=(1, 2)) @ (np.arange(filled.shape[0]) + 0.5),
+         filled.sum(axis=(0, 2)) @ (np.arange(filled.shape[1]) + 0.5)]
+    ) / total  # fmt: skip
+    distance = np.round(np.linalg.norm(spare + 0.5 - centre, axis=1), 6)
+    order = np.lexsort((-coverage[spare[:, 0], spare[:, 1], 0], distance))
+    spare, distance = spare[order], distance[order]
+    ends = np.r_[np.flatnonzero(distance[1:] != distance[:-1]) + 1, len(spare)]
+
+    def with_first(k: int) -> np.ndarray:
+        out = filled.copy()
+        out[spare[: ends[k], 0], spare[: ends[k], 1], 0] = True
+        return out
+
+    if not _stands(with_first(len(ends) - 1)):
+        return filled
+    low, high = 0, len(ends) - 1  # the fewest groups that make it stand
+    while low < high:
+        middle = (low + high) // 2
+        if _stands(with_first(middle)):
+            high = middle
+        else:
+            low = middle + 1
+    return with_first(low)
+
+
+def _keepers(
+    coverage: np.ndarray,
+    sub: np.ndarray,
+    occupied: np.ndarray,
+    net: np.ndarray,
+    area: np.ndarray,
+    index: np.ndarray,
+    low: np.ndarray,
+    rule1: np.ndarray,
+    interior: np.ndarray,
+    crossed: list[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Rule 2: where the material of the ``low`` cells (surface, under half full) goes.
+
+    The cell behind a low cell is the face-neighbour on the side its material lies (the
+    side its surface faces away from): along each axis where the middle of the material is
+    at least _SIDE of a cell from the middle of the cell, the neighbour on that side, if
+    the material reaches into it across their shared face; of those, the one holding the
+    most (a neighbour met over less than half the face only when the material reaches
+    less than half way in, or when the cell is the corner of something larger). A low cell
+    hands its material on when that neighbour holds more (by over _EVEN); this repeats
+    until the material reaches a rule-1 cell (then it is there anyway: nothing is added)
+    or a cell holding at least as much as the next one, which is filled. Material in the
+    middle of the cell (the model is thin here) stays where it is. Cells the rays found
+    nothing in are judged by the net area of their surface (``net``, ``area``: see the
+    module notes). Returns the cells filled so, and for each low cell the flat index of
+    the cell its material ended in (-1 for the others)."""
+    body = coverage.shape
+    s = sub.shape[1]
+    keep = np.zeros(body, dtype=bool)
+    lows = np.flatnonzero(low.ravel())
+    if len(lows) == 0:
+        return keep, np.full(body, -1, dtype=np.int64)
+    cells = np.stack(np.unravel_index(lows, body), axis=1)
+    share = sub[index.ravel()[lows]]
+    mass = share.sum(axis=(1, 2, 3))
+    middle = (np.arange(s) + 0.5) / s - 0.5
+    spread = [share.sum(axis=(2, 3)), share.sum(axis=(1, 3)), share.sum(axis=(1, 2))]
+    offset = np.stack([sp @ middle for sp in spread], axis=1) / np.maximum(mass, 1e-12)[:, None]
+    flat_cov = coverage.ravel()
+    best = np.full(len(lows), -1.0)
+    target = lows.copy()
+    strides = np.array([body[1] * body[2], body[2], 1])
+    ones = np.ones((s, s))
+    nothing = np.zeros(0, dtype=np.int64)
+    cand_rows, cand_there, cand_axis = [nothing], [nothing], [nothing]
+    cand_contact = [np.zeros(0)]
+    for axis in range(3):
+        side = np.where(offset[:, axis] > 0, 1, -1)
+        nb = cells[:, axis] + side
+        ok = (mass > _MATERIAL) & (np.abs(offset[:, axis]) >= _SIDE)
+        ok &= (nb >= 0) & (nb < body[axis])
+        rows = np.flatnonzero(ok)
+        if len(rows) == 0:
+            continue
+        there = lows[rows] + side[rows] * strides[axis]
+        up = side[rows] > 0
+        mine = np.where(
+            up[:, None, None], share[rows].take(s - 1, axis=1 + axis),
+            share[rows].take(0, axis=1 + axis),
+        )  # fmt: skip
+        theirs = np.zeros_like(mine)
+        their_index = index.ravel()[there]
+        on_surface = their_index >= 0
+        if on_surface.any():
+            other = sub[their_index[on_surface]]
+            theirs[on_surface] = np.where(
+                up[on_surface, None, None], other.take(0, axis=1 + axis),
+                other.take(s - 1, axis=1 + axis),
+            )  # fmt: skip
+        theirs[interior.ravel()[there]] = ones
+        # the share of the face across which the material meets the neighbour's
+        contact = np.minimum(mine, theirs).mean(axis=(1, 2))
+        meets = contact > _MATERIAL
+        cand_rows.append(rows[meets])
+        cand_there.append(there[meets])
+        cand_contact.append(contact[meets])
+        cand_axis.append(np.full(int(meets.sum()), axis))
+    # Over most of the face the material is a skin on the neighbour. Over less (the end of
+    # a rod or a fin) it is handed on only when it reaches less than half way into the cell
+    # on average, or when the cell is the corner or edge of something larger: neighbours on
+    # two axes or more that it meets hold more than it does.
+    rows, there, contact, cand_ax = (
+        np.concatenate(x) for x in (cand_rows, cand_there, cand_contact, cand_axis)
+    )
+    fuller = flat_cov[there] > flat_cov[lows[rows]] + _EVEN
+    axes_fuller = np.zeros((len(lows), 3), dtype=bool)
+    axes_fuller[rows[fuller], cand_ax[fuller]] = True
+    corner = axes_fuller.sum(axis=1) >= 2
+    shallow = (contact >= 0.5 - _EVEN) | (mass[rows] / s**3 < 0.5 * contact) | corner[rows]
+    for axis in range(3):  # in axis order, so that near-ties go the same way on both sides
+        pick = shallow & (cand_ax == axis)
+        better = pick & (flat_cov[there] > best[rows] + _EVEN)
+        best[rows[better]] = flat_cov[there[better]]
+        target[rows[better]] = there[better]
+    hand_on = best > flat_cov[lows] + _EVEN
+    following = np.arange(coverage.size)
+    following[lows] = np.where(hand_on, target, lows)
+    # A cell where the rays found no material. A sliver of skin (the model reaches only a
+    # hair into it, as at the corner of a box: the surface in it faces one way, so its net
+    # area is at least half its area) hands its share to the fullest cell behind that
+    # surface that holds material, or that a sliver handed its share to before (so a row of
+    # slivers along an edge empties into the body, one step at a time). Any other such cell
+    # (a sheet with no thickness, a feature thinner than the rays are apart) hands it to the
+    # fullest neighbour its surface runs on into when that holds more, and otherwise stays.
+    none = np.flatnonzero(mass <= _MATERIAL)
+    which = index.ravel()[lows[none]]
+    facing, size = net[which], area[which]
+    length = np.linalg.norm(facing, axis=1)
+    one_sided = ~occupied[which].any(axis=(1, 2, 3)) & (size > 0) & (length >= 0.5 * size)
+    others, slivers = none[~one_sided], none[one_sided]
+    best_s = np.full(len(lows), -1.0)
+    for axis in range(3):
+        for side in (-1, 1):
+            nb = cells[others, axis] + side
+            ok = (nb >= 0) & (nb < body[axis])
+            rows, there = others[ok], lows[others[ok]] + side * strides[axis]
+            face = there if side < 0 else lows[rows]
+            ok = crossed[axis].ravel()[face] & (flat_cov[there] > best_s[rows] + _EVEN)
+            best_s[rows[ok]] = flat_cov[there[ok]]
+            target[rows[ok]] = there[ok]
+    hand = others[best_s[others] > _EVEN]
+    following[lows[hand]] = target[hand]
+    facing, length = facing[one_sided], length[one_sided]
+    behind = np.where(np.abs(facing) >= 0.2 * length[:, None], -np.sign(facing), 0).astype(int)
+    holds = flat_cov > _MATERIAL  # rule-1 cells, the inside, and low cells holding some
+    waiting = np.arange(len(slivers))
+    while len(waiting):
+        rows_all = slivers[waiting]
+        best_s[rows_all] = -1.0
+        for axis in range(3):
+            side = behind[waiting, axis]
+            nb = cells[rows_all, axis] + side
+            ok = np.flatnonzero((side != 0) & (nb >= 0) & (nb < body[axis]))
+            there = lows[rows_all[ok]] + side[ok] * strides[axis]
+            better = holds[there] & (flat_cov[there] > best_s[rows_all[ok]] + _EVEN)
+            ok, there = ok[better], there[better]
+            best_s[rows_all[ok]] = flat_cov[there]
+            target[rows_all[ok]] = there
+        found = best_s[rows_all] > -1.0
+        if not found.any():
+            break  # the rest have nothing of the model behind them: they stay
+        following[lows[rows_all[found]]] = target[rows_all[found]]
+        holds[lows[rows_all[found]]] = True
+        waiting = waiting[~found]
+    while True:  # follow the material to where it stops
+        nxt = following[following]
+        if np.array_equal(nxt, following):
+            break
+        following = nxt
+    end = following[lows]
+    keep.flat[end[~rule1.ravel()[end]]] = True
+    went = np.full(body, -1, dtype=np.int64)
+    went.flat[lows] = end
+    return keep, went
+
+
+def _join(
+    filled: np.ndarray,
+    coverage: np.ndarray,
+    occupied: np.ndarray,
+    index: np.ndarray,
+    surface: np.ndarray,
+    stage1: np.ndarray,
+    crossed: list[np.ndarray],
+) -> np.ndarray:
+    """Rule 3: rejoin, through cells of stage 1's fill, what the model joins.
+
+    Two face-neighbours of stage 1's fill belong together when a triangle crosses their
+    shared face, or when the model in them comes within a cell of each other across it
+    (fewer than s - 1 empty sub-layers between; a cell inside is full). Where the filled
+    cells of one such group fall into several face-connected pieces, the pieces are joined
+    by the cheapest paths through the group's emptied cells, a cell costing 1.5 minus its
+    coverage (so short paths through fuller cells win). A group left with no filled cell
+    keeps its fullest cell. Where the problem is mirror-symmetric, every cell added comes
+    with its mirror images."""
+    body = coverage.shape
+    s = occupied.shape[1]
+    n_cells = coverage.size
+    strides = np.array([body[1] * body[2], body[2], 1])
+    interior = stage1 & ~surface
+    flat_index = index.ravel()
+    together = []
+    for axis in range(3):
+        layers = occupied.any(axis=tuple(d for d in (1, 2, 3) if d != 1 + axis))
+        have = layers.any(axis=1)
+        top = np.where(have, s - 1 - np.argmax(layers[:, ::-1], axis=1), -1)
+        bottom = np.where(have, np.argmax(layers, axis=1), s)
+        high = np.full(n_cells, -1)
+        low = np.full(n_cells, s)
+        high[interior.ravel()] = s - 1
+        low[interior.ravel()] = 0
+        where = np.flatnonzero(surface.ravel())
+        high[where] = top[flat_index[where]]
+        low[where] = bottom[flat_index[where]]
+        pair = np.zeros(body, dtype=bool)
+        sl = [slice(None)] * 3
+        sl[axis] = slice(0, body[axis] - 1)
+        nxt = [slice(None)] * 3
+        nxt[axis] = slice(1, None)
+        high_g, low_g = high.reshape(body), low.reshape(body)
+        near = (s - 1 - high_g[tuple(sl)]) + low_g[tuple(nxt)] < s - 1
+        pair[tuple(sl)] = stage1[tuple(sl)] & stage1[tuple(nxt)] & (crossed[axis][tuple(sl)] | near)
+        a = np.flatnonzero(pair.ravel())
+        together.append((a, a + strides[axis]))
+    perturb = (
+        1e-6
+        * (
+            np.abs(2 * np.arange(body[0]) + 1 - body[0])[:, None, None] / body[0]
+            + np.abs(2 * np.arange(body[1]) + 1 - body[1])[None, :, None] / body[1]
+        )
+        + 1e-7 * np.arange(body[2])[None, None, :] / body[2]
+    )  # mirror-symmetric tie-breaker
+    cost_cell = (1.5 - coverage + perturb).ravel()
+
+    # where the model is mirror-symmetric, whatever is added on one side is added on the
+    # other too (of two equally cheap joins, a mirror image of each other, both are made)
+    mirrors = [
+        axis
+        for axis in (0, 1)
+        if np.array_equal(filled, np.flip(filled, axis))
+        and np.array_equal(stage1, np.flip(stage1, axis))
+        and np.abs(coverage - np.flip(coverage, axis)).max() <= _EVEN
+    ]
+
+    def add_cells(cells: np.ndarray) -> None:
+        new = np.zeros(n_cells, dtype=bool)
+        new[cells] = True
+        new = new.reshape(body)
+        for axis in mirrors:
+            new |= np.flip(new, axis)
+        filled[new & stage1] = True
+
+    for _ in range(3):
+        labels, n_pieces = ndimage.label(filled, structure=ndimage.generate_binary_structure(3, 1))
+        dropped = np.flatnonzero((stage1 & ~filled).ravel())
+        node = np.full(n_cells, -1)
+        node[filled.ravel()] = labels.ravel()[filled.ravel()] - 1
+        node[dropped] = n_pieces + np.arange(len(dropped))
+        n_nodes = n_pieces + len(dropped)
+        u = np.concatenate([node[a] for a, _ in together])
+        v = np.concatenate([node[b] for _, b in together])
+        differ = u != v
+        u, v = u[differ], v[differ]
+        graph = sparse.coo_matrix((np.ones(len(u)), (u, v)), shape=(n_nodes, n_nodes))
+        n_groups, group = csgraph.connected_components(graph, directed=False)
+        pieces_in = np.bincount(group[:n_pieces], minlength=n_groups)
+        lonely = np.flatnonzero(pieces_in == 0)
+        if len(lonely):  # a group whose cells were all emptied keeps its fullest cell
+            g = group[n_pieces:]
+            order = np.lexsort((dropped, -coverage.ravel()[dropped], g))
+            first = order[np.r_[True, g[order][1:] != g[order][:-1]]]
+            add_cells(dropped[first[np.isin(g[first], lonely)]])
+            continue
+        if not (pieces_in > 1).any():
+            return filled
+        busy = (pieces_in > 1)[group]
+        keep = busy[u]
+        u, v = u[keep], v[keep]
+        cost = np.full(n_nodes, 1e-9)
+        cost[n_pieces:] = cost_cell[dropped]
+        graph = sparse.csr_matrix(
+            (np.r_[cost[v], cost[u]], (np.r_[u, v], np.r_[v, u])), shape=(n_nodes, n_nodes)
+        )
+        sources = np.flatnonzero(busy[:n_pieces])
+        dist, pred, src = csgraph.dijkstra(
+            graph, indices=sources, return_predecessors=True, min_only=True
+        )
+        meet = (src[u] >= 0) & (src[v] >= 0) & (src[u] != src[v])
+        cu, cv = u[meet], v[meet]
+        total = dist[cu] + dist[cv]
+        pa, pb = np.minimum(src[cu], src[cv]), np.maximum(src[cu], src[cv])
+        pair_key = pa * n_pieces + pb
+        order = np.lexsort((total, pair_key))
+        first = order[np.r_[True, pair_key[order][1:] != pair_key[order][:-1]]]
+        tree = csgraph.minimum_spanning_tree(
+            sparse.csr_matrix((total[first], (pa[first], pb[first])), shape=(n_pieces,) * 2)
+        ).tocoo()
+        chosen_key = tree.row.astype(np.int64) * n_pieces + tree.col
+        chosen = first[np.isin(pair_key[first], chosen_key)]
+        walk = np.r_[cu[chosen], cv[chosen]]
+        add = []
+        while len(walk):
+            add.append(walk[walk >= n_pieces])
+            walk = pred[walk]
+            walk = walk[walk >= 0]
+        add_cells(dropped[np.concatenate(add) - n_pieces])
+    return filled
+
+
+def _colours(
+    nudged: np.ndarray,
+    estimate: np.ndarray,
+    axes: tuple[int, ...],
+    body: tuple[int, int, int],
+    code: np.ndarray,
+    codes: np.ndarray,
+    pairs: np.ndarray,
+    filled: np.ndarray,
+    dropped: np.ndarray,
+    went: np.ndarray,
+    default_colour: int,
+) -> np.ndarray:
+    """The colour of every body cell (EMPTY where not filled).
+
+    Each surface cell has its own colour: the vote of the surface inside it, weighted by
+    area in mm² (what stage 1 showed there). A filled cell that an emptied surface cell
+    handed its material to (rule 2) shows that cell's own colour: the colour moves with the
+    material, so an emptied skin's colour (a top, a painted eye) stays where it was seen;
+    with several, or with surface of its own too, the colour with the most area (each cell
+    counts the area of its own colour); a cell with nothing filled above it takes the colour
+    of the emptied cell right above it, so a side skin cannot take the colour of a top.
+    Any other filled cell takes the surface inside it, else the surface in its emptied
+    face-neighbours (area-weighted together), else the most common colour of the whole
+    surface (counting surface cells)."""
+    n_codes = len(codes)
+    n_cells = int(np.prod(body))
+    out = np.full(n_cells, EMPTY, dtype=np.int64)
+    flat_filled = filled.ravel()
+    if n_codes == 1:
+        out[flat_filled] = codes[0]
+        return out.reshape(body)
+    pair_cell, pair_code = pairs // n_codes, pairs % n_codes
+    strides = np.array([body[1] * body[2], body[2], 1])
+
+    # filled cells an emptied surface cell handed its material to show its colour instead
+    flat_dropped = dropped.ravel()
+    givers = np.flatnonzero(flat_dropped & (went.ravel() >= 0))
+    givers = givers[flat_filled[went.ravel()[givers]]]
+    receives = np.zeros(n_cells, dtype=bool)
+    receives[went.ravel()[givers]] = True
+
+    # every (filled cell, cell whose surface it takes, colour) for the others
+    own = flat_filled[pair_cell] & ~receives[pair_cell]
+    targets, sources, colour = [pair_cell[own]], [pair_cell[own]], [pair_code[own]]
+    has_own = np.zeros(n_cells, dtype=bool)
+    has_own[pair_cell[own]] = True
+    emptied = flat_dropped[pair_cell]
+    d_cell, d_code = pair_cell[emptied], pair_code[emptied]
+    d_xyz = np.stack(np.unravel_index(d_cell, body), axis=1)
+    for axis in range(3):
+        for step in (-1, 1):
+            ok = (d_xyz[:, axis] + step >= 0) & (d_xyz[:, axis] + step < body[axis])
+            there = d_cell + step * strides[axis]
+            ok[ok] &= flat_filled[there[ok]] & ~receives[there[ok]] & ~has_own[there[ok]]
+            targets.append(there[ok])
+            sources.append(d_cell[ok])
+            colour.append(d_code[ok])
+    target, source, tcode = (np.concatenate(x) for x in (targets, sources, colour))
+    distinct = np.unique(target * n_codes + tcode) // n_codes
+    contested = np.zeros(n_cells, dtype=bool)
+    contested[distinct[1:][distinct[1:] == distinct[:-1]]] = True
+    own_contested = np.zeros(n_cells, dtype=bool)
+    own_contested[pair_cell[1:][pair_cell[1:] == pair_cell[:-1]]] = True
+
+    # exact areas where colours compete
+    need = own_contested.copy()
+    need[source[contested[target]]] = True
+    taken = went.ravel()[givers]
+    has_surface = np.zeros(n_cells, dtype=bool)
+    has_surface[pair_cell] = True
+    # a cell given to with nothing filled above it votes with its own surface too (its top)
+    open_above = np.ones(n_cells, dtype=bool)
+    open_above[:-1] = ~flat_filled[1:]
+    open_above[body[2] - 1 :: body[2]] = True
+    selves = np.unique(taken[has_surface[taken] & open_above[taken]])
+    voters, voted = np.r_[givers, selves], np.r_[taken, selves]
+    shared = np.bincount(voted, minlength=n_cells)[voted] > 1  # several voters for one cell
+    need[voters[shared]] = True
+    area_key = np.zeros(0, dtype=np.int64)
+    area_sum = np.zeros(0)
+    if need.any():
+        flat = _flat_cells(body)
+        keys_out, areas_out = [], []
+        for batch in _batches(np.arange(len(nudged)), estimate):
+            poly, count, owner, cell = _clip_to_cells(
+                nudged[batch], axes, select=lambda c: need[flat(c)]
+            )
+            keys_out.append(flat(cell) * n_codes + code[batch[owner]])
+            areas_out.append(_polygon_area_mm(poly, count))
+        area_key, inverse = np.unique(np.concatenate(keys_out), return_inverse=True)
+        area_sum = np.bincount(inverse.ravel(), np.concatenate(areas_out), len(area_key))
+
+    def area_of(cell: np.ndarray, which: np.ndarray) -> np.ndarray:
+        if len(area_key) == 0:
+            return np.zeros(len(cell))
+        k = cell * n_codes + which
+        at = np.minimum(np.searchsorted(area_key, k), len(area_key) - 1)
+        return np.where(area_key[at] == k, area_sum[at], 0.0)
+
+    # each surface cell's own colour, for the colour of the inside
+    own_colour = np.full(n_cells, -1, dtype=np.int64)
+    single = ~own_contested[pair_cell]
+    own_colour[pair_cell[single]] = pair_code[single]
+    many = ~single
+    if many.any():
+        win_cell, win_code = _vote(
+            pair_cell[many], pair_code[many], area_of(pair_cell[many], pair_code[many]), n_codes
+        )
+        own_colour[win_cell] = win_code
+    surface_cells = np.unique(pair_cell)
+    if len(surface_cells):
+        inside_colour = _most_common(codes[own_colour[surface_cells]])
+    else:
+        inside_colour = default_colour
+
+    out[flat_filled] = inside_colour
+    if len(givers):
+        given = own_colour[voters]
+        ok = given >= 0
+        weight = np.where(shared, area_of(voters, np.maximum(given, 0)), 1.0)
+        win_cell, win_code = _vote(voted[ok], given[ok], weight[ok], n_codes)
+        out[win_cell] = codes[win_code]
+        # a cell with nothing filled above it shows the colour of its emptied skin above
+        given, ok = given[: len(givers)], ok[: len(givers)]
+        above = ok & (givers == taken + 1) & (taken % body[2] < body[2] - 1)
+        above &= ~flat_filled[np.minimum(taken + 1, n_cells - 1)]
+        out[taken[above]] = codes[given[above]]
+    plain = ~contested[target]
+    out[target[plain]] = codes[tcode[plain]]
+    fought = ~plain
+    if fought.any() and len(target):
+        win_cell, win_code = _vote(
+            target[fought], tcode[fought], area_of(source[fought], tcode[fought]), n_codes
+        )
+        out[win_cell] = codes[win_code]
+    return out.reshape(body)
+
+
+def _sub_index(index: np.ndarray, cell: np.ndarray, local: np.ndarray, s: int) -> np.ndarray:
+    """Flat index into an (n_surface, s, s, s) array of the sub-cell ``local`` of ``cell``."""
+    which = index[cell[:, 0], cell[:, 1], cell[:, 2]]
+    return ((which * s + local[:, 0]) * s + local[:, 1]) * s + local[:, 2]
+
+
+def _cast(
+    sub_tris: np.ndarray,
+    normal: np.ndarray,
+    length: np.ndarray,
+    flip: np.ndarray,
+    axis: int,
+    b: int,
+    c: int,
+    ub: int,
+    uc: int,
+    ua: int,
+    nudge: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Where rays along ``axis`` through sub-cell middles cross the triangles.
+
+    Rays sit at (u + 1/2, v + 1/2) in sub-cell units on axes (b, c), u < ub and v < uc,
+    and are numbered u * uc + v. Each triangle is scanned in rows across its shorter side
+    (so a long sliver costs no more than its crossings), half-open across the rows and
+    then along them, so a ray on an edge two triangles share counts for exactly one of
+    them and a closed surface is crossed consistently. Returns, per crossing: the ray, the
+    position along the axis (0..ua), the change of winding when moving up the axis (+1
+    into a part, -1 out of it, by the winding and ``flip``), and how squarely the triangle
+    meets the ray (|n_axis|)."""
+    use = np.flatnonzero(normal[:, axis] != 0)
+    tri = sub_tris[use]
+    span_b = np.ptp(tri[:, :, b], axis=1)
+    span_c = np.ptp(tri[:, :, c], axis=1)
+    out: list[list[np.ndarray]] = [[], [], [], []]
+    for across, along, n_across, n_along, which in (
+        (c, b, uc, ub, np.flatnonzero(span_c <= span_b)),
+        (b, c, ub, uc, np.flatnonzero(span_c > span_b)),
+    ):
+        rows, cols, owner = _scan(tri[which], across, along, n_across, n_along)
+        t_idx = which[owner]
+        n = normal[use[t_idx]]
+        p0 = tri[t_idx, 0]
+        u, v = (cols, rows) if across == c else (rows, cols)
+        position = (
+            p0[:, axis]
+            - (n[:, b] * (u + 0.5 - p0[:, b]) + n[:, c] * (v + 0.5 - p0[:, c])) / n[:, axis]
+        )
+        # a crossing is moved _NUDGE of a cell into the solid along the ray, as the triangles
+        # are for stage 1, so that a face on a cell boundary lies in the cell behind it
+        position -= nudge * np.sign(n[:, axis])
+        out[0].append(u * uc + v)
+        out[1].append(np.clip(position, 0.0, float(ua)))
+        out[2].append(-np.sign(n[:, axis]).astype(np.int64) * flip[use[t_idx]])
+        out[3].append(np.abs(n[:, axis]) / length[use[t_idx]])
+    ray, pos, step, steep = (np.concatenate(o) for o in out)
+    return ray, pos, step, steep
+
+
+def _scan(
+    tri: np.ndarray, across: int, along: int, n_across: int, n_along: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The grid points (r + 1/2, k + 1/2) inside each triangle's projection, scanned in rows
+    across axis ``across``: returns the row r, the point k along axis ``along`` and the
+    triangle of each. A row runs from the projection's low edge (included) to its high
+    edge (left out), and a row through a corner or along an edge is half-open too."""
+    cc, bb = tri[:, :, across], tri[:, :, along]
+    row_first = np.maximum(np.ceil(cc.min(axis=1) - 0.5), 0).astype(np.int64)
+    row_last = np.minimum(np.ceil(cc.max(axis=1) - 0.5) - 1, n_across - 1).astype(np.int64)
+    n_rows = np.maximum(row_last - row_first + 1, 0)
+    # about the work and output of each triangle: its rows and the points in them
+    area = 0.5 * np.abs(
+        (bb[:, 1] - bb[:, 0]) * (cc[:, 2] - cc[:, 0])
+        - (bb[:, 2] - bb[:, 0]) * (cc[:, 1] - cc[:, 0])
+    )
+    out: list[list[np.ndarray]] = [[], [], []]
+    for part in _batches(np.arange(len(tri)), area + n_rows + 1.0):
+        rep = np.repeat(part, n_rows[part])
+        if len(rep) == 0:
+            continue
+        row = (
+            row_first[rep]
+            + np.arange(len(rep))
+            - np.repeat(np.cumsum(n_rows[part]) - n_rows[part], n_rows[part])
+        )
+        y = row + 0.5
+        low = np.full(len(rep), np.inf)
+        high = np.full(len(rep), -np.inf)
+        for i, k in ((0, 1), (1, 2), (2, 0)):
+            ci, ck, bi, bk = cc[rep, i], cc[rep, k], bb[rep, i], bb[rep, k]
+            # each edge from its lower end, so two triangles sharing it compute it alike
+            swap = (ci > ck) | ((ci == ck) & (bi > bk))
+            ci, ck = np.where(swap, ck, ci), np.where(swap, ci, ck)
+            bi, bk = np.where(swap, bk, bi), np.where(swap, bi, bk)
+            hit = (ci <= y) & (y < ck)
+            t = np.divide(y - ci, ck - ci, out=np.zeros(len(rep)), where=hit)
+            x = bi + t * (bk - bi)
+            low = np.where(hit, np.minimum(low, x), low)
+            high = np.where(hit, np.maximum(high, x), high)
+        good = np.isfinite(low) & np.isfinite(high)
+        first = np.where(good, np.maximum(np.ceil(low - 0.5), 0), 0).astype(np.int64)
+        last = np.where(good, np.minimum(np.ceil(high - 0.5) - 1, n_along - 1), -1)
+        n_pts = np.maximum(last.astype(np.int64) - first + 1, 0)
+        rep2 = np.repeat(np.arange(len(rep)), n_pts)
+        out[0].append(row[rep2])
+        out[1].append(
+            first[rep2] + np.arange(len(rep2)) - np.repeat(np.cumsum(n_pts) - n_pts, n_pts)
+        )
+        out[2].append(rep[rep2])
+    if not out[0]:
+        empty = np.zeros(0, dtype=np.int64)
+        return empty, empty, empty
+    rows, cols, owner = (np.concatenate(o) for o in out)
+    return rows, cols, owner
 
 
 def _prepare(tris: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, ...]]:
@@ -423,8 +1535,14 @@ def _prepare(tris: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, tupl
     return keep, nudged, estimate, axes
 
 
-def _sloped(tris: np.ndarray, body: tuple[int, int, int], open_top: np.ndarray) -> np.ndarray:
+def _sloped(
+    tris: np.ndarray, body: tuple[int, int, int], open_top: np.ndarray, home: np.ndarray
+) -> np.ndarray:
     """Which ``open_top`` cells (bool, shape ``body``) hold a slanted upward surface.
+
+    The upward surface in a skin cell (an emptied surface cell in the stack right above an
+    open top; ``home`` gives that top's flat index, -1 elsewhere) counts as the top's own;
+    its walls belong to the dropped cell and are left out.
 
     ``tris`` is (m, 3, 3) in cell units; normals are measured in millimetres. In each cell
     the upward surface (n_z above cos 70 degrees) is summed as area times unit normal, and
@@ -447,24 +1565,25 @@ def _sloped(tris: np.ndarray, body: tuple[int, int, int], open_top: np.ndarray) 
     keep, nudged, estimate, axes = _prepare(tris[counted])
     unit = normal_mm[counted[keep]] / length[counted[keep], None]
     is_up = unit[:, 2] > _STEEP
-    shape = np.asarray(body, dtype=np.int64)
     top_flat = open_top.ravel()
-    n_cells = int(np.prod(shape))
-
-    def flat(cell: np.ndarray) -> np.ndarray:
-        cell = np.clip(cell, 0, shape - 1)
-        return np.ravel_multi_index((cell[:, 0], cell[:, 1], cell[:, 2]), body)
+    home_flat = home.ravel()
+    skin_flat = home_flat >= 0
+    wanted = top_flat | skin_flat
+    n_cells = int(np.prod(body))
+    flat = _flat_cells(body)
 
     # per cell: upward area * (n_x, n_y, n_z), upward area; and every wall piece, kept
     total = np.zeros((4, n_cells))
     wall_cell, wall_area, wall_normal = [], [], []
     for batch in _batches(np.arange(len(keep)), estimate):
         poly, count, owner, cell = _clip_to_cells(
-            nudged[batch], axes, select=lambda c: top_flat[flat(c)]
+            nudged[batch], axes, select=lambda c: wanted[flat(c)]
         )
         if len(owner) == 0:
             continue
         where = flat(cell)
+        in_skin = skin_flat[where]
+        where = np.where(in_skin, home_flat[where], where)  # a skin's surface is its top's
         area = _polygon_area_mm(poly, count)
         tri = batch[owner]
         up = is_up[tri]
@@ -472,9 +1591,10 @@ def _sloped(tris: np.ndarray, body: tuple[int, int, int], open_top: np.ndarray) 
         for k in range(3):
             total[k] += np.bincount(where, up_area * unit[tri, k], minlength=n_cells)
         total[3] += np.bincount(where, up_area, minlength=n_cells)
-        wall_cell.append(where[~up])
-        wall_area.append(area[~up])
-        wall_normal.append(unit[tri[~up], :2])
+        wall = ~up & ~in_skin  # walls of dropped cells are not the top's
+        wall_cell.append(where[wall])
+        wall_area.append(area[wall])
+        wall_normal.append(unit[tri[wall], :2])
     mean_length = np.linalg.norm(total[:3], axis=0)
     some = (total[3] > 0) & (mean_length > 0)
     slanted = some & (total[2] < _FLAT * mean_length)
