@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import random
@@ -15,13 +16,25 @@ from shapes import box
 
 from bricksnap.design import (
     OP_SCHEMA,
+    OPS,
+    ROTATIONS,
+    SHAPE_OPS,
     OpResult,
     apply_ops,
     replay,
     shape_mask,
     validate_op,
 )
-from bricksnap.types import EMPTY, FINISH_SMOOTH, FINISH_STUDS, Design, Detail
+from bricksnap.types import (
+    EMPTY,
+    FINISH_NAMES,
+    FINISH_SLOPED,
+    FINISH_SMOOTH,
+    FINISH_STUDS,
+    Design,
+    Detail,
+    Placement,
+)
 
 RED, ORANGE, BLUE, GREY = 4, 25, 1, 71
 
@@ -921,11 +934,13 @@ def test_schema_is_plain_self_contained_json():
     assert "$ref" not in text and "$defs" not in text
     assert OP_SCHEMA["type"] == "object"
     variants = OP_SCHEMA["anyOf"]
-    assert [v["properties"]["op"]["const"] for v in variants] == ["add", "remove", "paint"]
+    assert [v["properties"]["op"]["const"] for v in variants] == list(OPS)
     for v in variants:
+        name = v["properties"]["op"]["const"]
         assert v["additionalProperties"] is False
-        assert "op" in v["required"] and "shape" in v["required"]
-        assert ("color" in v["required"]) == (v["properties"]["op"]["const"] != "remove")
+        assert "op" in v["required"]
+        assert ("shape" in v["required"]) == (name in SHAPE_OPS)
+        assert ("color" in v["required"]) == (name in ("add", "paint", "place_detail"))
 
 
 def test_schema_colour_enum_matches_catalogue(catalog):
@@ -1191,3 +1206,1089 @@ def test_long_numbers_are_shortened_in_messages(catalog):
     # small whole numbers are still shown in full
     msg = rejected(d, add(B((0, 0, 3), (1, 1, 3)), 123456), catalog)
     assert "Colour 123456 is not" in msg
+
+
+# ==== stage 2: set_finish, place_detail, remove_detail and "mirror" ========================
+
+
+def table() -> Design:
+    """An 8 x 6 x 12 grid with the bottom 3 plates (one brick) filled grey; mirror x -> 7 - x."""
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[:, :, :3] = GREY
+    return Design(colors=colors)
+
+
+def finish_op(shape, word="smooth", **extra) -> dict[str, Any]:
+    return {"op": "set_finish", "shape": shape, "finish": word, **extra}
+
+
+def detail(part="98138", color=0, at=(1, 0, 3), **extra) -> dict[str, Any]:
+    return {"op": "place_detail", "part": part, "color": color, "at": list(at), **extra}
+
+
+def undetail(at, **extra) -> dict[str, Any]:
+    return {"op": "remove_detail", "at": list(at), **extra}
+
+
+def full_snapshot(d: Design) -> tuple:
+    return (*snapshot(d), json.dumps([vars(x) for x in d.details]))
+
+
+def rejected_fully(design: Design, op: Any, catalog) -> str:
+    """Like ``rejected`` but also checks the details were left alone."""
+    before = full_snapshot(design)
+    msg = rejected(design, op, catalog)
+    assert full_snapshot(design) == before
+    assert msg.startswith("Rejected: "), msg
+    return msg
+
+
+def covered(catalog, d: Detail) -> set[tuple[int, int, int]]:
+    xs, ys, zs = catalog.cells(Placement(d.part, d.color, d.x, d.y, d.z, d.rot))
+    return {
+        (x, y, z)
+        for x in range(xs.start, xs.stop)
+        for y in range(ys.start, ys.stop)
+        for z in range(zs.start, zs.stop)
+    }
+
+
+# ---- set_finish -----------------------------------------------------------------------------
+
+
+def test_set_finish_marks_only_filled_cells(catalog):
+    d = table()
+    r = one(d, finish_op(B((0, 0, 1), (1, 1, 4)), "smooth"), catalog)
+    assert r.applied and r.cells_changed == 8  # 2 x 2 x 2 filled cells; z 3..4 are empty
+    assert d.finish is not None
+    assert (d.finish[0:2, 0:2, 1:3] == FINISH_SMOOTH).all()
+    assert int((d.finish != FINISH_STUDS).sum()) == 8
+    assert (d.colors == table().colors).all(), "set_finish must not change colours"
+    assert 'Marked 8 cells "smooth" (tiles on top)' in r.message
+    assert d.log == [finish_op(B((0, 0, 1), (1, 1, 4)), "smooth")]
+
+
+@pytest.mark.parametrize("word", list(FINISH_NAMES))
+def test_set_finish_accepts_every_finish_word(catalog, word):
+    d = table()
+    d.finish[:] = FINISH_SLOPED if word != "sloped" else FINISH_SMOOTH  # ty: ignore[invalid-assignment]
+    r = one(d, finish_op(B((0, 0, 2), (0, 0, 2)), word), catalog)
+    assert r.applied and r.cells_changed == 1
+    assert d.finish is not None and d.finish[0, 0, 2] == FINISH_NAMES[word]
+
+
+def test_set_finish_counts_only_cells_whose_finish_changes(catalog):
+    d = table()
+    one(d, finish_op(B((0, 0, 2), (3, 0, 2)), "sloped"), catalog)
+    r = one(d, finish_op(B((0, 0, 2), (5, 0, 2)), "sloped"), catalog)
+    assert r.cells_changed == 2
+
+
+def test_set_finish_says_where_the_finish_will_show(catalog):
+    d = table()
+    r = one(d, finish_op(B((0, 0, 2), (1, 0, 2))), catalog)
+    assert "Each has nothing directly above it" in r.message
+    r = one(d, finish_op(B((0, 0, 0), (1, 0, 1))), catalog)
+    assert "None of them has an empty cell directly above it" in r.message
+    r = one(d, finish_op(B((2, 0, 1), (4, 0, 2))), catalog)
+    assert "3 of them have nothing directly above" in r.message
+    r = one(d, finish_op(B((5, 0, 1), (5, 0, 2))), catalog)
+    assert "1 of them has nothing directly above" in r.message
+
+
+def test_set_finish_on_the_top_layer_of_the_grid_shows(catalog):
+    d = Design(colors=np.full((2, 2, 2), GREY, dtype=np.int16))
+    r = one(d, finish_op(B((0, 0, 1), (0, 0, 1))), catalog)
+    assert "Each has nothing directly above it" in r.message
+
+
+def test_set_finish_nothing_to_mark(catalog):
+    d = table()
+    msg = one(d, finish_op(B((0, 0, 5), (3, 3, 6))), catalog)
+    assert not msg.applied and "every cell inside that box" in msg.message
+    assert '"set_finish" only marks filled cells' in msg.message
+    one(d, finish_op(B((0, 0, 2), (1, 1, 2))), catalog)
+    r = one(d, finish_op(B((0, 0, 2), (1, 1, 2))), catalog)
+    assert not r.applied and r.cells_changed == 0
+    assert 'already "smooth"' in r.message
+    r = one(d, finish_op(B((2, 2, 2), (3, 3, 2)), "studs"), catalog)
+    assert not r.applied and 'already "studs"' in r.message
+    assert len(d.log) == 1
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("tiles", 'Did you mean "smooth"?'),
+        ("tile", 'Did you mean "smooth"?'),
+        ("slope", 'Did you mean "sloped"?'),
+        ("stud", 'Did you mean "studs"?'),
+        ("Smooth", 'Did you mean "smooth"?'),
+        ("glossy", 'Unknown finish "glossy"'),
+        (1, '1 means "smooth"; write the word'),
+        (2.0, '2 means "sloped"'),
+        (None, "but it is null"),
+        (True, "but it is true"),
+    ],
+)
+def test_set_finish_rejects_bad_finish_words(catalog, value, expected):
+    msg = rejected_fully(table(), finish_op(B((0, 0, 2), (1, 1, 2)), value), catalog)
+    assert expected in msg
+    assert '"studs"' in msg and '"smooth"' in msg and '"sloped"' in msg
+
+
+def test_set_finish_needs_a_finish_and_a_shape(catalog):
+    msg = rejected_fully(table(), {"op": "set_finish", "shape": B((0, 0, 2), (1, 1, 2))}, catalog)
+    assert '"set_finish" needs a "finish"' in msg
+    msg = rejected_fully(table(), {"op": "set_finish", "finish": "smooth"}, catalog)
+    assert '"set_finish" needs a "shape"' in msg
+    msg = rejected_fully(table(), {**finish_op(B((0, 0, 2), (1, 1, 2))), "color": 4}, catalog)
+    assert 'unexpected field "color"' in msg and '"finish"' in msg
+
+
+def test_set_finish_shape_outside_the_grid(catalog):
+    msg = rejected_fully(table(), finish_op(B((20, 0, 0), (21, 1, 1))), catalog)
+    assert "entirely outside the grid" in msg and "x 0..7" in msg
+
+
+def test_add_and_remove_still_reset_finish_after_set_finish(catalog):
+    d = table()
+    one(d, finish_op(B((0, 0, 0), (7, 5, 2))), catalog)
+    one(d, remove(B((0, 0, 2), (0, 0, 2))), catalog)
+    one(d, add(B((0, 0, 2), (0, 0, 2))), catalog)
+    assert d.finish is not None and d.finish[0, 0, 2] == FINISH_STUDS
+    one(d, paint(B((1, 0, 2), (1, 0, 2))), catalog)
+    assert d.finish[1, 0, 2] == FINISH_SMOOTH
+
+
+# ---- "mirror" on shape operations -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["add", "remove", "paint", "set_finish"])
+def test_mirror_applies_the_shape_and_its_mirror_image(catalog, name):
+    def op_for(shape, mirror=None):
+        op: dict[str, Any] = {"op": name, "shape": shape}
+        if name in ("add", "paint"):
+            op["color"] = RED
+        if name == "set_finish":
+            op["finish"] = "sloped"
+        if mirror is not None:
+            op["mirror"] = mirror
+        return op
+
+    z = 3 if name == "add" else 1
+    shape = B((0, 1, z), (1, 2, z + 1))
+    twin = B((6, 1, z), (7, 2, z + 1))
+    mirrored = table()
+    r = one(mirrored, op_for(shape, True), catalog)
+    by_hand = table()
+    apply_ops(by_hand, [op_for(shape), op_for(twin)], catalog)
+    assert r.applied and r.cells_changed == 16
+    assert mirrored.colors.tobytes() == by_hand.colors.tobytes()
+    assert mirrored.finish is not None and by_hand.finish is not None
+    assert mirrored.finish.tobytes() == by_hand.finish.tobytes()
+    assert "and its mirror image, the box [6, 1, " in r.message
+    assert mirrored.log == [op_for(shape, True)], "the log keeps the operation as given"
+
+
+def test_mirror_false_is_the_same_as_no_mirror(catalog):
+    a, b = table(), table()
+    ra = one(a, add(B((0, 0, 3), (1, 1, 4))), catalog)
+    rb = one(b, {**add(B((0, 0, 3), (1, 1, 4))), "mirror": False}, catalog)
+    assert (ra.applied, ra.cells_changed, ra.message) == (rb.applied, rb.cells_changed, rb.message)
+    assert snapshot(a)[:2] == snapshot(b)[:2]
+    assert b.log[0]["mirror"] is False
+
+
+def test_mirror_counts_a_cell_in_both_once(catalog):
+    d = table()
+    r = one(d, {**add(B((2, 0, 3), (4, 0, 3))), "mirror": True}, catalog)
+    assert r.cells_changed == 4  # x 2..4 and x 3..5 overlap in x 3..4
+    assert d.colors[2:6, 0, 3].tolist() == [RED] * 4
+
+
+def test_mirror_of_a_shape_on_the_middle_says_so(catalog):
+    d = table()
+    r = one(d, {**add(B((3, 0, 3), (4, 0, 3))), "mirror": True}, catalog)
+    assert r.cells_changed == 2 and "its own mirror image" in r.message
+
+
+def test_mirror_of_an_ellipsoid(catalog):
+    d = table()
+    r = one(d, {**add(E((1, 2, 6), (1, 1, 2))), "mirror": True}, catalog)
+    assert "ellipsoid centred at [6, 2, 6]" in r.message
+    assert (d.colors[::-1] == d.colors).all()
+
+
+def test_mirror_of_a_clipped_shape_is_clipped_too(catalog):
+    d = table()
+    r = one(d, {**add(B((-3, 0, 3), (0, 0, 3))), "mirror": True}, catalog)
+    assert r.cells_changed == 2 and d.colors[0, 0, 3] == RED and d.colors[7, 0, 3] == RED
+    assert "outside the grid" in r.message and "the box [7, 0, 3]..[10, 0, 3]" in r.message
+
+
+def test_mirror_remove_may_not_empty_the_design(catalog):
+    d = Design(colors=np.full((4, 1, 1), GREY, dtype=np.int16))
+    msg = rejected(d, {**remove(B((0, 0, 0), (1, 0, 0))), "mirror": True}, catalog)
+    assert "completely empty" in msg
+
+
+@pytest.mark.parametrize("value", [1, 0, "true", None, [True]])
+def test_mirror_must_be_true_or_false(catalog, value):
+    for op in (
+        add(B((0, 0, 3), (0, 0, 3))),
+        finish_op(B((0, 0, 2), (0, 0, 2))),
+        detail(),
+        undetail((1, 0, 3)),
+    ):
+        msg = rejected_fully(table(), {**op, "mirror": value}, catalog)
+        assert '"mirror" must be true or false' in msg
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "delete_detail",
+        "erase_detail",
+        "clear_detail",
+        "unplace_detail",
+        "delete_details",
+        "DeleteDetail",
+        "remove_details",
+        "removeDetail",
+    ],
+)
+def test_unknown_op_for_removing_a_detail_points_to_remove_detail(catalog, name):
+    msg = rejected(table(), {"op": name, "at": [1, 0, 3]}, catalog)
+    assert 'Did you mean "remove_detail"?' in msg, msg
+    assert "place_detail" in msg  # the full list of operations still follows
+
+
+def test_unknown_mirror_like_fields_and_ops_point_to_mirror(catalog):
+    msg = rejected(table(), {**add(B((0, 0, 3), (0, 0, 3))), "mirrored": True}, catalog)
+    assert 'Did you mean "mirror"?' in msg
+    msg = rejected(table(), {**add(B((0, 0, 3), (0, 0, 3))), "symmetric": True}, catalog)
+    assert 'Did you mean "mirror"?' in msg and 'optionally "mirror"' in msg
+    msg = rejected(table(), {"op": "mirror", "shape": B((0, 0, 0), (1, 1, 1))}, catalog)
+    assert '"mirror" is not an operation' in msg and '"mirror": true' in msg
+
+
+# ---- place_detail ---------------------------------------------------------------------------
+
+
+def test_place_detail_on_top_of_the_model(catalog):
+    d = table()
+    before = d.colors.copy()
+    r = one(d, detail("98138", 0, (1, 0, 3)), catalog)
+    assert r.applied and r.cells_changed == 0, r.message
+    assert d.details == [Detail("98138", 0, 1, 0, 3, 0)]
+    assert (d.colors == before).all()
+    assert d.log == [detail("98138", 0, (1, 0, 3))]
+    assert r.message.startswith("Placed a Black Tile 1 x 1 Round with Groove (98138)")
+    assert "x=1, y=0, z=3" in r.message and "1 detail part." in r.message
+    assert "slanted" not in r.message
+
+
+def test_place_detail_with_rotation_covers_the_turned_footprint(catalog):
+    d = table()
+    r = one(d, detail("3069b", 15, (2, 1, 3), rot=90), catalog)
+    assert r.applied, r.message
+    assert d.details == [Detail("3069b", 15, 2, 1, 3, 90)]
+    assert "covering x=2, y=1..2, z=3" in r.message
+
+
+def test_place_detail_accepts_whole_floats(catalog):
+    d = table()
+    r = one(d, detail("98138", 0.0, (1.0, 0, 3.0), rot=180.0), catalog)
+    assert r.applied, r.message
+    assert d.details == [Detail("98138", 0, 1, 0, 3, 180)]
+    assert type(d.details[0].x) is int and type(d.details[0].rot) is int
+
+
+@pytest.mark.parametrize(
+    "part, rot, direction",
+    [
+        ("3040b", 0, "the front (-y)"),
+        ("3040b", 90, "the right (+x)"),
+        ("3039", 180, "the back (+y)"),
+        ("54200", 270, "the left (-x)"),
+    ],
+)
+def test_place_detail_slope_says_which_way_it_runs_down(catalog, part, rot, direction):
+    d = table()
+    r = one(d, detail(part, 4, (2, 2, 3), rot=rot), catalog)
+    assert r.applied, r.message
+    assert f"Its slanted face runs down towards {direction}." in r.message
+
+
+def test_place_detail_rejects_a_part_that_is_not_a_detail(catalog):
+    msg = rejected_fully(table(), detail("3001", 4), catalog)
+    assert 'Part "3001"' in msg and "not a detail part" in msg
+    for p in catalog.detail_parts():
+        assert f"{p.id} {p.name}" in msg
+    msg = rejected_fully(table(), detail("nonsense", 4), catalog)
+    assert 'Unknown detail part "nonsense"' in msg and "98138 Tile 1 x 1 Round" in msg
+
+
+def test_place_detail_part_hints(catalog):
+    msg = rejected_fully(table(), detail(98138, 0), catalog)
+    assert 'written as text in quotes: "98138"' in msg
+    msg = rejected_fully(table(), detail("3070", 0), catalog)
+    assert 'Did you mean "3070b"' in msg
+    msg = rejected_fully(table(), detail("tile 1 x 1 round with groove", 0), catalog)
+    assert 'is part "98138"' in msg
+    msg = rejected_fully(table(), detail(["98138"], 0), catalog)
+    assert '"part" must be the id of a detail part written as text' in msg
+    msg = rejected_fully(table(), {"op": "place_detail", "color": 0, "at": [1, 0, 3]}, catalog)
+    assert '"place_detail" needs a "part"' in msg
+
+
+def test_place_detail_rejects_a_colour_the_part_is_not_made_in(catalog):
+    part = catalog.parts["4740"]
+    missing = next(c for c in sorted(catalog.colours) if c not in part.colours)
+    msg = rejected_fully(table(), detail("4740", missing, (2, 2, 3)), catalog)
+    assert f"is not made in {catalog.colours[missing].name} ({missing})" in msg
+    for c in part.colours:
+        assert f"{c} {catalog.colours[c].name}" in msg
+    msg = rejected_fully(table(), detail("98138", 9999), catalog)
+    assert "Colour 9999 is not in the catalogue" in msg
+    msg = rejected_fully(table(), {"op": "place_detail", "part": "98138", "at": [1, 0, 3]}, catalog)
+    assert '"place_detail" needs a "color"' in msg
+
+
+def test_place_detail_unknown_or_missing_colour_lists_the_colours_the_part_is_made_in(catalog):
+    part = catalog.parts["4740"]
+    made = [c for c in sorted(catalog.colours) if c in part.colours]
+    not_made = [c for c in sorted(catalog.colours) if c not in part.colours]
+    assert made and not_made
+    unknown = next(c for c in range(1000) if c not in catalog.colours)
+    for op in (
+        detail("4740", unknown, (2, 2, 3)),
+        {"op": "place_detail", "part": "4740", "at": [2, 2, 3]},
+        detail("4740", "purple-ish", (2, 2, 3)),
+    ):
+        msg = rejected_fully(table(), op, catalog)
+        assert "Dish 2 x 2 Inverted (4740) is made in: " in msg, msg
+        listed = {int(c) for c in re.findall(r"(?<![\w.=])(\d+) [A-Z]", msg.split("made in: ")[1])}
+        assert listed == set(made), msg
+    msg = rejected_fully(table(), detail("4740", unknown, (2, 2, 3)), catalog)
+    assert f"Colour {unknown} is not in the catalogue" in msg
+    msg = rejected_fully(table(), {"op": "place_detail", "part": "4740", "at": [2, 2, 3]}, catalog)
+    assert '"place_detail" needs a "color"' in msg
+    # Without a valid part, the whole catalogue is still listed.
+    msg = rejected_fully(table(), {"op": "add", "shape": B((0, 0, 3), (0, 0, 3))}, catalog)
+    assert all(f"{c} {catalog.colours[c].name}" in msg for c in catalog.colours)
+
+
+def test_place_detail_rejects_a_cell_outside_the_grid(catalog):
+    msg = rejected_fully(table(), detail("3068b", 0, (7, 0, 3)), catalog)
+    assert "would cover x=7..8, y=0..1, z=3" in msg and "x=8 is outside the grid" in msg
+    assert "x 0..7, y 0..5, z 0..11" in msg
+    msg = rejected_fully(table(), detail("98138", 0, (-1, 0, 3)), catalog)
+    assert "x=-1 is outside the grid" in msg
+    msg = rejected_fully(table(), detail("3062b", 0, (0, 0, 10)), catalog)
+    assert "z=12 is outside the grid" in msg
+
+
+def test_place_detail_rejects_a_filled_cell_and_suggests_a_height(catalog):
+    msg = rejected_fully(table(), detail("98138", 0, (1, 0, 1)), catalog)
+    assert "x=1, y=0, z=1, which is filled" in msg
+    assert "A detail stands in empty cells" in msg
+    assert '"at": [1, 0, 3] would fit' in msg
+
+
+def test_place_detail_rejects_a_cell_with_nothing_below(catalog):
+    d = table()
+    one(d, remove(B((3, 3, 2), (3, 3, 2))), catalog)
+    msg = rejected_fully(d, detail("3068b", 0, (2, 2, 3)), catalog)
+    assert "the cell x=3, y=3, z=3 of its bottom layer has nothing below it" in msg
+    assert "x=3, y=3, z=2 is empty" in msg
+    assert "not flat (z=1 in some columns, z=2 in others)" in msg
+    msg = rejected_fully(table(), detail("98138", 0, (1, 0, 6)), catalog)
+    assert "nothing below it" in msg and '"at": [1, 0, 3] would fit' in msg
+
+
+def test_place_detail_rejects_the_ground(catalog):
+    d = Design(colors=np.full((4, 4, 4), EMPTY, dtype=np.int16))
+    d.colors[0, 0, 0] = GREY
+    msg = rejected_fully(d, detail("98138", 0, (2, 2, 0)), catalog)
+    assert "z=0 is the ground" in msg
+
+
+def test_place_detail_rejects_a_cell_taken_by_another_detail(catalog):
+    d = table()
+    assert one(d, detail("3068b", 0, (2, 2, 3)), catalog).applied
+    msg = rejected_fully(d, detail("98138", 15, (3, 3, 3)), catalog)
+    assert "x=3, y=3, z=3 is already taken by the Black Tile 2 x 2 with Groove (3068b)" in msg
+    assert '{"op": "remove_detail", "at": [2, 2, 3]}' in msg
+
+
+def test_place_detail_is_not_blocked_by_a_detail_on_another_level(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3)), catalog)
+    one(d, add(B((2, 0, 3), (2, 0, 3)), RED), catalog)
+    assert one(d, detail("98138", 0, (2, 0, 4)), catalog).applied
+    # Two details in the same column x=1, y=0, on different levels.
+    d = table()
+    assert one(d, detail("98138", 0, (1, 0, 3)), catalog).applied
+    assert one(d, add(B((1, 0, 5), (1, 0, 5)), RED), catalog).applied
+    r = one(d, detail("98138", 15, (1, 0, 6)), catalog)
+    assert r.applied, r.message
+    assert [(x.x, x.y, x.z) for x in d.details] == [(1, 0, 3), (1, 0, 6)]
+
+
+def test_place_detail_rejects_a_tall_detail_whose_upper_cell_is_filled(catalog):
+    d = table()
+    assert one(d, add(B((3, 0, 5), (3, 0, 5)), RED), catalog).applied
+    msg = rejected_fully(d, detail("59900", 0, (3, 0, 3)), catalog)  # cone, 3 plates tall
+    assert "it would cover x=3, y=0, z=5, which is filled" in msg
+    d = table()
+    assert one(d, add(B((2, 3, 4), (2, 3, 4)), RED), catalog).applied
+    msg = rejected_fully(d, detail("54200", 4, (2, 3, 3)), catalog)  # slope, 2 plates tall
+    assert "it would cover x=2, y=3, z=4, which is filled" in msg
+
+
+@pytest.mark.parametrize(
+    "rot, expected",
+    [
+        (45, '"rot" must be 0, 90, 180 or 270'),
+        (-90, "same turn as 270; use 270"),
+        (360, "same turn as 0; use 0"),
+        ("90", 'but it is "90"'),
+        (True, "but it is true"),
+        (90.5, "but it is 90.5"),
+    ],
+)
+def test_place_detail_rejects_bad_rot(catalog, rot, expected):
+    msg = rejected_fully(table(), detail(rot=rot), catalog)
+    assert expected in msg
+
+
+@pytest.mark.parametrize(
+    "at, expected",
+    [
+        ([1, 0], "exactly three whole numbers"),
+        ([1, 0, 3, 4], "exactly three whole numbers"),
+        ([1.5, 0, 3], '"at" x is 1.5, but a cell position is whole. Use 1 or 2.'),
+        ([1, "0", 3], '"at" y must be a number'),
+        ("1, 0, 3", "must be a list of three whole numbers"),
+        ([1, 0, math.inf], "finite"),
+    ],
+)
+def test_place_detail_rejects_bad_at(catalog, at, expected):
+    op = detail()
+    op["at"] = at
+    msg = rejected_fully(table(), op, catalog)
+    assert expected in msg
+
+
+def test_place_detail_needs_at(catalog):
+    msg = rejected_fully(table(), {"op": "place_detail", "part": "98138", "color": 0}, catalog)
+    assert '"place_detail" needs "at"' in msg
+
+
+def test_place_detail_unexpected_fields(catalog):
+    msg = rejected_fully(table(), {**detail(), "rotation": 90}, catalog)
+    assert 'Did you mean "rot"?' in msg
+    assert '"op", "part", "color", "at", and optionally "rot" and "mirror"' in msg
+    msg = rejected_fully(table(), {**detail(), "position": [1, 0, 3]}, catalog)
+    assert 'Did you mean "at"?' in msg
+    msg = rejected_fully(table(), {**detail(), "shape": B((0, 0, 0), (1, 1, 1))}, catalog)
+    assert 'unexpected field "shape"' in msg
+
+
+def test_place_detail_of_a_gigantic_position_gives_a_short_message(catalog):
+    msg = rejected_fully(table(), detail(at=(10**30, 0, 3)), catalog)
+    assert "x=1e+30 is outside the grid" in msg and len(msg) < 400
+
+
+def test_every_detail_part_can_be_placed_in_every_rotation(catalog):
+    big = Design(colors=np.full((12, 12, 12), EMPTY, dtype=np.int16))
+    big.colors[:, :, :3] = GREY
+    for part in catalog.detail_parts():
+        colour = min(part.colours)
+        for rot in ROTATIONS:
+            d = big.copy()
+            r = one(d, detail(part.id, colour, (4, 4, 3), rot=rot), catalog)
+            assert r.applied, (part.id, rot, r.message)
+            assert ("slanted face" in r.message) == bool(part.slope)
+
+
+# ---- place_detail with "mirror" -------------------------------------------------------------
+
+
+def _mirror_ok(catalog, nx: int, a: Detail, b: Detail) -> None:
+    pa = Placement(a.part, a.color, a.x, a.y, a.z, a.rot)
+    pb = Placement(b.part, b.color, b.x, b.y, b.z, b.rot)
+    assert covered(catalog, b) == {(nx - 1 - x, y, z) for x, y, z in covered(catalog, a)}
+    down = catalog.low_side(pa)
+    assert catalog.low_side(pb) == (None if down is None else (-down[0], down[1]))
+    assert sorted(catalog.stud_cells(pb)) == sorted(
+        (nx - 1 - x, y) for x, y in catalog.stud_cells(pa)
+    )
+    assert (a.part, a.color) == (b.part, b.color)
+    part = catalog.parts[a.part]
+    if part.body_max[2] - part.body_min[2] > 20 * part.sz + 1:  # sticks out along its own Z
+        ax, ay = _part_z_direction(a.rot)
+        assert _part_z_direction(b.rot) == (-ax, ay), (a.part, a.rot, b.rot)
+
+
+def _part_z_direction(rot: int) -> tuple[int, int]:
+    """Grid direction of the part's own +Z axis at this turn (the rotation table)."""
+    return {0: (0, 1), 90: (-1, 0), 180: (0, -1), 270: (1, 0)}[rot]
+
+
+def _wide_table(nx: int = 12) -> Design:
+    d = Design(colors=np.full((nx, 8, 10), EMPTY, dtype=np.int16))
+    d.colors[:, :, :3] = GREY
+    return d
+
+
+@pytest.mark.parametrize("rot", ROTATIONS)
+@pytest.mark.parametrize(
+    "part", ["3040b", "3039", "54200", "85984", "4286", "11477", "3069b", "3068b", "4740"]
+)
+def test_mirrored_detail_is_the_mirror_image(catalog, part, rot):
+    """For every slope and for a 1x2 and 2x2 detail: the twin covers the mirrored cells, a
+    slope's twin runs down the mirrored way, and the studs are mirrored too."""
+    d = _wide_table()
+    colour = min(catalog.parts[part].colours)
+    r = one(d, detail(part, colour, (1, 2, 3), rot=rot, mirror=True), catalog)
+    assert r.applied, r.message
+    assert len(d.details) == 2 and "Also placed its mirror image" in r.message
+    first, twin = d.details
+    assert (first.x, first.y, first.z, first.rot) == (1, 2, 3, rot)
+    _mirror_ok(catalog, 12, first, twin)
+    if catalog.parts[part].slope:
+        assert "The mirror image's slanted face runs down towards" in r.message
+
+
+def test_every_detail_part_has_a_mirror_image_in_every_rotation(catalog):
+    for part in catalog.detail_parts():
+        colour = min(part.colours)
+        for rot in ROTATIONS:
+            d = _wide_table(20)
+            r = one(d, detail(part.id, colour, (0, 0, 3), rot=rot, mirror=True), catalog)
+            assert r.applied and len(d.details) == 2, (part.id, rot, r.message)
+            _mirror_ok(catalog, 20, *d.details)
+
+
+def test_mirrored_slope_facing_right_faces_left(catalog):
+    d = _wide_table()
+    one(d, detail("3040b", 4, (1, 2, 3), rot=90, mirror=True), catalog)
+    a, b = (Placement(x.part, x.color, x.x, x.y, x.z, x.rot) for x in d.details)
+    assert catalog.low_side(a) == (1, 0) and catalog.low_side(b) == (-1, 0)
+    assert (d.details[1].x, d.details[1].rot) == (9, 270)
+
+
+@pytest.mark.parametrize("rot", ROTATIONS)
+@pytest.mark.parametrize("part", ["3069b", "98138", "3068b", "4740"])
+def test_mirrored_symmetric_detail_keeps_its_rotation(catalog, part, rot):
+    d = _wide_table()
+    r = one(d, detail(part, 0, (1, 2, 3), rot=rot, mirror=True), catalog)
+    assert r.applied and len(d.details) == 2, r.message
+    assert [x.rot for x in d.details] == [rot, rot]
+    w = catalog.footprint(Placement(part, 0, 1, 2, 3, rot))[0]
+    assert (d.details[1].x, d.details[1].y) == (12 - 1 - w, 2)
+
+
+@pytest.mark.parametrize("rot, twin_rot", [(0, 0), (90, 270), (180, 180), (270, 90)])
+def test_mirrored_clip_plate_points_its_clip_the_mirrored_way(catalog, rot, twin_rot):
+    """60897's clip sticks out of the part along its own -Z: the mirror image must point the
+    other way along x, which takes rot 270 for rot 90 and the other way round."""
+    d = table()
+    r = one(d, detail("60897", 0, (1, 2, 3), rot=rot, mirror=True), catalog)
+    assert r.applied and len(d.details) == 2, r.message
+    first, twin = d.details
+    assert (first.x, first.rot) == (1, rot)
+    assert (twin.x, twin.y, twin.z, twin.rot) == (6, 2, 3, twin_rot)
+    assert f"Also placed its mirror image at x=6, y=2, z=3 (rot {twin_rot})" in r.message
+    ax, ay = _part_z_direction(rot)
+    assert _part_z_direction(twin.rot) == (-ax, ay)
+
+
+def test_mirrored_detail_on_the_middle_is_placed_once(catalog):
+    d = table()  # nx = 8: a 2-wide part at x 3..4 is centred
+    r = one(d, detail("3068b", 0, (3, 1, 3), mirror=True), catalog)
+    assert r.applied and len(d.details) == 1
+    assert "left-right middle" in r.message and "only one was placed" in r.message
+    d = table()
+    r = one(d, detail("3040b", 4, (3, 1, 3), rot=90, mirror=True), catalog)
+    assert r.applied and len(d.details) == 1 and "only one was placed" in r.message
+
+
+def test_mirrored_detail_that_would_overlap_is_placed_once(catalog):
+    d = table()
+    one(d, detail("3069b", 0, (2, 1, 3), mirror=True), catalog)
+    assert len(d.details) == 2  # x 2..3 and x 4..5 touch but do not overlap
+    d = Design(colors=np.full((7, 3, 6), EMPTY, dtype=np.int16))
+    d.colors[:, :, :3] = GREY
+    r = one(d, detail("3068b", 0, (2, 0, 3), mirror=True), catalog)  # x 2..3 and x 3..4
+    assert r.applied and len(d.details) == 1
+    assert "would overlap it, so only one was placed" in r.message
+    assert "centred" not in r.message  # (7 - 2) is odd: no centred spot
+    d = Design(colors=np.full((7, 3, 6), EMPTY, dtype=np.int16))
+    d.colors[:, :, :3] = GREY
+    r = one(d, detail("63864", 0, (1, 0, 3), mirror=True), catalog)  # x 1..3 and x 3..5
+    assert "would overlap it" in r.message and "use x=2" in r.message
+
+
+def test_mirrored_detail_needs_both_places_free(catalog):
+    d = table()
+    one(d, add(B((6, 0, 3), (6, 0, 3)), RED), catalog)
+    msg = rejected_fully(d, detail("98138", 0, (1, 0, 3), mirror=True), catalog)
+    assert "would fit, but its mirror image at x=6, y=0, z=3 (rot 0) cannot go there" in msg
+    assert "x=6, y=0, z=3, which is filled" in msg and "Nothing was placed" in msg
+    assert 'leave out "mirror"' in msg
+    d = table()
+    one(d, detail("98138", 0, (6, 0, 3)), catalog)
+    msg = rejected_fully(d, detail("98138", 0, (1, 0, 3), mirror=True), catalog)
+    assert "its mirror image at x=6, y=0, z=3" in msg and "already taken" in msg
+    msg = rejected_fully(d, detail("98138", 0, (6, 0, 3), mirror=True), catalog)
+    assert "The Black Tile 1 x 1 Round with Groove (98138) at x=6, y=0, z=3" in msg
+    assert "already taken" in msg
+
+
+# ---- remove_detail --------------------------------------------------------------------------
+
+
+def test_remove_detail_by_any_cell_it_covers(catalog):
+    for cell in [(2, 2, 3), (3, 3, 3), (2, 3, 3), (3, 2, 5)]:
+        d = table()
+        one(d, detail("6143", 0, (2, 2, 3)), catalog)  # round brick 2x2, 3 plates tall
+        r = one(d, undetail(cell), catalog)
+        assert r.applied and r.cells_changed == 0 and d.details == []
+        assert "Removed the Black Brick 2 x 2 Round Reinforced (6143) at x=2, y=2, z=3" in r.message
+        assert d.log[-1] == undetail(cell)
+
+
+def test_remove_detail_where_there_is_none(catalog):
+    d = table()
+    msg = rejected_fully(d, undetail((1, 0, 3)), catalog)
+    assert "No detail part covers x=1, y=0, z=3" in msg and "no detail parts" in msg
+    one(d, detail("98138", 0, (5, 5, 3)), catalog)
+    msg = rejected_fully(d, undetail((1, 0, 3)), catalog)
+    assert "The detail parts now are: the Black Tile 1 x 1 Round with Groove (98138)" in msg
+    assert "x=5, y=5, z=3" in msg
+    msg = rejected_fully(d, undetail((5, 5, 4)), catalog)
+    assert "No detail part covers x=5, y=5, z=4" in msg
+
+
+def test_remove_detail_lists_at_most_a_dozen_details(catalog):
+    d = Design(colors=np.full((10, 10, 4), EMPTY, dtype=np.int16))
+    d.colors[:, :, 0] = GREY
+    apply_ops(d, [detail("98138", 0, (x, y, 1)) for x in range(5) for y in range(4)], catalog)
+    assert len(d.details) == 20
+    msg = rejected_fully(d, undetail((9, 9, 1)), catalog)
+    assert "and 8 more" in msg and len(msg) < 2000
+
+
+def test_remove_detail_needs_at(catalog):
+    msg = rejected_fully(table(), {"op": "remove_detail"}, catalog)
+    assert '"remove_detail" needs "at"' in msg
+    msg = rejected_fully(table(), {**undetail((1, 0, 3)), "part": "98138"}, catalog)
+    assert 'unexpected field "part"' in msg and '"op", "at", and optionally "mirror"' in msg
+    assert "Did you mean" not in msg  # "part" belongs to place_detail; "at" would mislead
+
+
+def test_remove_detail_with_mirror_removes_both(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3), mirror=True), catalog)
+    one(d, detail("98138", 15, (3, 3, 3)), catalog)
+    r = one(d, undetail((1, 0, 3), mirror=True), catalog)
+    assert r.applied and d.details == [Detail("98138", 15, 3, 3, 3, 0)]
+    assert "and its mirror image, the Black Tile" in r.message and "x=6, y=0, z=3" in r.message
+
+
+def test_remove_detail_with_mirror_when_only_one_side_has_one(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3)), catalog)
+    r = one(d, undetail((1, 0, 3), mirror=True), catalog)
+    assert r.applied and d.details == []
+    assert "No detail part covers the mirrored cell x=6, y=0, z=3" in r.message
+    d = table()
+    one(d, detail("98138", 0, (6, 0, 3)), catalog)
+    r = one(d, undetail((1, 0, 3), mirror=True), catalog)
+    assert r.applied and d.details == [] and "its mirror image did" in r.message
+    msg = rejected_fully(d, undetail((1, 0, 3), mirror=True), catalog)
+    assert "or its mirror image x=6, y=0, z=3" in msg
+
+
+def test_remove_detail_with_mirror_of_a_detail_on_the_middle(catalog):
+    d = table()
+    one(d, detail("3068b", 0, (3, 1, 3)), catalog)
+    r = one(d, undetail((3, 1, 3), mirror=True), catalog)
+    assert r.applied and d.details == [] and "covers its own mirror image" in r.message
+
+
+# ---- details never dangle -------------------------------------------------------------------
+
+
+def test_add_into_a_detail_removes_it(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3)), catalog)
+    one(d, detail("98138", 0, (5, 0, 3)), catalog)
+    r = one(d, add(B((0, 0, 3), (2, 2, 3)), RED), catalog)
+    assert r.applied and d.details == [Detail("98138", 0, 5, 0, 3, 0)]
+    assert (
+        "This also removed the Black Tile 1 x 1 Round with Groove (98138) at x=1, y=0, z=3, "
+        "because a cell it stood in is now filled." in r.message
+    )
+
+
+def test_add_into_the_upper_cells_of_a_tall_detail_removes_it(catalog):
+    d = table()
+    one(d, detail("59900", 0, (1, 0, 3)), catalog)  # a cone, 3 plates tall
+    r = one(d, add(B((1, 0, 5), (1, 0, 5)), RED), catalog)
+    assert r.applied and d.details == [] and "also removed" in r.message
+
+
+def test_removing_the_cells_under_a_detail_removes_it(catalog):
+    d = table()
+    one(d, detail("3069b", 0, (1, 0, 3)), catalog)  # stands on x 1..2
+    r = one(d, remove(B((2, 0, 2), (2, 0, 2))), catalog)  # only one of the two cells below
+    assert r.applied and d.details == []
+    assert "because a cell it stood on is now empty" in r.message
+
+
+def test_removing_two_details_names_both(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3), mirror=True), catalog)
+    r = one(d, {**remove(B((1, 0, 2), (1, 0, 2))), "mirror": True}, catalog)
+    assert d.details == [] and "This also removed 2 details" in r.message
+    assert "x=1, y=0, z=3" in r.message and "x=6, y=0, z=3" in r.message
+
+
+def test_edits_that_leave_a_detail_supported_keep_it(catalog):
+    d = table()
+    one(d, detail("98138", 0, (1, 0, 3)), catalog)
+    ops = [
+        add(B((2, 0, 3), (2, 0, 5)), RED),  # beside it
+        add(B((1, 0, 4), (1, 0, 4)), RED),  # above it (not in it)
+        remove(B((1, 0, 0), (1, 0, 1))),  # under it, but not directly below
+        remove(B((5, 5, 2), (5, 5, 2))),  # elsewhere
+        paint(B((0, 0, 0), (7, 5, 11)), BLUE),
+        finish_op(B((0, 0, 0), (7, 5, 11)), "smooth"),
+    ]
+    results = apply_ops(d, ops, catalog)
+    assert all(r.applied for r in results), [r.message for r in results]
+    assert d.details == [Detail("98138", 0, 1, 0, 3, 0)]
+    assert not any("also removed" in r.message for r in results)
+
+
+def test_an_unknown_detail_part_already_in_the_design_is_left_alone(catalog):
+    d = table()
+    d.details.append(Detail("no-such-part", 0, 1, 0, 3, 0))
+    r = one(d, add(B((0, 0, 3), (3, 3, 3)), RED), catalog)
+    assert r.applied and len(d.details) == 1
+    assert "No detail part covers" in rejected(d, undetail((1, 0, 3)), catalog)
+
+
+# ---- log and replay with the stage 2 operations ---------------------------------------------
+
+
+def stage2_ops() -> list[dict[str, Any]]:
+    return [
+        finish_op(B((0, 0, 2), (1, 5, 2)), "smooth", mirror=True),
+        detail("98138", 0, (2, 0, 3), mirror=True),
+        detail("3040b", 4, (0, 3, 3), rot=90, mirror=True),
+        detail("98138", 0, (2, 0, 3)),  # rejected: taken
+        add(E((3.5, 3, 5), (1, 1, 2)), ORANGE),
+        {**remove(B((2, 0, 2), (2, 0, 2))), "mirror": True},  # drops both eyes
+        undetail((7, 3, 4)),
+        finish_op(B((0, 0, 0), (7, 5, 11)), "sloped"),
+        detail("3068b", 15, (3, 0, 3)),
+        {**paint(B((0, 0, 0), (2, 5, 1)), BLUE), "mirror": True},
+    ]
+
+
+def test_stage2_log_holds_exactly_the_applied_operations(catalog):
+    d = table()
+    ops = stage2_ops()
+    given = copy.deepcopy(ops)
+    results = apply_ops(d, ops, catalog)
+    assert [r.applied for r in results] == [True] * 3 + [False] + [True] * 6, [
+        r.message for r in results
+    ]
+    assert d.log == [ops[r.index] for r in results if r.applied]
+    assert ops == given
+    assert d.details == [
+        Detail("3040b", 4, 0, 3, 3, 90),
+        Detail("3068b", 15, 3, 0, 3, 0),
+    ]
+
+
+def test_replay_reproduces_details_finishes_and_mirrors(catalog, tmp_path):
+    base = table()
+    d = base.copy()
+    apply_ops(d, stage2_ops(), catalog)
+    assert len(d.details) == 2 and d.finish is not None and d.finish.any()
+    assert any(op.get("mirror") for op in d.log)
+    again = replay(base, d.log, catalog)
+    assert_same(again, d)
+    d.save(tmp_path / "d.npz", tmp_path / "d.json")
+    loaded = Design.load(tmp_path / "d.npz", tmp_path / "d.json")
+    assert_same(replay(base, loaded.log, catalog), loaded)
+    for n in range(len(d.log) + 1):  # every prefix replays (undo)
+        replay(base, d.log[:n], catalog)
+
+
+def test_random_stage2_sequences_replay_exactly(catalog):
+    rng = random.Random(7)
+    parts = catalog.detail_parts()
+    seen: dict[str, int] = {"placed": 0, "dropped": 0, "removed": 0, "mirrored": 0}
+    for _ in range(30):
+        base = table()
+        d = base.copy()
+        for _ in range(25):
+            roll = rng.random()
+            x, y = rng.randrange(8), rng.randrange(6)
+            mirror = rng.random() < 0.4
+            if roll < 0.3:
+                part = rng.choice(parts)
+                op = detail(
+                    part.id,
+                    min(part.colours),
+                    (x, y, rng.choice([3, 4])),
+                    rot=rng.choice(ROTATIONS),
+                    mirror=mirror,
+                )
+            elif roll < 0.4:
+                spot = rng.choice(d.details) if d.details else None
+                op = undetail((spot.x, spot.y, spot.z) if spot else (x, y, 3), mirror=mirror)
+            elif roll < 0.6:
+                z = rng.randrange(1, 5)
+                op = {**add(B((x, y, z), (x + 1, y, z)), RED), "mirror": mirror}
+            elif roll < 0.8:
+                z = rng.randrange(0, 4)
+                op = {**remove(B((x, y, z), (x, y + 1, z))), "mirror": mirror}
+            else:
+                op = finish_op(
+                    B((x, y, 0), (x, y, 5)), rng.choice(list(FINISH_NAMES)), mirror=mirror
+                )
+            (r,) = apply_ops(d, [op], catalog)
+            seen["placed"] += r.applied and op["op"] == "place_detail"
+            seen["removed"] += r.applied and op["op"] == "remove_detail"
+            seen["dropped"] += "also removed" in r.message
+            seen["mirrored"] += r.applied and op.get("mirror", False)
+            for det in d.details:  # never dangling, never overlapping the grid
+                cells = covered(catalog, det)
+                assert all(d.colors[c] == EMPTY for c in cells)
+                assert all(d.colors[c[0], c[1], det.z - 1] != EMPTY for c in cells if c[2] == det.z)
+        assert_same(replay(base, d.log, catalog), d)
+    assert min(seen.values()) >= 5, seen  # every kind of change really happened
+
+
+def test_a_log_saved_by_stage_1_still_replays(catalog):
+    """These operations and this base were written by stage 1; the result must not change."""
+    log = json.loads(
+        '[{"op": "paint", "shape": {"type": "box", "min": [0, 0, 0], "max": [5, 0, 2]}, '
+        '"color": 4}, {"op": "add", "shape": {"type": "ellipsoid", "center": [2.5, 2, 4.5], '
+        '"radius": [1.5, 1.5, 2]}, "color": 25}, {"op": "remove", "shape": {"type": "box", '
+        '"min": [0, 4, 0], "max": [5, 4, 0]}}, {"op": "add", "shape": {"type": "box", "min": '
+        '[0, 0, 8], "max": [0, 0, 8]}, "color": 4.0}]'
+    )
+    out = replay(half_box(), log, catalog)
+    assert out.log == log and out.details == []
+    # counts and a hash of the cells, as stage 1's code produced them
+    assert int((out.colors == RED).sum()) == 19 and int((out.colors == ORANGE).sum()) == 16
+    assert int(out.filled.sum()) == 101
+    digest = hashlib.sha256(out.colors.astype("<i2").tobytes()).hexdigest()[:16]
+    assert digest == "a16e1c67d0e56b46"
+    assert out.finish is not None and not out.finish.any()
+
+
+# ---- OP_SCHEMA for the stage 2 operations ---------------------------------------------------
+
+
+def _variant(name: str) -> dict[str, Any]:
+    (v,) = [v for v in OP_SCHEMA["anyOf"] if v["properties"]["op"]["const"] == name]
+    return v
+
+
+def test_schema_lists_exactly_the_fields_the_code_accepts(catalog):
+    from bricksnap.design import _OP_FIELDS, _OPTIONAL_FIELDS
+
+    assert OP_SCHEMA["required"] == ["op"]
+    for name in OPS:
+        v = _variant(name)
+        assert set(v["properties"]) == set(_OP_FIELDS[name])
+        assert set(v["required"]) == set(_OP_FIELDS[name]) - set(_OPTIONAL_FIELDS)
+        assert v["properties"]["mirror"] == {"type": "boolean"}
+
+
+def test_schema_lists_the_finish_words_detail_parts_and_rotations(catalog):
+    assert _variant("set_finish")["properties"]["finish"]["enum"] == list(FINISH_NAMES)
+    props = _variant("place_detail")["properties"]
+    assert props["part"]["enum"] == [p.id for p in catalog.detail_parts()]
+    assert props["rot"]["enum"] == [0, 90, 180, 270] == list(ROTATIONS)
+    assert sorted(props["color"]["enum"]) == sorted(catalog.colours)
+    for p in catalog.detail_parts():
+        assert f"{p.id} {p.name} ({p.sx}x{p.sz}, " in props["part"]["description"]
+    assert "runs down towards the right (+x) at 90" in props["rot"]["description"]
+    assert "slopes run down towards the front (-y) at rot 0" in props["part"]["description"]
+    for name in ("remove", "paint", "set_finish"):  # same shape rules as add, no descriptions
+        assert json.dumps(_variant(name)["properties"]["shape"]["anyOf"]) == json.dumps(
+            _strip(OP_SCHEMA["anyOf"][0]["properties"]["shape"]["anyOf"])
+        )
+    assert "mirror" in OP_SCHEMA["description"] and "nx-1-x" in OP_SCHEMA["description"]
+
+
+def _strip(schema: Any) -> Any:
+    if isinstance(schema, dict):
+        return {k: _strip(v) for k, v in schema.items() if k != "description"}
+    if isinstance(schema, list):
+        return [_strip(v) for v in schema]
+    return schema
+
+
+def test_schema_stays_reasonably_small():
+    assert len(json.dumps(OP_SCHEMA)) < 10_000
+
+
+VALID_STAGE2: list[Any] = [
+    finish_op(B((0, 0, 0), (3, 3, 2)), "smooth"),
+    finish_op(E((4, 4, 6), (2, 2, 3)), "sloped", mirror=True),
+    finish_op(B((0, 0, 0), (3, 3, 2)), "studs", mirror=False),
+    detail("98138", 0, (1, 0, 3)),
+    detail("3040b", 4, (1, 2, 3), rot=90, mirror=True),
+    detail("6143", 15, (2, 2, 3), rot=0.0),
+    detail("3069b", 0.0, (1.0, 2, 3), rot=270),
+    undetail((1, 0, 3)),
+    undetail((1, 0, 3), mirror=True),
+    {**add(B((0, 0, 3), (1, 1, 4))), "mirror": True},
+    {**remove(B((0, 0, 0), (1, 7, 2))), "mirror": False},
+    {**paint(E((2, 2, 2), (1, 1, 1)), BLUE), "mirror": True},
+]
+
+INVALID_STAGE2: list[Any] = [
+    {"op": "set_finish", "shape": B((0, 0, 0), (1, 1, 1))},
+    finish_op(B((0, 0, 0), (1, 1, 1)), "tiles"),
+    finish_op(B((0, 0, 0), (1, 1, 1)), 1),
+    {**finish_op(B((0, 0, 0), (1, 1, 1))), "color": 4},
+    {"op": "set_finish", "finish": "smooth"},
+    detail("3001", 4),
+    detail(98138, 0),
+    detail("98138", 999),
+    detail("98138", 0, rot=45),
+    detail("98138", 0, rot=-90),
+    detail("98138", 0, at=(1.5, 0, 3)),
+    {"op": "place_detail", "part": "98138", "color": 0},
+    {"op": "place_detail", "part": "98138", "at": [1, 0, 3]},
+    {**detail(), "rotation": 90},
+    {**detail(), "mirror": 1},
+    {"op": "remove_detail"},
+    {"op": "remove_detail", "at": [1, 0]},
+    {**undetail((1, 0, 3)), "color": 0},
+    {**add(B((0, 0, 0), (1, 1, 1))), "mirror": "yes"},
+    {"op": "mirror", "shape": B((0, 0, 0), (1, 1, 1))},
+]
+
+
+@pytest.mark.parametrize("op", VALID_STAGE2)
+def test_schema_and_apply_ops_accept_valid_stage2_operations(catalog, op):
+    assert schema_valid(op, OP_SCHEMA)
+    validate_op(op, catalog)
+
+
+@pytest.mark.parametrize("op", INVALID_STAGE2)
+def test_schema_and_apply_ops_reject_invalid_stage2_operations(catalog, op):
+    assert not schema_valid(op, OP_SCHEMA)
+    with pytest.raises(ValueError):
+        validate_op(op, catalog)
+    assert one(table(), op, catalog).message.startswith("Rejected:")
+
+
+def test_schema_agrees_with_validation_on_random_stage2_operations(catalog):
+    """As for stage 1. The schema cannot say which colours a part is made in, so only that
+    and "min <= max" may pass the schema and still be rejected."""
+    rng = random.Random(2026)
+    disagreements = []
+    accepted = 0
+    for _ in range(5000):
+        op = _mutations(rng, copy.deepcopy(rng.choice(VALID_STAGE2)))
+        if isinstance(op, dict) and rng.random() < 0.2:
+            op[rng.choice(["mirror", "rot", "part", "finish", "at"])] = rng.choice(
+                [True, 0, 90, 45, "98138", "3001", "smooth", "tiles", [1, 0, 3], None]
+            )
+        try:
+            validate_op(op, catalog)
+            ok, message = True, ""
+        except ValueError as err:
+            ok, message = False, str(err)
+        accepted += ok
+        in_schema = schema_valid(op, OP_SCHEMA)
+        if ok and not in_schema:
+            disagreements.append(("apply_ops accepts but schema rejects", op))
+        if (
+            in_schema
+            and not ok
+            and "is not made in" not in message
+            and ("min is greater than its max" not in message)
+        ):
+            disagreements.append(("schema accepts but apply_ops rejects", op, message))
+    assert not disagreements, disagreements[:5]
+    assert accepted > 300
+
+
+_OP_IN_TEXT = re.compile(r'\{"op": ')
+
+
+def _examples_in(text: str) -> list[Any]:
+    """Every JSON object written as {"op": ...} inside a message."""
+    found = []
+    for m in _OP_IN_TEXT.finditer(text):
+        depth = 0
+        for end in range(m.start(), len(text)):
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            if depth == 0:
+                found.append(json.loads(text[m.start() : end + 1]))
+                break
+    return found
+
+
+def _stage2_messages(catalog) -> list[str]:
+    messages = []
+    d = table()
+    one(d, detail("3068b", 0, (2, 2, 3)), catalog)
+    for op in INVALID_STAGE2 + [
+        detail("98138", 0, (3, 3, 3)),  # taken
+        detail("98138", 0, (1, 0, 1)),  # filled, with a suggestion
+        detail("98138", 0, (1, 0, 7)),  # nothing below, with a suggestion
+        undetail((7, 5, 3)),
+        detail("98138", 0, (5, 2, 3), mirror=True),  # mirror image taken
+        {"op": "fill"},
+        {},
+    ]:
+        messages.append(one(d.copy(), op, catalog).message)
+    return messages
+
+
+def test_every_example_in_a_message_is_a_valid_operation(catalog):
+    examples = [e for msg in _stage2_messages(catalog) for e in _examples_in(msg)]
+    assert len(examples) >= 4
+    for e in examples:
+        assert schema_valid(e, OP_SCHEMA), e
+        validate_op(e, catalog)
+    suggested = [
+        m for msg in _stage2_messages(catalog) for m in re.findall(r'"at": \[[-\d, ]+\]', msg)
+    ]
+    assert suggested
+    for text in suggested:
+        op = {**detail(), **json.loads("{" + text + "}")}
+        assert schema_valid(op, OP_SCHEMA)
+        validate_op(op, catalog)
+
+
+def test_suggested_positions_really_fit(catalog):
+    d = table()
+    for at in [(1, 0, 1), (1, 0, 0), (1, 0, 7), (4, 4, 9)]:
+        msg = rejected_fully(d, detail("98138", 0, at), catalog)
+        (text,) = re.findall(r'"at": (\[[-\d, ]+\]) would fit', msg)
+        assert one(d.copy(), detail("98138", 0, json.loads(text)), catalog).applied
+
+
+def test_stage2_messages_have_no_tracebacks_and_use_plain_coordinates(catalog):
+    for msg in _stage2_messages(catalog):
+        assert "Traceback" not in msg and "Error" not in msg
+        assert "(1, 0, 3)" not in msg  # coordinates are written x=…, y=…, z=…
