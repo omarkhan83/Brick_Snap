@@ -41,3 +41,13 @@ our 50 parts Studio pairs the same file with the same BrickLink part number. The
 slope: we call its file `3665b.dat`, Studio's table knows only `3665.dat`. We do not place that part yet;
 before we do, write it as `3665.dat`. Still to do by a person: open the three files in Studio and answer
 the four questions above.
+
+2026-11-16, Alec-42: opened the designed cat (`samples/projects/cat-designed/build.ldr`, with tiles) in
+BrickLink Studio 2.26.10 on Windows. Answers so far:
+
+1. It opens without errors and looks like our picture. Alec: "The cat works well."
+2. The building steps are kept: Studio's instruction maker shows 33 steps, one picture each, the cat
+   growing step by step. So Studio can make an instruction booklet straight from our file.
+
+Not yet looked at: the pawn and the duck (for the duck, whether the slopes face the right way in Studio;
+they do in LeoCAD), Studio's collision and stability checks (question 3), and the wanted list (question 4).
