@@ -4,8 +4,21 @@ Desktop.ini
 .DS_Store
 .vscode/
 
-# Brick kits exported from the app
+# Brick kits exported from the prototype
 *_brick-kit.stl
 
 # Personal Claude settings (shared ones go in .claude/settings.json)
 .claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Working project folders (examples worth keeping go in samples/projects/)
+/projects/
+
+# Test screenshots and other test output
+tests/artifacts/
