@@ -12,6 +12,7 @@ import http.client
 import io
 import json
 import re
+import shutil
 import socket
 import struct
 import threading
@@ -1781,4 +1782,523 @@ def test_notes_fit_a_phone_screen(browser: Any, tmp_path: Path, pawn_path: Path)
         assert overflow <= 0
         ARTIFACTS.mkdir(parents=True, exist_ok=True)
         p.page.screenshot(path=str(ARTIFACTS / "viewer-notes-phone.png"))
+        p.assert_clean()
+
+
+# ---- the plain conversion and the designed build side by side (stage 3) -------------------
+
+CAT = REPO / "samples" / "projects" / "cat-designed"
+PAWN_PROJECT = REPO / "samples" / "projects" / "pawn"
+ROUGH = "build.rough.json"
+
+
+def copy_project(src: Path, dest: Path, *, rough: bool = True) -> Path:
+    """The files the page reads from a sample project, copied so the test can change them."""
+    dest.mkdir(parents=True)
+    for name in ("project.json", "build.json", ROUGH):
+        if (src / name).exists() and (rough or name != ROUGH):
+            shutil.copy(src / name, dest / name)
+    return dest
+
+
+@contextlib.contextmanager
+def serving(browser: Any, folder: Path, width: int = 1100, height: int = 820) -> Generator[Page]:
+    r = Running(folder)
+    p = Page(browser, r.url, width=width, height=height)
+    try:
+        yield p.open()
+    finally:
+        p.close()
+        r.close()
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.write_text(json.dumps(data), "utf-8")
+
+
+def _drag_at(p: Page, rect: dict[str, float], dx: float, dy: float) -> None:
+    """Drag from the middle of ``rect`` (page pixels)."""
+    cx, cy = rect["x"] + rect["width"] / 2, rect["y"] + rect["height"] / 2
+    p.page.mouse.move(cx, cy)
+    p.page.mouse.down()
+    p.page.mouse.move(cx + dx, cy + dy, steps=8)
+    p.page.mouse.up()
+    p.settle()
+
+
+def _inside(ndc: dict[str, float] | None) -> bool:
+    return bool(ndc) and -1 < ndc["minX"] < ndc["maxX"] < 1 and -1 < ndc["minY"] < ndc["maxY"] < 1
+
+
+def _assert_drawn_in_panes(drawn: dict[str, Any]) -> None:
+    """Each shown view was drawn by one pass of the renderer (in order, left to right), inside
+    its own rectangle, with only its own build visible and the camera shaped like the
+    rectangle. ``frame`` is what the page recorded while it drew, not worked out from the
+    layout."""
+    shown = [n for n in ("rough", "designed") if drawn["views"][n]["shown"]]
+    passes = drawn["frame"]
+    assert [ps["groups"] for ps in passes] == [[n] for n in shown]
+    for ps, name in zip(passes, shown, strict=True):
+        view = drawn["views"][name]
+        rect = view["rect"]
+        box = [rect["x"], rect["y"], rect["width"], rect["height"]]
+        assert ps["viewport"] == pytest.approx(box, abs=1), name
+        if drawn["compare"]["active"]:
+            assert ps["scissor"] == pytest.approx(box, abs=1), name
+        else:
+            assert ps["scissor"] is None
+        assert ps["aspect"] == pytest.approx(rect["width"] / rect["height"], rel=0.01), name
+        assert ps["camera"] == view["camera"]["id"]
+
+
+def _rect_mask(shape: tuple[int, ...], rect: dict[str, float], origin: dict[str, float]):
+    """The pixels of a ``#view`` screenshot that lie in ``rect`` (page pixels), counting a
+    pixel the rectangle only partly covers."""
+    mask = np.zeros(shape[:2], dtype=bool)
+    x0, y0 = rect["x"] - origin["x"], rect["y"] - origin["y"]
+    x1, y1 = x0 + rect["width"], y0 + rect["height"]
+    mask[
+        max(0, int(np.floor(y0))) : int(np.ceil(y1)), max(0, int(np.floor(x0))) : int(np.ceil(x1))
+    ] = True
+    return mask
+
+
+def _rendered_cameras(p: Page) -> tuple[list[float], list[float]]:
+    """The camera position each view was last drawn with (both views must be shown)."""
+    p.settle()
+    views = p.inspect()["views"]
+    return views["rough"]["camera"]["position"], views["designed"]["camera"]["position"]
+
+
+def test_project_files_route_says_which_files_exist(running: Running, project: Project) -> None:
+    """The page learns whether there is a plain conversion without asking for a file that is
+    not there (a 404 shows as an error in the browser's console every two seconds)."""
+    status, headers, body = running.request("/project-files.json?t=1")
+    assert status == 200
+    assert headers["content-type"].startswith("application/json")
+    assert headers["cache-control"] == "no-store"
+    assert json.loads(body) == {"files": ["project.json", "build.json"]}
+    (project.path / ROUGH).write_text("{}", "utf-8")
+    assert json.loads(running.request("/project-files.json")[2]) == {
+        "files": ["project.json", "build.json", ROUGH]
+    }
+    project.build_path.unlink()
+    (project.path / ROUGH).unlink()
+    (project.path / ROUGH).mkdir()  # a folder is not a file
+    assert json.loads(running.request("/project-files.json")[2]) == {"files": ["project.json"]}
+    assert running.request("/project-files.json", method="HEAD")[2] == b""
+    assert running.request("/project-files.json", host="evil.example.com")[0] == 404
+    assert running.request("/project-files.json/")[0] == 404
+    assert running.request("/project-files.json", method="POST")[0] == 405
+
+
+@pytest.mark.browser
+def test_plain_conversion_and_designed_side_by_side(
+    browser: Any, tmp_path: Path, catalog: Catalog
+) -> None:
+    """The cat: the plain conversion on the left and the designed build on the right, each
+    named with its part count, on one grid under one camera, with the designer's brief."""
+    folder = copy_project(CAT, tmp_path / "cat")
+    rough, build = Build.load(folder / ROUGH), Build.load(folder / "build.json")
+    brief = json.loads((folder / "project.json").read_text("utf-8"))["brief"]
+    with serving(browser, folder, width=1440, height=900) as p:
+        pg = p.page
+        drawn = p.inspect()
+        assert drawn["compare"] == {"active": True, "show": "both"}
+        r, d = drawn["views"]["rough"], drawn["views"]["designed"]
+        assert (r["shown"], d["shown"]) == (True, True)
+        assert (r["partCount"], d["partCount"]) == (174, 124)
+        assert_bodies_match(catalog, r["bodies"], rough.parts)
+        assert_bodies_match(catalog, d["bodies"], build.parts)
+        assert d["bodies"] == drawn["bodies"]  # the page's own report is the designed build
+        assert p.text("#count") == "124 parts"
+
+        # side by side, the same size, the plain conversion on the left
+        rr, dr = r["rect"], d["rect"]
+        assert rr["x"] + rr["width"] <= dr["x"]
+        assert rr["y"] == pytest.approx(dr["y"], abs=1)
+        assert rr["width"] == pytest.approx(dr["width"], abs=2)
+        assert rr["height"] == pytest.approx(dr["height"], abs=2)
+        assert rr["width"] > 400 and rr["height"] > 400
+        assert pg.locator("#roughTag").is_visible() and pg.locator("#designedTag").is_visible()
+        assert p.text("#roughTag .pane-title") == "Plain conversion"
+        assert p.text("#designedTag .pane-title") == "Designed"
+        assert "174 parts" in p.text("#roughTag") and "124 parts" in p.text("#designedTag")
+        tag = pg.locator("#roughTag").bounding_box()
+        assert tag and rr["x"] <= tag["x"] < tag["x"] + tag["width"] <= rr["x"] + rr["width"]
+
+        # one camera, one grid, one scale: both whole models in view, drawn the same way
+        assert drawn["sharedCamera"] is True
+        assert r["camera"] == d["camera"]
+        assert _inside(r["ndc"]) and _inside(d["ndc"])
+        # geometry and materials are shared between the two views
+        colours = {q.color for q in rough.parts + build.parts}
+        assert set(r["materials"]) & set(d["materials"])
+        assert len(set(r["materials"]) | set(d["materials"])) == len(colours)
+        assert set(r["geometries"]) & set(d["geometries"])
+
+        # the brief, written as text
+        box = pg.locator("#brief")
+        assert box.is_visible()
+        assert p.text("#brief .brief-object") == brief["object"]
+        assert pg.locator("#brief .brief-features li").all_text_contents() == brief["features"]
+        assert p.text("#brief .brief-plan") == brief["plan"]
+        assert p.text("#brief .brief-finish") == brief["finish"]
+        names = pg.locator("#brief .swatch-name").all_text_contents()
+        assert names == ["Dark Bluish Grey", "Light Bluish Grey", "Black", "Bright Pink"]
+        backgrounds = pg.locator("#brief .swatch").evaluate_all(
+            "els => els.map(e => getComputedStyle(e).backgroundColor)"
+        )
+        assert backgrounds == [
+            "rgb({}, {}, {})".format(*catalog.colours[c].rgb) for c in brief["colours"]
+        ]
+        # beside the views on a wide screen
+        brief_box, view_box = box.bounding_box(), pg.locator("#view").bounding_box()
+        assert brief_box and view_box and brief_box["x"] >= view_box["x"] + view_box["width"]
+
+        # each pane is drawn with its own build, inside its frame, the camera shaped to it
+        # (test_each_view_draws_its_own_build tells the two builds apart by colour)
+        px = p.view_pixels("compare")
+        ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        pg.screenshot(path=str(ARTIFACTS / "viewer-compare-brief.png"), full_page=True)
+        _assert_drawn_in_panes(p.inspect())
+        grey = view_masks(px, catalog, 72)
+        origin = pg.locator("#view").bounding_box()
+        assert origin
+        assert grey[_rect_mask(px.shape, rr, origin)].sum() > 3000
+        assert grey[_rect_mask(px.shape, dr, origin)].sum() > 3000
+
+        # turning one view turns the other, whichever is dragged
+        start = _rendered_cameras(p)
+        assert start[0] == start[1]
+        _drag_at(p, rr, 160, 30)
+        turned = _rendered_cameras(p)
+        assert turned[0] == turned[1] and not np.allclose(turned[0], start[0], atol=1)
+        _drag_at(p, dr, -120, -20)
+        again = _rendered_cameras(p)
+        assert again[0] == again[1] and not np.allclose(again[0], turned[0], atol=1)
+        assert p.inspect()["sharedCamera"] is True
+
+        # the step slider acts on the designed build, and the page says so
+        assert pg.locator("#stepsFor").is_visible()
+        assert p.text("#stepsFor") == "The steps are for the designed build."
+        pg.locator("#step").fill("3")
+        views = p.inspect()["views"]
+        early = [q for q in build.parts if q.step <= 3]
+        assert len(views["designed"]["bodies"]) == len(early) < 124
+        assert len(views["rough"]["bodies"]) == 174
+        pg.locator("#all").click()
+
+        # the switch: either one alone, then both again
+        pg.locator("#compare [data-show=designed]").click()
+        views = p.inspect()["views"]
+        assert (views["rough"]["shown"], views["designed"]["shown"]) == (False, True)
+        assert views["designed"]["rect"]["width"] > 1.8 * dr["width"]
+        assert not pg.locator("#roughTag").is_visible()
+        assert pg.locator("#compare [data-show=designed]").get_attribute("aria-pressed") == "true"
+        assert _inside(views["designed"]["ndc"])
+        pg.screenshot(path=str(ARTIFACTS / "viewer-compare-designed-only.png"))
+
+        pg.locator("#compare [data-show=rough]").click()
+        views = p.inspect()["views"]
+        assert (views["rough"]["shown"], views["designed"]["shown"]) == (True, False)
+        assert not pg.locator("#designedTag").is_visible()
+        assert _inside(views["rough"]["ndc"])
+        pg.screenshot(path=str(ARTIFACTS / "viewer-compare-rough-only.png"))
+
+        # the choice survives a rebuild
+        version = p.state()["buildVersion"]
+        _write_json(
+            folder / "build.json", dict(build.to_json(), parts=build.to_json()["parts"][1:])
+        )
+        p.poll_now()
+        assert p.state()["buildVersion"] > version
+        assert p.inspect()["compare"] == {"active": True, "show": "rough"}
+        assert "123 parts" in p.text("#designedTag") and p.text("#count") == "123 parts"
+        pg.locator("#compare [data-show=both]").click()
+        views = p.inspect()["views"]
+        assert (views["rough"]["shown"], views["designed"]["shown"]) == (True, True)
+
+        # a screen too narrow for the brief beside the views shows it under the steps
+        pg.set_viewport_size({"width": 1100, "height": 820})
+        p.settle()
+        steps_box, brief_box = pg.locator(".steps").bounding_box(), box.bounding_box()
+        assert steps_box and brief_box and brief_box["y"] >= steps_box["y"] + steps_box["height"]
+        views = p.inspect()["views"]
+        assert _inside(views["rough"]["ndc"]) and _inside(views["designed"]["ndc"])
+        pg.screenshot(path=str(ARTIFACTS / "viewer-compare-1100.png"), full_page=True)
+
+        # picking what to show keeps the person's zoom and the point they look at, though
+        # one view alone is wide and two side by side are tall
+        rr = p.inspect()["views"]["rough"]["rect"]
+        pg.mouse.move(rr["x"] + rr["width"] / 2, rr["y"] + rr["height"] / 2)
+        pg.mouse.wheel(0, -600)
+        p.settle()
+        zoomed = p.inspect()["camera"]
+        for show in ("designed", "rough", "both"):
+            pg.locator(f"#compare [data-show={show}]").click()
+            p.settle()
+            camera = p.inspect()["camera"]
+            assert camera["position"] == pytest.approx(zoomed["position"], abs=1e-6), show
+            assert camera["target"] == pytest.approx(zoomed["target"], abs=1e-6), show
+        assert p.inspect()["sharedCamera"] is True
+
+        # without the plain conversion the page is as it always was
+        (folder / ROUGH).unlink()
+        p.poll_now()
+        drawn = p.inspect()
+        assert drawn["compare"]["active"] is False
+        assert drawn["views"]["rough"]["shown"] is False
+        for hidden in ("#compare", "#roughTag", "#designedTag", "#stepsFor"):
+            assert not pg.locator(hidden).is_visible(), hidden
+        assert drawn["views"]["designed"]["rect"]["width"] > 1.6 * views["rough"]["rect"]["width"]
+        assert _inside(drawn["ndc"])
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_side_by_side_stacks_on_a_phone(browser: Any, tmp_path: Path, catalog: Catalog) -> None:
+    folder = copy_project(CAT, tmp_path / "cat")
+    with serving(browser, folder, width=375, height=740) as p:
+        views = p.inspect()["views"]
+        rr, dr = views["rough"]["rect"], views["designed"]["rect"]
+        assert rr["y"] + rr["height"] <= dr["y"]  # one above the other
+        assert rr["x"] == pytest.approx(dr["x"], abs=1)
+        assert rr["width"] == pytest.approx(dr["width"], abs=2)
+        assert rr["height"] == pytest.approx(dr["height"], abs=2) and rr["height"] > 250
+        assert _inside(views["rough"]["ndc"]) and _inside(views["designed"]["ndc"])
+        overflow = p.page.evaluate(
+            "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+        )
+        assert overflow <= 0
+        assert p.page.locator("#brief").is_visible()
+        for name in ("rough", "designed"):  # the name tags are one short line
+            tag = p.page.locator(f"#{name}Tag").bounding_box()
+            assert tag and tag["height"] < 40 and tag["width"] < views[name]["rect"]["width"]
+        assert p.text("#designedTag").split() == [
+            "Designed",
+            "What",
+            "BrickSnap",
+            "made",
+            "of",
+            "it",
+            "·",
+            "124",
+            "parts",
+        ]
+        assert p.page.locator("#designedTag .pane-what").is_hidden()
+        buttons = p.page.locator("#compare button").evaluate_all(
+            "els => els.map(e => e.getBoundingClientRect().top)"
+        )
+        assert max(buttons) - min(buttons) < 2  # the three choices on one row
+        px = p.view_pixels("compare-phone")
+        ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        p.page.screenshot(path=str(ARTIFACTS / "viewer-compare-phone-full.png"), full_page=True)
+        grey = view_masks(px, catalog, 72)
+        half = px.shape[0] // 2
+        assert grey[:half].sum() > 1000 and grey[half:].sum() > 1000
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_one_build_and_no_brief(browser: Any, tmp_path: Path) -> None:
+    """The pawn has one build and no brief: the page is as before. A brief, or a plain
+    conversion that differs from the build, appears as soon as it is written; a plain
+    conversion equal to the build changes nothing."""
+    folder = copy_project(PAWN_PROJECT, tmp_path / "pawn")
+    with serving(browser, folder) as p:
+        pg = p.page
+        drawn = p.inspect()
+        assert drawn["compare"]["active"] is False
+        assert drawn["views"]["rough"] == {**drawn["views"]["rough"], "shown": False}
+        assert drawn["views"]["rough"]["partCount"] == 0
+        assert drawn["views"]["designed"]["shown"] is True
+        for hidden in ("#compare", "#roughTag", "#designedTag", "#stepsFor", "#brief"):
+            assert not pg.locator(hidden).is_visible(), hidden
+        rect, view = drawn["views"]["designed"]["rect"], pg.locator("#view").bounding_box()
+        assert view and rect["width"] == pytest.approx(view["width"] - 6, abs=1)
+        assert p.text("#count") == "294 parts"
+        assert _inside(drawn["ndc"])
+        _assert_drawn_in_panes(drawn)  # one pass over the whole canvas
+        p.view_pixels("one-build")
+        ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        pg.screenshot(path=str(ARTIFACTS / "viewer-one-build-full.png"), full_page=True)
+
+        # a brief appears without a rebuild, every field shown as text: markup in any of them
+        # makes no element, loads nothing and runs nothing
+        hostile = '<img src="x" onerror="window.__pwned = 1"><script>window.__pwned = 2</script>'
+        brief_tags = "els => [...new Set(els.map(e => e.tagName))]"
+        meta = json.loads((folder / "project.json").read_text("utf-8"))
+        meta["brief"] = {
+            "object": f"A <b>chess</b> pawn.{hostile}",
+            "features": ["round head", "", 7, f"wide <i>base</i>{hostile}"],
+            "plan": f"Keep it simple.{hostile}",
+            "colours": [71, 9999],
+            "finish": f"Studs everywhere.{hostile}",
+        }
+        _write_json(folder / "project.json", meta)
+        p.poll_now()
+        p.settle()
+        assert pg.locator("#brief").is_visible()
+        assert p.text("#brief .brief-object") == meta["brief"]["object"]
+        assert pg.locator("#brief .brief-features li").all_text_contents() == [
+            "round head",
+            f"wide <i>base</i>{hostile}",
+        ]
+        assert p.text("#brief .brief-plan") == meta["brief"]["plan"]
+        assert p.text("#brief .brief-finish") == meta["brief"]["finish"]
+        assert set(pg.locator("#briefBody *").evaluate_all(brief_tags)) == {
+            "P",
+            "H3",
+            "UL",
+            "LI",
+            "SPAN",
+        }
+        names = pg.locator("#brief .swatch-name").all_text_contents()
+        assert names == ["Light Bluish Grey", "Colour 9999"]
+        meta["brief"] = f"An older brief written as one paragraph.{hostile}"
+        _write_json(folder / "project.json", meta)
+        p.poll_now()
+        p.settle()
+        assert p.text("#brief .brief-object") == meta["brief"]
+        assert pg.locator("#brief .brief-features li").count() == 0
+        assert set(pg.locator("#briefBody *").evaluate_all(brief_tags)) == {"P"}
+        assert pg.evaluate("() => window.__pwned") is None
+
+        # a plain conversion with nothing in it to draw counts as none
+        for text in ("{}", '{"parts": []}', '{"parts": "x"}', '{"parts": [null, 3, "a"]}'):
+            version = pg.evaluate("() => window.__bricksnap.roughVersion")
+            (folder / ROUGH).write_text(text, "utf-8")
+            p.poll_now()
+            assert pg.evaluate("() => window.__bricksnap.roughVersion") > version, text
+            drawn = p.inspect()
+            assert drawn["compare"]["active"] is False, text
+            assert drawn["views"]["rough"]["shown"] is False, text
+            for hidden in ("#compare", "#roughTag", "#designedTag", "#stepsFor"):
+                assert not pg.locator(hidden).is_visible(), (text, hidden)
+            assert drawn["views"]["designed"]["rect"]["width"] == pytest.approx(rect["width"])
+
+        # a plain conversion equal to the build changes nothing
+        build = json.loads((folder / "build.json").read_text("utf-8"))
+        _write_json(folder / ROUGH, build)
+        p.poll_now()
+        assert p.inspect()["compare"]["active"] is False
+        assert not pg.locator("#compare").is_visible()
+
+        # one that differs is shown beside it at once
+        _write_json(folder / ROUGH, dict(build, parts=build["parts"][:-10]))
+        p.poll_now()
+        drawn = p.inspect()
+        assert drawn["compare"] == {"active": True, "show": "both"}
+        assert drawn["views"]["rough"]["partCount"] == 284
+        assert pg.locator("#compare").is_visible() and pg.locator("#stepsFor").is_visible()
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_two_big_builds_stay_quick(browser: Any, tmp_path: Path, pawn_path: Path) -> None:
+    """Two 600-part builds side by side load quickly and are drawn with few meshes that
+    share materials."""
+    proj = Project.create(tmp_path / "two", pawn_path, studs=4, name="Two")
+    designed = [
+        Placement(
+            "3001",
+            (RED, BLUE, YELLOW)[n % 3],
+            (n % 10) * 4,
+            (n // 10 % 6) * 2,
+            n // 60 * 3,
+            0,
+            1 + n // 60,
+        )
+        for n in range(600)
+    ]
+    plain = [
+        Placement("3003", (RED, BLUE)[n % 2], (n % 20) * 2, (n // 20 % 6) * 2, n // 120 * 3, 0, 1)
+        for n in range(600)
+    ]
+    proj.save_build(Build((40, 12, 30), designed))
+    Build((40, 12, 15), plain).save(proj.path / ROUGH)
+    start = time.monotonic()
+    with serving(browser, proj.path) as p:
+        assert time.monotonic() - start < 15
+        drawn = p.inspect()
+        r, d = drawn["views"]["rough"], drawn["views"]["designed"]
+        assert (len(r["bodies"]), len(d["bodies"])) == (600, 600)
+        # Exactly: one body mesh and one stud mesh per colour, the two edge-line objects
+        # (all edges, and the current step's), and one highlight outline per shape.
+        assert (d["meshCount"], r["meshCount"]) == (3 + 3 + 2 + 1, 2 + 2 + 2 + 1)
+        assert set(r["materials"]) <= set(d["materials"])
+        # Drawing both views costs exactly what drawing each build alone costs, added up:
+        # one pass per view, the same draw calls and triangles, nothing drawn twice. And in
+        # time, loosely. (The headless browser draws in software, hundreds of times slower
+        # than a graphics card, so the times themselves say little.)
+        timed = p.page.evaluate(
+            """() => Object.fromEntries(['designed', 'rough', 'both'].map((show) => {
+                document.querySelector(`#compare [data-show=${show}]`).click();
+                const ms = window.__bricksnap.timeFrames(2);
+                return [show, {ms, frame: window.__bricksnap.inspect().frame}];
+            }))"""
+        )
+        frames = {show: t["frame"] for show, t in timed.items()}
+        ms = {show: t["ms"] for show, t in timed.items()}
+        assert [ps["groups"] for ps in frames["designed"]] == [["designed"]]
+        assert [ps["groups"] for ps in frames["rough"]] == [["rough"]]
+        assert [ps["groups"] for ps in frames["both"]] == [["rough"], ["designed"]]
+        for key in ("calls", "triangles"):
+            assert frames["both"][0][key] == frames["rough"][0][key], key
+            assert frames["both"][1][key] == frames["designed"][0][key], key
+        assert frames["rough"][0]["triangles"] < frames["designed"][0]["triangles"]
+        assert ms["both"] < 2 * (ms["designed"] + ms["rough"]), ms
+        p.assert_clean()
+
+
+@pytest.mark.browser
+def test_each_view_draws_its_own_build(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """The designed build has blue the plain one lacks, the plain one green the designed one
+    lacks, and both have red. Blue shows only in the designed build's pane and green only in
+    the plain conversion's, and no brick colour shows outside the panes shown, whichever
+    the person chose to see."""
+    proj = Project.create(tmp_path / "own", pawn_path, studs=4, name="Own")
+    designed = [
+        Placement("3001", (RED, BLUE)[z % 2], 0, y, 3 * z, 0, 1 + z)
+        for z in range(5)
+        for y in (0, 2)
+    ]
+    plain = [
+        Placement("3003", (GREEN, RED)[(x + z) % 2], x, y, 3 * z, 0, 1)
+        for z in range(5)
+        for x in (0, 2)
+        for y in (0, 2)
+    ]
+    proj.save_build(Build((8, 8, 15), designed))
+    Build((8, 8, 15), plain).save(proj.path / ROUGH)
+    with serving(browser, proj.path) as p:
+        pg = p.page
+        for show in ("both", "rough", "designed"):
+            pg.locator(f"#compare [data-show={show}]").click()
+            px = p.view_pixels(f"own-panes-{show}")
+            drawn = p.inspect()
+            assert drawn["compare"] == {"active": True, "show": show}
+            _assert_drawn_in_panes(drawn)
+            origin = pg.locator("#view").bounding_box()
+            assert origin
+            panes = {
+                name: _rect_mask(px.shape, v["rect"], origin)
+                if v["shown"]
+                else np.zeros(px.shape[:2], dtype=bool)
+                for name, v in drawn["views"].items()
+            }
+            shown = [name for name, v in drawn["views"].items() if v["shown"]]
+            assert shown == {"both": ["rough", "designed"]}.get(show, [show])
+            for code, owner in ((BLUE, "designed"), (GREEN, "rough")):
+                mask = view_masks(px, catalog, code)
+                assert mask[~panes[owner]].sum() == 0, (show, code)
+                if owner in shown:
+                    assert mask[panes[owner]].sum() > 300, (show, code)
+            red = view_masks(px, catalog, RED)
+            assert red[~(panes["rough"] | panes["designed"])].sum() == 0, show
+            for name in shown:
+                assert red[panes[name]].sum() > 300, (show, name)
         p.assert_clean()

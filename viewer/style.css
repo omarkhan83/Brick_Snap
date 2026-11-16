@@ -102,6 +102,8 @@ main {
 }
 .viewcard { position: relative; }
 .view {
+  position: relative;
+  isolation: isolate;
   height: min(68vh, 720px);
   min-height: 320px;
   border: 3px solid var(--ink);
@@ -110,7 +112,51 @@ main {
   background: linear-gradient(#cfe9ff, #fffdf5);
   touch-action: none;
 }
-.view canvas { display: block; width: 100%; height: 100%; }
+/* One canvas over the whole view. With two builds it draws each inside its pane's frame:
+   the panes' skies sit under the canvas, their frames and name tags above it. */
+.view canvas { position: absolute; inset: 0; z-index: 1; display: block; width: 100%; height: 100%; }
+.panes { position: absolute; inset: 0; display: flex; gap: 16px; }
+.pane { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; }
+.pane[hidden] { display: none; }
+.pane-frame, .pane-tag { display: none; }
+
+.view.compare { border-color: transparent; background: none; border-radius: 0; overflow: visible; }
+.view.compare .pane { border-radius: 10px; background: linear-gradient(#cfe9ff, #fffdf5); }
+.view.compare .pane-frame {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  pointer-events: none;
+}
+.view.compare .pane-tag {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 3;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 6px 12px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 var(--ink);
+  pointer-events: none;
+}
+.view.compare .pane-tag.designed { background: var(--yel); }
+.pane-title { font-weight: 800; font-size: 19px; line-height: 1.2; }
+.pane-sub { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+
+/* which build to show, when there are two */
+.compare { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.compare[hidden] { display: none; }
+.compare-label { font-weight: 800; margin-right: 2px; }
+.compare button { padding: 6px 12px; font-size: 15px; }
+.compare button[aria-pressed="true"] { background: var(--blue); color: #fff; }
 .hint { margin: 8px 2px 0; color: var(--muted); font-size: 14px; }
 .notice {
   position: absolute;
@@ -133,6 +179,8 @@ main {
 .slider { flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .slider label { font-weight: 800; font-size: 17px; }
 input[type="range"] { width: 100%; accent-color: var(--blue); height: 26px; }
+.steps-for { margin: 0; color: var(--muted); font-size: 14px; font-weight: 600; }
+.steps-for[hidden] { display: none; }
 
 button {
   font: 700 16px var(--font);
@@ -157,6 +205,43 @@ button:disabled {
 button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .allbtn[aria-pressed="true"] { background: var(--blue); color: #fff; }
 
+/* ---- the designer's brief ---- */
+.brief[hidden] { display: none; }
+.brief h2 { margin: 0; font-size: 22px; font-weight: 800; }
+.brief-lead { margin: 2px 0 10px; color: var(--muted); font-size: 14px; }
+.brief h3 { margin: 14px 0 4px; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.brief p, .brief li { overflow-wrap: anywhere; line-height: 1.4; }
+.brief-object { margin: 0; font-size: 18px; font-weight: 700; }
+.brief-plan, .brief-finish { margin: 0; }
+.brief-features { margin: 0; padding-left: 22px; }
+.brief-features li { margin: 2px 0; }
+.swatches { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.swatches li { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+}
+.swatch.unknown { border-style: dashed; }
+
+/* Wide screens: the brief beside the views. */
+@media (min-width: 1280px) {
+  body.has-brief .bar, body.has-brief .notes { max-width: 1560px; }
+  body.has-brief main {
+    max-width: 1560px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-areas: "view brief" "steps brief";
+    grid-template-rows: auto 1fr;
+    align-items: start;
+  }
+  body.has-brief .viewcard { grid-area: view; }
+  body.has-brief .steps { grid-area: steps; }
+  body.has-brief .brief { grid-area: brief; }
+}
+
 /* ---- footer ---- */
 .foot {
   border-top: 3px solid var(--ink);
@@ -171,4 +256,19 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
   .brand { display: none; }
   .steps button { padding: 8px 12px; }
   .view { height: 58vh; }
+}
+
+/* Narrow screens: the two views one above the other, each about as tall as before. */
+@media (max-width: 700px) {
+  .panes { flex-direction: column; gap: 12px; }
+  .view.compare { height: 88vh; min-height: 560px; }
+  /* the name tags on one line: the name and the part count */
+  .view.compare .pane-tag { flex-direction: row; align-items: baseline; gap: 8px; left: 8px; top: 8px; padding: 3px 10px; }
+  .pane-title { font-size: 16px; }
+  .pane-sub { font-size: 13px; }
+  .pane-what { display: none; }
+  /* the three choices side by side, as wide as each other */
+  .compare { display: grid; grid-template-columns: 1fr 1.5fr 1.2fr; gap: 8px; align-items: stretch; }
+  .compare-label { display: none; }
+  .compare button { padding: 6px 4px; font-size: 14px; line-height: 1.2; }
 }
