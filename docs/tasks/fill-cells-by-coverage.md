@@ -36,3 +36,11 @@ What is left, in the order to try it:
    The fill has to keep a stud of overlap between layers, or item 1 has to restore it.
 
 The reviewer's and the author's full findings are in the commit messages on the branch.
+
+2026-11-16, Alec-42's agent: items 1 to 3 above are built on the branch and reviewed; the review's fixes
+are being made. Every sample model now builds at 12, 16, and 24 studs with no loose parts; outline match
+87% in each view; 2,727 parts against 3,570. Weak spots are 399 against 237, most of the rise in the hat
+(111), so the last "done when" line is not met. To decide once the sturdier solver is on `main` and merged
+into the branch: measure again, and either accept a higher count for thinner models or fix what remains.
+The make-buildable pass must also fill partly covered cells in the colour the model has there now, not the
+colour it had before an edit repainted it (review finding).
