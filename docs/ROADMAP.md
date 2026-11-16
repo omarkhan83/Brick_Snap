@@ -14,7 +14,7 @@ Pick tasks from the current stage first. A task's `stage:` line says where it be
 | 1 | **Model in, valid real-brick file out, and the AI loop alive** | Pawn, box, cylinder, and sphere build with zero loose bricks, solid and hollow, at three sizes. A flat (zero-height) model is rejected with a message. The AI makes one visible, valid change to a model through the clean-room runner |
 | 2 | **Looks designed** | A cat 12 to 16 studs long: rough build and designed build side by side, clearly different, both valid |
 | 3 | **Steerable and showable** | Three showcase models run from seed to finished set, including a typed edit |
-| 4 | **Presentable** | The two-minute walkthrough works from a clean checkout |
+| 4 | **Usable and presentable** | A person who has never used a terminal turns a model into a designed set in the web app. The two-minute walkthrough works from a clean checkout |
 | Later | Everything under "After stage 4" | |
 
 ### Stage 1: model in, valid real-brick file out, and the AI loop alive
@@ -45,8 +45,10 @@ part and colour pairs that exist.
   `samples/scorecard.json`): fill cells by how much of them the model covers, tie big sections together
   with more than one part, and use fewer small plates on curved models.
 
-### Stage 4: presentable
+### Stage 4: usable and presentable
 
+- A web app on a server that runs on your own computer: choose a model, see the plain conversion next to
+  the designed build, start the designer, type a change, download the files (`docs/tasks/web-app.md`).
 - The same models through BrickLink Studio's sculpture import, pictured next to ours.
 - Saved example projects in `samples/projects/` so nothing depends on a live run.
 - A walkthrough script. Polish: error messages, README, licence and credits, Fair Play wording.
@@ -57,7 +59,8 @@ model.
 
 ### After stage 4, in order
 
-1. The AI designer inside the app, on the API, with the same prompt and tools.
+1. A hosted copy of the web app for the group, with the AI designer on the API using the same prompt and
+   tools. Until then the designer runs through one person's Claude Code login.
 2. Strength worked out from forces; internal frames for big models.
 3. More part types: curved slopes, wedges, more sideways building.
 4. Functional sub-assemblies: wheels on axles, hinges, turntables.
@@ -72,9 +75,9 @@ on the engine and can be done at any time.
 
 ## If something has to be dropped
 
-Drop in this order: a real web app (the command line plus the viewer page is enough); our own instruction
-booklet (Studio makes one from our file); the judge and best-of-several; colour taken from textures (the
-AI paints instead); printable STL output.
+Drop in this order: our own instruction booklet (Studio makes one from our file); the judge and
+best-of-several; a hosted copy of the web app (one that runs on your own computer is enough to show it);
+printable STL output. What is never dropped: the result has to work well. That is the challenge.
 
 ## Lanes
 

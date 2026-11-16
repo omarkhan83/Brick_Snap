@@ -271,6 +271,14 @@ Rules that keep parallel work from colliding:
 - The viewer is plain JavaScript modules with three.js copied into `viewer/vendor/`; `bricksnap view`
   serves it with Python's built-in web server. It is tested with headless Chromium through Playwright.
 
+## Front ends
+
+The engine is a library. `bricksnap.pipeline` is the one door into it: make a project, rebuild, draw,
+export. The command line is a thin layer over that, and so is the designer's tool server. The web app
+planned for stage 4 will be a third: a small server on the user's own computer that calls the same
+functions and serves the viewer page with controls added. No front end holds logic of its own, so they
+cannot drift apart.
+
 ## The prototype
 
 The original app (`legacy/index.html`) still opens by double-click and is not developed further. Its

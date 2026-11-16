@@ -42,8 +42,12 @@ gap this project goes after.
    optional extra, not the main road.
 6. **Measured, not guessed.** A fixed set of test models and a scorecard, compared against Studio's import
    of the same model. A change is an improvement when the scorecard and the pictures say so.
-7. **Private by default.** Everything runs on the user's computer. Nothing is sent anywhere unless the user
-   starts the AI design step, which sends pictures and a description of the model to the AI provider.
+7. **Private by default.** Everything runs on the user's computer, including the web app's server. Nothing
+   is sent anywhere unless the user starts the AI design step, which sends pictures and a description of
+   the model to the AI provider. A hosted copy of the web app, if we run one, receives the models people
+   upload to it and says so.
+8. **Usable by people who do not program.** The engine working well comes first. On top of it sits a
+   command line for now and a web app after, both thin: neither holds any logic of its own.
 
 ## The passes
 
