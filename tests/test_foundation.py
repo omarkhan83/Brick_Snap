@@ -229,3 +229,21 @@ def test_colour_difference_matches_published_values():
     for a, b, want in pairs:
         got = _colour_difference(np.array([a], dtype=float), np.array([b], dtype=float))[0, 0]
         assert abs(got - want) < 1e-4, (a, b, got)
+
+
+def test_rough_build_is_the_plain_conversion_and_is_reused(tmp_path, pawn_path):
+    from bricksnap.pipeline import create_project, rebuild, rough_build
+
+    project = create_project(pawn_path, studs=8, directory=tmp_path)
+    rebuild(project)
+    design = project.load_design()
+    design.colors[design.filled] = 4  # an edit: the current build changes, the rough one does not
+    project.save_design(design)
+    rebuild(project)
+    rough = rough_build(project)
+    assert rough.report is not None and rough.report.ok
+    assert {p.color for p in rough.parts} != {4}
+    assert rough.design_id == project.load_design(base=True).fingerprint()
+    stamp = project.rough_build_path.read_bytes()
+    assert rough_build(project).parts == rough.parts
+    assert project.rough_build_path.read_bytes() == stamp

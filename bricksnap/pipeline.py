@@ -4,7 +4,9 @@ designer's tools and the tests. Keeping them here means everything runs the same
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
+from typing import Any
 
 from bricksnap.catalog import Catalog, load_catalog
 from bricksnap.project import Project, slug
@@ -49,14 +51,31 @@ def load_project_seed(project: Project) -> Seed:
 
 
 def rebuild(project: Project, *, catalog: Catalog | None = None) -> Build:
-    """Design to Build to checks. Saves build.json and build.ldr; returns the checked Build."""
+    """Design to checked Build: make buildable, lay out, finish, check.
+
+    Saves build.json and build.ldr and returns the Build. ``Build.notes`` says what the
+    make-buildable and finishing passes changed by themselves. The saved Design is never
+    changed here: the make-buildable pass works on a copy.
+    """
+    from bricksnap.buildable import make_buildable
     from bricksnap.checks import check
+    from bricksnap.finish import finish
     from bricksnap.layout import solve
     from bricksnap.ldraw import to_ldraw
 
     catalog = catalog or load_catalog()
     design = project.load_design()
-    build = solve(design, catalog)
+    work, build, notes = design, None, []
+    try:
+        fixed = make_buildable(design, catalog)
+        work, build, notes = fixed.design, fixed.build, list(fixed.notes)
+    except NotImplementedError:  # stage 2 pass not written yet
+        pass
+    if build is None:
+        build = solve(work, catalog)
+    build.notes = notes
+    with contextlib.suppress(NotImplementedError):  # stage 2 pass not written yet
+        build = finish(build, work, catalog)
     build.design_id = design.fingerprint()
     build.report = check(build, catalog)
     project.save_build(build)
@@ -64,10 +83,46 @@ def rebuild(project: Project, *, catalog: Catalog | None = None) -> Build:
     return build
 
 
+def rough_build(project: Project, *, catalog: Catalog | None = None) -> Build:
+    """The plain conversion: the untouched base Design laid out with no passes at all.
+
+    This is the "before" of every before-and-after picture. It is saved as build.rough.json
+    and reused for as long as the base Design is the one it was made from.
+    """
+    from bricksnap.checks import check
+    from bricksnap.layout import solve
+
+    catalog = catalog or load_catalog()
+    base = project.load_design(base=True)
+    if project.rough_build_path.exists():
+        try:
+            saved = Build.load(project.rough_build_path)
+            if saved.design_id == base.fingerprint():
+                return saved
+        except (ValueError, KeyError, TypeError, OSError):
+            pass  # unreadable: make it again
+    build = solve(base, catalog)
+    build.design_id = base.fingerprint()
+    build.report = check(build, catalog)
+    build.save(project.rough_build_path)
+    return build
+
+
 def render_compare(
-    project: Project, *, catalog: Catalog | None = None, name: str = "compare.png"
+    project: Project,
+    *,
+    catalog: Catalog | None = None,
+    name: str | None = None,
+    rough: bool = False,
+    views: tuple[str, ...] | None = None,
 ) -> Path:
-    """Write renders/<name>: the seed's views above the current build's (or design's) views."""
+    """Write a comparison picture into renders/ and return its path.
+
+    The seed's views are on the top row and the current build's (or, before any build, the
+    design's) on the bottom row. With ``rough=True`` the plain conversion is drawn on a row
+    in between, so the picture reads seed, rough, build. ``name`` defaults to compare.png,
+    or compare-rough.png with ``rough=True``.
+    """
     from bricksnap.render import compare_sheet
 
     catalog = catalog or load_catalog()
@@ -77,6 +132,11 @@ def render_compare(
         seed: Seed | None = load_project_seed(project)
     except Exception:  # a picture without the seed row is better than no picture
         seed = None
-    out = project.renders_dir / name
-    compare_sheet(seed, design, build, catalog).save(out)
+    options: dict[str, Any] = {}
+    if views is not None:
+        options["views"] = tuple(views)
+    if rough:
+        options["rough"] = rough_build(project, catalog=catalog)
+    out = project.renders_dir / (name or ("compare-rough.png" if rough else "compare.png"))
+    compare_sheet(seed, design, build, catalog, **options).save(out)
     return out

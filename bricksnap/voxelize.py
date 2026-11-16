@@ -40,6 +40,23 @@ Other
 - Speed: a 200,000-triangle mesh at 48 studs in well under 10 seconds (use numpy and
   scipy.ndimage; no Python loop over cells or samples).
 
+STAGE 2 ADDITION TO THE CONTRACT: where the seed's surface is slanted
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+``voxelize(..., slope_hints=True)``. Replaces "``finish`` is all zeros" above.
+- For each filled cell with an empty cell above it (or in the top layer), take the mean of
+  the seed's surface normals inside that cell, weighted by area, in real space (millimetres,
+  so the cell's 8 x 8 x 3.2 mm shape is taken into account) and normalised. If its upward
+  part n_z is between cos(70 degrees) and cos(20 degrees) (about 0.34 to 0.94), the cell's
+  ``finish`` is FINISH_SLOPED. Every other cell is FINISH_STUDS.
+- So a box gets no sloped cells; a sphere gets a band of them around its upper half but not
+  on its very top; a pitched roof gets them all along both faces.
+- Normals follow the triangles' winding (outward). A cell with no surface in it, or whose
+  normals cancel out, is FINISH_STUDS.
+- With ``slope_hints=False`` the finish is all FINISH_STUDS.
+- Hollowing does not change the finish of the cells that remain.
+
 Implementation notes
 --------------------
 - Everything is done in cell units (millimetres divided by CELL_MM), where a cell is a unit

@@ -19,6 +19,25 @@ and svg. Responses carry "Cache-Control: no-store" so a rebuilt project shows im
 ``serve(project_path, port=8765, open_browser=True) -> None`` starts the server, prints the
 address, optionally opens the browser, and runs until interrupted.
 
+STAGE 2 ADDITION TO THE CONTRACT: real part shapes in the 3D viewer
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+The page draws each part by its catalogue ``kind`` (parts.json already carries ``kind``,
+``studs_top`` and, for slopes, ``slope.low_side``):
+- "slope", "curved_slope": a wedge, full height over the stud cells and running down to a
+  low lip over the slanted cells, towards the part's low side as turned by ``rot`` (the
+  rotation table in bricksnap/catalog/__init__.py; ``Catalog.low_side`` is the reference).
+- "slope_inverted": the wedge upside down.
+- "tile": flat, no studs.
+- "round_brick", "round_plate", "round_tile", "dish", "cone": round (a cylinder; a cone
+  tapers). Studs as the catalogue says.
+- every other kind: a box with studs, as before.
+``window.__bricksnap.inspect()`` reports, for each drawn part, its kind and, for wedges, the
+world direction its face runs down, so the tests can compare with ``Catalog.low_side``.
+The page also shows ``build.json``'s ``notes`` (what the make-buildable and finishing passes
+did) as a short list under the verdict, written with ``textContent``.
+
 Implementation notes
 --------------------
 - The query string and fragment are ignored (the page adds ``?t=...`` to defeat caches).

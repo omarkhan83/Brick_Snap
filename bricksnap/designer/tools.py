@@ -31,6 +31,38 @@ call opens the project from disk, so state lives only in the project folder.
   ending with a reminder that nothing is visible until ``rebuild`` is called.
 - rebuild (no arguments): runs ``bricksnap.pipeline.rebuild`` and returns the report text.
 
+STAGE 2 ADDITIONS TO THE CONTRACT
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+``TOOLS`` now has five entries, in this order: describe, render, brief, apply_ops, rebuild.
+
+- brief ``{"object", "features", "plan", "colours", "finish"}``: the designer's decisions,
+  written down before it edits, saved as ``project.meta["brief"]`` (``Project.save_meta``)
+  and shown to the person.
+    object    one sentence: what this is and which way it faces
+    features  two to four strings: what makes it recognisable at this size
+    plan      a few sentences: what to exaggerate, simplify or drop
+    colours   one to six colour codes from the catalogue: the palette
+    finish    one sentence: where it should be smooth, sloped or studded, and why
+  Bad input (a missing field, an unknown colour code, too many features) comes back as an
+  "ERROR:" block saying what to fix, and nothing is saved. A later call replaces the brief.
+  The reply repeats the saved brief in plain words.
+- apply_ops refuses to run until the project has a brief: "ERROR: write the brief first
+  (call brief) ...". A project that already has one from an earlier run does not need
+  another.
+- describe also reports: the brief; how many cells are marked smooth and how many sloped;
+  the detail parts (name, colour, position), or that there are none; every detail part that
+  may be placed (id, name, size in cells, whether it has a stud on top, how many colours it
+  is made in); and the build's notes (what the make-buildable and finishing passes did or
+  could not do), each on its own line.
+- rebuild returns the build's notes before the check report, under a line that says they
+  are changes the software made by itself.
+- render is unchanged: seed on top, current build below.
+- The apply_ops description explains the stage 2 operations (set_finish, place_detail,
+  remove_detail, the "mirror" option) with one example each; the schema comes from
+  ``bricksnap.design.OP_SCHEMA`` as before.
+
 Implementation notes
 --------------------
 - ``describe`` also lists the filled cells layer by layer (consecutive plates with the same

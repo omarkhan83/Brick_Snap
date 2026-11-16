@@ -7,7 +7,10 @@ projects/<name>/
   design.npz         the current Design arrays
   design.json        named regions, detail parts and the edit log
   build.json         the parts, their steps and the check report
+  build.rough.json   the plain conversion's build, kept for before-and-after pictures
   build.ldr          the LDraw file
+  parts.csv          the parts list (written by 'bricksnap export')
+  wanted_list.xml    the same list in BrickLink's upload format
   renders/           pictures
   designer/          transcripts of AI design runs
 """
@@ -108,6 +111,10 @@ class Project:
     @property
     def build_path(self) -> Path:
         return self.path / "build.json"
+
+    @property
+    def rough_build_path(self) -> Path:
+        return self.path / "build.rough.json"
 
     @property
     def ldraw_path(self) -> Path:

@@ -52,6 +52,38 @@ All functions return ``PIL.Image.Image`` in RGB with a light background. Output 
 deterministic: the same input gives identical pixels. Speed: a compare sheet for a
 5,000-part build in under 5 seconds.
 
+STAGE 2 ADDITIONS TO THE CONTRACT: real part shapes, and the rough build
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+Parts are no longer all boxes. In every view a part is drawn by its catalogue ``kind``:
+- "slope", "curved_slope": a wedge. Full height over the stud cells, and over the slanted
+  cells a face running from full height down to a low lip (about half a plate) at the low
+  edge, in the direction ``Catalog.low_side(placement)``. Seen from the side the slanted
+  outline must be visible against the background; seen from above the slanted face is
+  drawn a little lighter or darker than a flat top so it can be told from one, with no
+  studs on it. A curved slope may be drawn as a straight wedge.
+- "slope_inverted": the wedge upside down (full at the top, cut away underneath).
+- "tile": flat, no studs (this already follows from its stud cells; keep it true).
+- "round_brick", "round_plate", "round_tile", "dish", "cone": round in the top view and in
+  "iso" (a cylinder, or for a cone a tapering one; twelve sides or more). In the side views
+  a cone tapers; the others may keep a rectangular outline.
+- every other kind: a box, as before.
+Detail parts need nothing special: they are ordinary Placements in the Build.
+
+``compare_sheet(seed, design, build, catalog, views=..., px_per_stud=16, rough=None)``
+- ``rough`` is an optional second Build: the plain conversion, before any design work. When
+  given, the sheet has three rows, captioned "seed", "rough" and "build", in that order,
+  same views, same scale, lined up. Without it the sheet is exactly as before.
+
+``silhouette(obj, catalog, view, grid_shape=None, seed_offset=(0, 0, 0), px_per_stud=8)
+-> bool array [rows, cols]``
+- True where the picture of ``obj`` (a Seed, a Design or a Build) covers the pixel, drawn
+  without labels in the same frame as the render functions, so the silhouettes of a seed
+  and of the Build made from it can be compared pixel for pixel. ``grid_shape`` and
+  ``seed_offset`` are needed for a Seed (as in ``render_seed``) and ignored otherwise.
+  Used by the scorecard to measure how closely a build's outline matches its seed.
+
 Implementation notes
 --------------------
 - Every view is an affine map from continuous grid coordinates (x and y in studs, z in

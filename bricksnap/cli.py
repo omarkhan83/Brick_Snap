@@ -33,6 +33,28 @@ there are no tracebacks for mistakes a user can make.
 
 PROJECT is a path to a project folder; a bare name is looked up under ./projects/.
 
+STAGE 2 ADDITIONS TO THE CONTRACT
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+- ``export PROJECT``: also writes ``parts.csv`` and ``wanted_list.xml`` through
+  ``bricksnap.export.write_exports`` and prints where they are, how many parts and how many
+  different parts there are, how to upload the wanted list on BrickLink (Wanted, then
+  Upload, paste the file's contents), and any parts that could not be listed.
+- ``bench [--studs N] [--out DIR] [--models DIR] [--save] [NAME ...]``: runs
+  ``bricksnap.bench.run_bench`` on ``samples/models`` (default out: ``bench/``), prints the
+  table, and, when ``samples/scorecard.json`` exists, what changed against it
+  (``bench.compare``). ``--save`` writes the new rows to ``samples/scorecard.json``. Exit
+  code 0 when every model built with no loose parts, 1 otherwise.
+- ``render PROJECT --rough``: the three-row picture (seed, rough, build) through
+  ``pipeline.render_compare(project, rough=True)``, saved as ``renders/compare-rough.png``
+  unless ``--out`` is given.
+- ``new`` and ``build`` print the build's notes under "What the software changed by itself:"
+  when there are any, and show only the three most serious weak spots, followed by how many
+  more there are and that ``check`` lists them all. ``check`` prints everything.
+- ``design`` shows the brief the designer wrote (from ``project.meta["brief"]``) before its
+  closing text.
+
 Implementation notes
 --------------------
 - Exit codes: 0 everything worked and the build (if one was made or checked) is ok; 1 the

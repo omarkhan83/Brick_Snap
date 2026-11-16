@@ -41,6 +41,59 @@ tools can reuse it. It raises ValueError (with the same clear messages) on a mal
 ``OP_SCHEMA`` is a JSON Schema for one operation, used in the designer's tool definition.
 Keep it and the validation in ``apply_ops`` in agreement.
 
+STAGE 2 ADDITIONS TO THE CONTRACT
+(Stage 2 is being built by the lead's agent; until this line is removed, what follows is
+not in the code yet.)
+
+Three more operations and one more option. Everything above still holds.
+
+    {"op": "set_finish", "shape": {...}, "finish": "smooth"}
+        What the top of the filled cells inside the shape should be: "studs" (the default),
+        "smooth" (tiles) or "sloped" (a slope part where the surface steps down). The words
+        are ``bricksnap.types.FINISH_NAMES``. It only matters on cells with nothing above
+        them, but it may be set on any filled cell. ``cells_changed`` is the number of cells
+        whose finish changed; if none would change the operation is not applied and the
+        message says why.
+
+    {"op": "place_detail", "part": "98138", "color": 0, "at": [x, y, z], "rot": 0}
+        Stand a small part on free studs. ``at`` is the minimum-corner cell of what the part
+        covers (as in ``Placement``), so z is the level directly above the cells it stands
+        on. ``rot`` (0, 90, 180 or 270; default 0) turns it as the table in
+        ``bricksnap/catalog/__init__.py`` says; for a slope the message of a successful
+        placement says which way its slanted face runs down (``Catalog.low_side``).
+        Rejected, with a message that says exactly what to fix, when:
+        - the part is not one of ``Catalog.detail_parts()`` (list the ids and names);
+        - the part is not made in that colour (list the colours it is made in);
+        - a cell it would cover is outside the grid, is filled, or is taken by another
+          detail (say which cell, and that a detail stands in empty cells);
+        - a cell of its bottom layer has no filled cell directly below it (say which).
+        Applied: appended to ``design.details``; ``cells_changed`` is 0 and
+        ``OpResult.applied`` is True.
+
+    {"op": "remove_detail", "at": [x, y, z]}
+        Removes the detail that covers that cell. Rejected if there is none there.
+
+    "mirror": true
+        Optional on every operation. The operation is also applied to the mirror image
+        across the model's left-right middle, the plane x = nx / 2 (voxelize centres the
+        seed there), so cell x maps to nx - 1 - x. For add, remove, paint and set_finish the
+        shape and its mirror image are applied as one operation (a cell in both counts
+        once). For place_detail a second detail is placed at the mirrored position, turned
+        so that it is the mirror image (a slope facing +x becomes one facing -x); if the two
+        would overlap, or the detail lies on the middle, only one is placed. Both must be
+        valid or neither is placed. For remove_detail both are removed (at least one must
+        exist). The log keeps the operation as given, with its "mirror" field.
+
+Details follow the grid, so they never dangle:
+- ``add`` that fills a cell a detail stands in removes that detail;
+- ``remove`` that empties a cell directly below a detail removes that detail.
+The operation's message says so ("this also removed the Black Tile, Round 1 x 1 at x=…").
+``replay`` reproduces details exactly, like everything else.
+
+``OP_SCHEMA`` covers the new operations and the "mirror" field and stays self-contained.
+The ``part`` enum lists ``Catalog.detail_parts()`` ids; put each part's name and size in the
+description so the model can choose.
+
 Implementation notes
 --------------------
 - Validation is strict and mirrors ``OP_SCHEMA``: unknown fields are rejected (with a "did you
