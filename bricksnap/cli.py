@@ -53,6 +53,18 @@ STAGE 2 ADDITIONS TO THE CONTRACT
 - ``design`` shows the brief the designer wrote (from ``project.meta["brief"]``) before its
   closing text.
 
+STAGE 3 ADDITION TO THE CONTRACT: a typed edit
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+- ``design PROJECT "add a red collar"``: the request may be given as a second argument
+  (``--instruction`` stays and means the same; giving both is a mistake the command explains).
+- Before the run the command says which kind it is: a first design, or one change to a
+  model that is already designed (and quotes the request back).
+- After an edit it says what changed, from the project itself: how many edit operations
+  this run added to the design's log and of which kinds, how many parts before and after,
+  and whether the build is valid. If the run added no operation, it says the designer made
+  no change and why it said so.
+
 Implementation notes
 --------------------
 - Exit codes: 0 everything worked and the build (if one was made or checked) is ok; 1 the

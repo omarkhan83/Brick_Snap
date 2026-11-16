@@ -61,6 +61,23 @@ max_turns=40, timeout_s=1800) -> DesignerRun``
   the stream parsing (feed it recorded lines). One test marked ``@pytest.mark.designer``
   runs a real session; it is excluded by default.
 
+STAGE 3 ADDITION TO THE CONTRACT: a typed edit
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+``run_designer(project, instruction=...)`` has two kinds of run.
+- A *first pass*: the project has no brief yet. The message is the default instruction;
+  if the person gave an instruction it is added as their wish for the design.
+- An *edit*: the project already has a brief and the person gave an instruction ("add a
+  red collar"). The message says that this model has already been designed, quotes the
+  person's request exactly, and asks for that change and nothing else: keep the rest of the
+  model, keep the brief unless the request contradicts it (then update the brief), rebuild,
+  check the result against the request, and say in a sentence or two what was changed.
+  ``DesignerRun`` gains ``kind`` ("first pass" or "edit").
+- prompt.md gains a short section, "When the person asks for a change", saying the same from
+  the designer's side. Nothing else in the prompt changes.
+- The request is the person's own text: it is passed to the model as their message, never
+  placed in the system prompt, and never used to build a command line or a file name.
+
 Implementation notes
 --------------------
 - ``designer_env(base)`` does the environment scrubbing; ``StreamParser`` reads the

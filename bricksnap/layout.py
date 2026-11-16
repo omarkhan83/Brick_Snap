@@ -49,6 +49,39 @@ Quality bar, enforced by tests
 - In a solid box no more than a third of the bricks are 1x1 or 1x2.
 - Speed: a 34,000-cell solid model in under 20 seconds; a 16-stud model in about a second.
 
+STAGE 3 ADDITION TO THE CONTRACT: sturdiness
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+A build can be one piece and still fragile: a whole section held by one part, or by one
+stud. Once the model is one piece, the solver also makes it sturdy, as far as the Design
+allows.
+
+- Words. Give the connection graph a "ground" node joined to every part at z = 0. A *lone
+  link* is a part (not on the ground) whose removal would cut other parts off from the
+  ground, or a joint between two parts that is a group's only connection and engages a
+  single stud. Its *load* is the number of parts it would cut off. This is what
+  ``bricksnap.checks`` reports as weak spots; work it out here from ``bricksnap.connect``
+  (this module still may not import ``bricksnap.checks``).
+- Goal. Lower, in this order of importance: the largest load; the number of lone links
+  whose load is 3 or more; the sum of the loads. Never raise the number of pieces, never
+  change which cells are covered or their colours, use only bricks and plates in pairs that
+  exist. Keep a change only if it improves those three numbers in that order.
+- Seams. Where two regions of one colour meet on a vertical plane through several layers (a
+  head against a body), parts cross that plane in at least every second layer wherever the
+  cells allow a part to cross.
+- Bounded and deterministic, like the rest of the solver. Speed: no more than twice the
+  time the solver took before on the sample models at 16 studs, and the 34,000-cell solid
+  box still well under 20 seconds.
+- Tests must include: a head against a body (two boxes of one colour sharing a face six
+  studs wide and four bricks tall, the head standing on nothing else): parts cross the
+  shared plane in at least half the layers, and no lone link carries more than a quarter of
+  the head; a tower on a wide base; a T shape; a hundred random blobs (never more pieces,
+  the same cells covered, the largest load never higher than without this step); the
+  step still numbers building steps correctly.
+- Measured on the scorecard (``uv run bricksnap bench`` against samples/scorecard.json): weak
+  spots fall on the cat, the car and the knight, no model gains a loose part, and the part
+  count rises by no more than three in a hundred overall.
+
 Implementation notes
 --------------------
 Connectivity is tracked on *columns*: a column is a maximal vertical run of filled cells at

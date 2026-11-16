@@ -36,6 +36,24 @@ world direction its face runs down, so the tests can compare with ``Catalog.low_
 The page also shows ``build.json``'s ``notes`` (what the make-buildable and finishing passes
 did) as a short list under the verdict, written with ``textContent``.
 
+STAGE 3 ADDITION TO THE CONTRACT: the plain conversion and the designed build side by side
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+- ``/project/build.rough.json`` is the plain conversion, when the project kept one. When it
+  exists and differs from ``build.json``, the page shows two views side by side (one above
+  the other on a narrow screen): "Plain conversion" and "Designed", each with its part
+  count, turning and zooming together as one camera. A control shows both, or either one
+  alone; the choice survives a rebuild. The step slider acts on the designed build. With no
+  rough build, or one equal to the build, the page is exactly as before.
+- The brief. When ``project.json`` has a "brief" (object, features, plan, colours, finish),
+  the page shows it in a panel: the object sentence, the features as a list, the plan and
+  the finish, and the colours as small swatches with their names from colours.json. All
+  written with ``textContent``. No brief, no panel.
+- ``window.__bricksnap.inspect()`` reports each view (its parts, as now) and that they share
+  one camera, so the tests can check both without reading pixels.
+- Tests, with screenshots in tests/artifacts/: a project with both builds; with only one;
+  with and without a brief; at phone width; and that turning one view turns the other.
+
 Implementation notes
 --------------------
 - The query string and fragment are ignored (the page adds ``?t=...`` to defeat caches).
