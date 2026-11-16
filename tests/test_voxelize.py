@@ -1819,3 +1819,232 @@ def test_seed_starting_within_the_first_cell_keeps_its_offset(catalog):
     moved = Seed(vertices=np.asarray(box.vertices, dtype=float), faces=box.faces)
     assert voxelize(moved, catalog, margin_studs=0).fingerprint() == design.fingerprint()
     assert design.shape == (3, 3, 3) and design.filled.all()
+
+
+# ---- rule 4: the skin nobody can see is filled ------------------------------------------------
+
+HAT = CAT.parent / "hat.glb"
+BLUE, RED = 1, 4
+
+
+def _quad(corners, normal) -> list[list]:
+    """Two triangles of a flat quad, wound so that they face along ``normal``."""
+    a, b, c, d = (np.asarray(p, dtype=float) for p in corners)
+    if np.dot(np.cross(b - a, c - a), normal) < 0:
+        a, b, c, d = a, d, c, b
+    return [[a, b, c], [a, c, d]]
+
+
+def _box_sides(lo, hi, inward: bool, skip: str | None) -> list[list]:
+    """The faces of the box lo..hi (mm), facing out of it (or into it), without ``skip``."""
+    tris = []
+    for axis in range(3):
+        u, v = [a for a in range(3) if a != axis]
+        for side, at in (("-", lo[axis]), ("+", hi[axis])):
+            if skip == side + "xyz"[axis]:
+                continue
+            corners = []
+            for cu, cv in ((lo[u], lo[v]), (hi[u], lo[v]), (hi[u], hi[v]), (lo[u], hi[v])):
+                p = [0.0, 0.0, 0.0]
+                p[axis], p[u], p[v] = at, cu, cv
+                corners.append(p)
+            normal = np.zeros(3)
+            normal[axis] = (1.0 if side == "+" else -1.0) * (-1.0 if inward else 1.0)
+            tris += _quad(corners, normal)
+    return tris
+
+
+def open_shell(outer, inner, open_at: str, colours=False) -> Seed:
+    """A box ``outer`` = (lo, hi) in mm with the box ``inner`` taken out of it, the inside
+    open at the bottom (an upside-down bowl) or at the top (a tube with a floor): one closed
+    surface. With ``colours``, the outside is blue and the inside red."""
+    (olo, ohi), (ilo, ihi) = outer, inner
+    face = "-z" if open_at == "bottom" else "+z"
+    outside = _box_sides(olo, ohi, inward=False, skip=face)
+    inside = _box_sides(ilo, ihi, inward=True, skip=face)
+    z, sign = (olo[2], -1.0) if open_at == "bottom" else (ohi[2], 1.0)
+    ring = []  # the rim, between the outer and the inner rectangle
+    o = [(olo[0], olo[1]), (ohi[0], olo[1]), (ohi[0], ohi[1]), (olo[0], ohi[1])]
+    i = [(ilo[0], ilo[1]), (ihi[0], ilo[1]), (ihi[0], ihi[1]), (ilo[0], ihi[1])]
+    for k in range(4):
+        n = (k + 1) % 4
+        corners = [(*o[k], z), (*o[n], z), (*i[n], z), (*i[k], z)]
+        ring += _quad(corners, (0.0, 0.0, sign))
+    tris = np.asarray(outside + ring + inside, dtype=float)
+    vertices = tris.reshape(-1, 3)
+    faces = np.arange(len(vertices)).reshape(-1, 3)
+    face_colours = None
+    if colours:
+        face_colours = np.zeros((len(faces), 3), dtype=np.uint8)
+        face_colours[:] = (0, 85, 191)  # blue
+        face_colours[len(outside) + len(ring) :] = (201, 26, 9)  # red
+    return Seed(vertices=vertices, faces=faces, face_colors=face_colours)
+
+
+def bowl(colours=False) -> Seed:
+    """An upside-down bowl standing on the ground: 8 x 8 studs, walls 1.3 studs thick and a
+    roof 1.6 plates thick, 10.3 plates tall. The inner wall and the roof's underside reach
+    0.3 into the cells next to them (hidden skin); the top reaches 0.3 into the top layer
+    (skin that faces the sky)."""
+    return open_shell(
+        ((0.0, 0.0, 0.0), (64.0, 64.0, 10.3 * 3.2)),
+        ((10.4, 10.4, 0.0), (53.6, 53.6, 8.7 * 3.2)),
+        "bottom",
+        colours,
+    )
+
+
+def _air(filled: np.ndarray) -> np.ndarray:
+    """Outside air as bricksnap/buildable.py has it: empty cells that the space beyond the
+    four sides or the top reaches through faces (below z = 0 is the table)."""
+    from scipy import ndimage
+
+    padded = np.pad(filled, ((1, 1), (1, 1), (0, 1)), constant_values=False)
+    padded = np.pad(padded, ((0, 0), (0, 0), (1, 0)), constant_values=True)  # the table
+    labels, _ = ndimage.label(~padded, ndimage.generate_binary_structure(3, 1))
+    ring = np.zeros(padded.shape, dtype=bool)
+    ring[0], ring[-1], ring[:, 0], ring[:, -1], ring[:, :, -1] = True, True, True, True, True
+    air = np.isin(labels, np.unique(labels[ring & (labels > 0)]))
+    return air[1:-1, 1:-1, 1:-1]
+
+
+def _visible(filled: np.ndarray) -> np.ndarray:
+    """Filled cells with an outside-air neighbour (beyond the sides or the top counts)."""
+    air = np.pad(_air(filled), ((1, 1), (1, 1), (0, 1)), constant_values=True)
+    air = np.pad(air, ((0, 0), (0, 0), (1, 0)), constant_values=False)
+    near = (
+        air[2:, 1:-1, 1:-1] | air[:-2, 1:-1, 1:-1] | air[1:-1, 2:, 1:-1]
+        | air[1:-1, :-2, 1:-1] | air[1:-1, 1:-1, 2:] | air[1:-1, 1:-1, :-2]
+    )  # fmt: skip
+    return filled & near
+
+
+def without_rule_4(monkeypatch, seed: Seed, catalog, **kwargs) -> Design:
+    import bricksnap.voxelize as module
+
+    with monkeypatch.context() as m:
+        m.setattr(module, "_hidden_skin", lambda filled, skin: np.zeros_like(skin))
+        return voxelize(seed, catalog, **kwargs)
+
+
+def rule_4(monkeypatch, seed: Seed, catalog) -> tuple[Design, Design, np.ndarray]:
+    """The Design without and with rule 4, and the cells rule 4 filled, checked against
+    everything rule 4 promises."""
+    before = without_rule_4(monkeypatch, seed, catalog)
+    after = voxelize(seed, catalog)
+    assert before.skin is not None and after.skin is not None
+    assert before.finish is not None and after.finish is not None
+    old, new_fill = before.filled, after.filled
+    assert not (old & ~new_fill).any()
+    added = new_fill & ~old
+    # exactly the skin that faces no outside air, decided against the fill before the rule
+    assert np.array_equal(added, (before.skin != EMPTY) & ~_air(old))
+    # in its own colour; the cells already filled keep their colours and slope hints
+    assert np.array_equal(after.colors[added], before.skin[added])
+    assert np.array_equal(after.colors[old], before.colors[old])
+    assert np.array_equal(after.finish[old], before.finish[old])
+    assert (after.finish[added] == FINISH_STUDS).all()
+    # skin holds only empty cells
+    assert (after.skin[added] == EMPTY).all()
+    assert np.array_equal(after.skin[~added], before.skin[~added])
+    assert not (after.filled & (after.skin != EMPTY)).any()
+    # nothing anyone can see changes
+    assert np.array_equal(_air(new_fill), _air(old))
+    assert np.array_equal(_visible(new_fill), _visible(old))
+    return before, after, added
+
+
+def test_upside_down_bowl_fills_its_inner_skin_only(catalog, monkeypatch):
+    before, after, added = rule_4(monkeypatch, bowl(), catalog)
+    f = body(after)
+    assert f.shape == (8, 8, 11)
+    assert body(before)[1, 3, 3] == 0 and f[1, 3, 3]  # the inner wall's skin, now filled
+    assert body(before)[3, 3, 8] == 0 and f[3, 3, 8]  # the underside of the roof
+    assert not f[2:6, 2:6, :8].any()  # the hollow itself stays empty
+    assert not f[:, :, 10].any()  # the skin on top faces the sky and stays skin
+    ox, oy, _ = after.seed_offset
+    assert (
+        after.skin is not None and (after.skin[ox + 2 : ox + 6, oy + 2 : oy + 6, 10] != EMPTY).all()
+    )
+    assert added.sum() == 4 * 4 * 1 + 4 * 4 * 8  # the roof's underside and the four walls'
+    assert body(before)[:, :, 0].sum() == f[:, :, 0].sum() - 16  # the bowl stands wider
+
+
+def test_rule_4_fills_the_skin_in_its_own_colour(catalog, monkeypatch):
+    """The inside of the bowl is red and the outside blue: the cells filled are red, and
+    every cell anyone can see keeps its colour."""
+    before, after, added = rule_4(monkeypatch, bowl(colours=True), catalog)
+    assert added.any()
+    assert set(np.unique(after.colors[added]).tolist()) == {RED}
+    seen = _visible(before.filled)
+    assert np.array_equal(after.colors[seen], before.colors[seen])
+
+
+def test_closed_hollow_box_is_solid_so_rule_4_has_nothing_to_do(catalog, monkeypatch):
+    """A sealed hollow is inside the model as stage 1 has it (the outside cannot reach it),
+    so it is filled before rule 4 and leaves no skin inside for it to fill."""
+    outer = box_seed((64.0, 64.0, 10.3 * 3.2))
+    inner = box_seed((43.2, 43.2, 7.4 * 3.2), origin=(10.4, 10.4, 1.3 * 3.2))
+    inner.invert()
+    seed = Seed(vertices=np.asarray(concat(outer, inner).vertices, dtype=float),
+                faces=np.asarray(concat(outer, inner).faces))  # fmt: skip
+    before, after, added = rule_4(monkeypatch, seed, catalog)
+    assert not added.any()
+    assert body(after)[:, :, :10].all()
+    assert after.fingerprint() == before.fingerprint()
+
+
+def test_tube_open_at_the_top_keeps_its_inner_skin(catalog, monkeypatch):
+    """Its inside is reachable from above: outside air, so nothing in it is hidden."""
+    seed = open_shell(
+        ((0.0, 0.0, 0.0), (64.0, 64.0, 32.0)), ((10.4, 10.4, 1.3 * 3.2), (53.6, 53.6, 32.0)), "top"
+    )
+    before, after, added = rule_4(monkeypatch, seed, catalog)
+    assert not added.any()
+    assert after.fingerprint() == before.fingerprint()
+    assert after.skin is not None
+    ox, oy, _ = after.seed_offset
+    assert after.skin[ox + 1, oy + 3, 5] != EMPTY  # the inner wall's skin is still skin
+    assert after.skin[ox + 3, oy + 3, 1] != EMPTY  # and so is the floor's
+
+
+def test_solid_model_is_unchanged_by_rule_4(catalog, monkeypatch):
+    before, after, added = rule_4(monkeypatch, sphere_seed(), catalog)
+    assert not added.any()
+    assert after.fingerprint() == before.fingerprint()
+
+
+def test_rule_4_keeps_a_symmetric_shell_symmetric(catalog, monkeypatch):
+    """The bowl is mirror-symmetric left to right and front to back, and so is the result:
+    the cells rule 4 fills are decided all at once, so no order can tip it to one side."""
+    _, after, added = rule_4(monkeypatch, bowl(colours=True), catalog)
+    assert added.any()
+    for axis in (0, 1):
+        assert np.array_equal(added, np.flip(added, axis))
+        assert mirrored(after, axis)
+
+
+def test_rule_4_thickens_the_sample_hat_without_changing_its_outline(catalog, monkeypatch):
+    """The sample hat is a thin shell, hollow underneath, standing on its brim: the inside
+    of its crown faces only that hollow, which the table closes off."""
+    _, _, added = rule_4(monkeypatch, load_seed(HAT, studs=16), catalog)
+    assert added.sum() > 50
+
+
+def test_hollowing_after_rule_4_keeps_the_shell_rule(catalog, monkeypatch):
+    """A thick upside-down bowl, hollowed: the shell rule applies to the fill rule 4 made
+    (its hidden skin is wall like any other), the floor is kept, and nothing anyone can see
+    changes."""
+    seed = open_shell(
+        ((0.0, 0.0, 0.0), (128.0, 128.0, 40.3 * 3.2)),
+        ((40.8, 40.8, 0.0), (87.2, 87.2, 24.7 * 3.2)),
+        "bottom",
+    )
+    _, solid, added = rule_4(monkeypatch, seed, catalog)
+    assert added.any()
+    hollow = voxelize(seed, catalog, hollow=True)
+    assert np.array_equal(hollow.colors, shapes.hollowed(solid).colors)
+    assert hollow.filled.sum() < solid.filled.sum()
+    f, s = body(hollow), body(solid)
+    assert np.array_equal(f[:, :, :6], s[:, :, :6])  # the floor (6 plates) is kept
+    assert np.array_equal(_visible(hollow.filled), _visible(solid.filled))

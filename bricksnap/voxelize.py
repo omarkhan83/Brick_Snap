@@ -100,6 +100,21 @@ gap between them merged into one block, and a bottle neck doubled in width. Now:
   model through cell faces, the new fill connects them through cell faces too. Where rules
   1 and 2 leave a gap (a thin rod running diagonally), the gap is closed with the cells of
   stage 1's fill that hold the most.
+- Rule 4 (stage 3), so that walls are as thick as nobody can see. Once rules 1 to 3 (and
+  standing, below) have decided the fill, every cell the model passes through but covers
+  less than half of (the skin, see "STAGE 3 ADDITION" below) that is not outside air is
+  filled too, in its own colour. Outside air is as bricksnap/buildable.py has it: the
+  empty cells reachable through faces from beyond the four sides or the top of the grid;
+  below z = 0 is the table, not air. So the inside of a thin wall that faces only a hollow
+  the outside cannot reach (the inside of a hat or of an upside-down bowl, which the table
+  closes off) is filled, and its skin on the outside is not. The cells are decided all at
+  once, against the fill before this rule with the skin counted as empty, so filling one
+  never hides another and a symmetric model stays symmetric. Nothing anyone can see
+  changes: no outside air is filled, so every cell that had an outside-air neighbour still
+  has it and no other cell gains one, and the outline from every side and from above is
+  what rules 1 to 3 made it. The colours and slope hints of the cells already filled stay.
+  (A hollow sealed all round is never skin: the outside cannot reach it, so it is inside
+  and filled already. The inside of a bottle is reached through its mouth: outside air.)
 - Never fill a cell that stage 1 would have left empty.
 
 What must be true, and is tested
@@ -326,6 +341,26 @@ Coverage and the three rules (implementation notes)
 - Slope hints of an open-topped filled cell count the upward surface in the emptied surface
   cells stacked right above it (up to the first cell that is not an emptied surface cell)
   as its own, and leave out their walls, which belong to cells that are not there.
+- Rule 4 runs last, after the colours and the slope hints: the empty cells are labelled
+  (6-connected) once, the labels that touch the four sides or the top layer of the body
+  are outside air (beyond those faces is the padding, which is air; the bottom is left
+  out), and every skin cell with another label is filled with its skin colour and its skin
+  entry cleared. A skin cell is empty, so it has an outside-air neighbour exactly when it
+  is outside air itself. The new fill lies inside stage 1's, so its empty space reaches
+  the outside wherever stage 1's did: what is hidden is in practice the space stage 1
+  reached from below z = 0 alone, with the skin that lines it. That is why, of the sample
+  models, only the hat gains cells (64 at 12 studs, 120 at 16), and not at 24 studs:
+  there its crown steps diagonally from layer to layer, the steps meet only at edges, and
+  the hollow under it reaches the outside through those gaps, which only skin cells
+  close. A cell rule 4 fills is FINISH_STUDS; the cell under it keeps the slope hint it
+  had as an open top (bricksnap/finish.py only shapes open cells, so a covered one's hint
+  does nothing), so that no filled cell's hint changes.
+- Hollowing comes after rule 4 and treats the cells it filled as wall like any other: the
+  shell rule is measured from the empty cells that remain, the hollow under a hat among
+  them, so a wall rule 4 thickened is kept in full next to that hollow, and the floor is
+  kept as before (below the grid counts as outside for the shell rule). Only where rule 4
+  filled a whole hollow can hollowing then empty cells near it that it kept before; such a
+  cell is left with no skin entry, as hollowing never changes the skin.
 
 Slope hints (implementation notes)
 - Only the surface that faces up (n_z above cos 70 degrees, in millimetres) is averaged.
@@ -496,6 +531,13 @@ def voxelize(
             (xs[on_top], ys[on_top], top[on_top]), body
         )
         finish[_sloped(tris, body, open_top, home)] = FINISH_SLOPED
+
+    # 5. rule 4: the skin nobody can see thickens the wall it lines (after the slope hints,
+    # so the cells already filled keep theirs; a cell filled here is FINISH_STUDS)
+    hidden = _hidden_skin(filled, skin != EMPTY)
+    colours[hidden] = skin[hidden]
+    skin[hidden] = EMPTY
+    filled = filled | hidden
 
     if hollow:
         colours[filled & ~_keep_shell(filled, shell_studs)] = EMPTY
@@ -1834,6 +1876,26 @@ def _fill_inside(surface: np.ndarray) -> np.ndarray:
     outside_labels = np.unique(border[border > 0])
     outside = np.isin(labels, outside_labels)
     return ~outside
+
+
+def _hidden_skin(filled: np.ndarray, skin: np.ndarray) -> np.ndarray:
+    """The skin cells (bool) that are not outside air, against ``filled`` as it stands.
+
+    Outside air is the empty cells (skin included) that the space beyond the four sides or
+    the top of the grid reaches through faces; below z = 0 is the table, not air. A skin
+    cell is empty, so it has an outside-air neighbour exactly when it is outside air."""
+    labels, _ = ndimage.label(~filled, structure=ndimage.generate_binary_structure(3, 1))
+    border = np.concatenate(
+        [
+            labels[0].ravel(),
+            labels[-1].ravel(),
+            labels[:, 0].ravel(),
+            labels[:, -1].ravel(),
+            labels[:, :, -1].ravel(),
+        ]
+    )
+    air = np.isin(labels, np.unique(border[border > 0]))
+    return skin & ~air
 
 
 def _keep_shell(filled: np.ndarray, shell_studs: int) -> np.ndarray:
