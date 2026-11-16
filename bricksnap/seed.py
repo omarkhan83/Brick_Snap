@@ -1,4 +1,4 @@
-"""Load a 3D model file and turn it into a Seed: oriented, scaled, moved to the origin.
+"""Load a 3D model file and turn it into a Seed: oriented, scaled, and placed on the grid.
 
 CONTRACT (see tests/test_seed.py)
 
@@ -13,8 +13,14 @@ CONTRACT (see tests/test_seed.py)
       up == "z": (x, y, z) -> (x, y, z)
       up == "y": (x, y, z) -> (x, -z, y)
       up == "x": (x, y, z) -> (y, z, x)
-- Scale uniformly so the longest side of the bounding box is exactly ``studs * 8`` mm, then
-  translate so the bounding box's minimum corner is (0, 0, 0). ``studs`` must be 4..96.
+- Scale uniformly so the longest side of the bounding box is exactly ``studs * 8`` mm.
+  ``studs`` must be 4..96.
+- Place it standing on z = 0 and centred, in x and in y, in the smallest whole number of
+  studs that holds it: a model 9.7 studs wide spans x = 0.15 to 9.85 studs, not 0 to 9.7.
+  So the bounding box's minimum corner is (sx, sy, 0) with 0 <= sx, sy < 4 mm, and it is
+  exactly (0, 0, 0) along any side that is a whole number of studs (within 1e-6 of a stud).
+  Centring matters because a model that is symmetric left to right must come out symmetric
+  in the grid: the same fraction of a cell at both edges.
 - Degenerate (zero-area) triangles are dropped.
 - ``face_colors`` is an (m, 3) uint8 RGB array when the model carries colour: per-face
   colours, per-vertex colours (a face takes the mean of its corners), a texture (sampled at
@@ -31,6 +37,9 @@ Implementation notes
   behind our back; the clean-up (NaN check, degenerate triangles, unused vertices) is done
   here. A triangle counts as degenerate when its area is below ``1e-12`` times the square of
   the model's largest bounding-box side (so it works at any unit scale).
+- Placing: the model is moved to start at (0, 0, 0) and scaled, then moved along x and y
+  by half of (the next whole number of studs minus its side), unless the side is within
+  1e-6 of a stud of a whole number of studs. z is never moved: the model stands on z = 0.
 - Scenes are flattened node by node through ``scene.graph.nodes_geometry``, so a mesh used by
   several nodes appears once per node. Non-triangle geometry (point clouds, lines) is ignored.
 - A node whose transform mirrors (negative determinant) has its triangles' order of corners
@@ -80,6 +89,7 @@ _GLTF = (".glb", ".gltf")
 _AXIS_WORDS = ("side to side", "front to back", "top to bottom")
 _DEGENERATE_REL = 1e-12
 _FLAT_REL = 1e-9
+_WHOLE_STUD = 1e-6  # studs; a side this close to a whole number of studs is not centred
 
 Mesh = tuple[np.ndarray, np.ndarray, np.ndarray | None]  # vertices, faces, face colours
 
@@ -140,6 +150,7 @@ def load_seed(path: str | Path, *, studs: int, up: str | None = None) -> Seed:
     scale = studs * STUD_MM / longest
     vertices = (vertices - vertices.min(axis=0)) * scale
     vertices = np.maximum(vertices, 0.0)  # remove -0.0 and rounding below zero
+    vertices[:, :2] += _centring(vertices.max(axis=0)[:2])
     return Seed(vertices=vertices, faces=faces, face_colors=colours, source=name)
 
 
@@ -536,6 +547,17 @@ def _drop_degenerate(vertices: np.ndarray, faces: np.ndarray, colours: np.ndarra
         colours = colours[keep]
     unique, inverse = np.unique(faces, return_inverse=True)
     return vertices[unique], inverse.reshape(faces.shape).astype(np.int64), colours
+
+
+def _centring(extent_mm: np.ndarray) -> np.ndarray:
+    """How far (mm) to move a model starting at 0 so it is centred in whole studs, per axis.
+
+    0 along a side within ``_WHOLE_STUD`` of a whole number of studs; otherwise half the
+    slack between the side and the next whole number of studs (always under half a stud)."""
+    studs = np.asarray(extent_mm, dtype=np.float64) / STUD_MM
+    whole = np.abs(studs - np.round(studs)) <= _WHOLE_STUD
+    slack = (np.ceil(studs) - studs) * STUD_MM / 2.0
+    return np.where(whole, 0.0, slack)
 
 
 def _orient(vertices: np.ndarray, axis: str) -> np.ndarray:

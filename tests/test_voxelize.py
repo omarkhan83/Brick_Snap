@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
 import shapes
 import trimesh
+import trimesh.visual
 
 from bricksnap.seed import load_seed
-from bricksnap.types import CELL_MM, DEFAULT_COLOUR, EMPTY, Design, Seed, SeedError
+from bricksnap.types import (
+    CELL_MM,
+    DEFAULT_COLOUR,
+    EMPTY,
+    FINISH_SLOPED,
+    FINISH_STUDS,
+    Design,
+    Seed,
+    SeedError,
+)
 from bricksnap.voxelize import _snap, voxelize
 
 CELL = np.asarray(CELL_MM)
@@ -700,3 +711,452 @@ def test_big_triangles_at_96_studs(catalog):
     design = voxelize(seed, catalog)
     assert time.perf_counter() - start < 5.0
     assert body(design).shape == (96, 50, 50) and body(design).all()
+
+
+# ---- slope hints --------------------------------------------------------------------------------
+
+
+def hints(seed: Seed, catalog, **kwargs) -> tuple[Design, np.ndarray, np.ndarray]:
+    """The Design (no padding), its sloped cells and its open-topped filled cells."""
+    design = voxelize(seed, catalog, margin_studs=0, **kwargs)
+    f = design.filled
+    above = np.concatenate([f[:, :, 1:], np.zeros(f.shape[:2] + (1,), dtype=bool)], axis=2)
+    assert design.finish is not None
+    return design, design.finish == FINISH_SLOPED, f & ~above
+
+
+def prism_xz(profile, length: float) -> trimesh.Trimesh:
+    """A solid made by pushing a convex (x, z) outline in mm ``length`` mm along y."""
+    ring = np.asarray(profile, dtype=float)
+    n = len(ring)
+    front = np.c_[ring[:, 0], np.zeros(n), ring[:, 1]]
+    back = np.c_[ring[:, 0], np.full(n, length), ring[:, 1]]
+    faces = [[0, i, i + 1] for i in range(1, n - 1)]
+    faces += [[n, n + i + 1, n + i] for i in range(1, n - 1)]
+    for i in range(n):
+        j = (i + 1) % n
+        faces += [[i, j, n + j], [i, n + j, n + i]]
+    mesh = trimesh.Trimesh(np.vstack([front, back]), np.asarray(faces), process=True)
+    trimesh.repair.fix_normals(mesh)
+    assert mesh.is_watertight and mesh.volume > 0
+    return mesh
+
+
+def wedge(angle_degrees: float, run_studs: int, width_studs: float = 3) -> trimesh.Trimesh:
+    """A ramp rising along x at a real angle (in mm), with a vertical back wall."""
+    run = run_studs * 8.0
+    rise = run * np.tan(np.radians(angle_degrees))
+    return prism_xz([(0.0, 0.0), (run, 0.0), (run, rise)], width_studs * 8.0)
+
+
+def test_box_gets_no_sloped_cells(catalog):
+    """Its top edges hold top and side together; the side is a wall and does not count."""
+    for size, origin in [((64.0, 40.0, 32.0), (0, 0, 0)), ((30.5, 21.3, 17.9), (3.1, 0.7, 1.3))]:
+        mesh = box_seed(size, origin)
+        seed = Seed(vertices=np.asarray(mesh.vertices, dtype=float), faces=mesh.faces)
+        design, sloped, open_top = hints(seed, catalog)
+        assert open_top.sum() == design.shape[0] * design.shape[1]
+        assert not sloped.any()
+        assert design.finish is not None and (design.finish == FINISH_STUDS).all()
+
+
+def test_upright_cylinder_gets_no_sloped_cells(catalog):
+    mesh = trimesh.creation.cylinder(radius=40.0, height=50.0, sections=96)
+    _, sloped, open_top = hints(seed_from(mesh), catalog)
+    assert open_top.sum() > 50
+    assert not sloped.any()
+
+
+@pytest.mark.parametrize(
+    "angle, expect_sloped",
+    [
+        (15, False),
+        (19, False),
+        (21, True),
+        (25, True),
+        (45, True),
+        (65, True),
+        (69, True),
+        (71, False),
+        (75, False),
+    ],
+)
+def test_ramps_at_real_angles(catalog, angle, expect_sloped):
+    """Only surfaces between 20 and 70 degrees from level (measured in mm) are sloped."""
+    run = {15: 8, 19: 8, 21: 8, 25: 6, 45: 5, 65: 4, 69: 4, 71: 4, 75: 4}[angle]
+    design, sloped, open_top = hints(seed_from(wedge(angle, run)), catalog)
+    assert design.shape[:2] == (run, 3)
+    assert not (sloped & ~open_top).any()
+    if expect_sloped:
+        # every column along the ramp; the last one also holds the back wall
+        columns = sloped.any(axis=2)
+        assert columns[: run - 1].all(), columns.astype(int).T
+    else:
+        assert not sloped.any()
+
+
+@pytest.mark.parametrize(
+    "plates_per_stud, expect_sloped",
+    [
+        (0.5, False),  # 26.6 degrees counted in cells, but 11.3 degrees in mm
+        (3.0, True),  # 71.6 degrees counted in cells, but 50.2 degrees in mm
+    ],
+)
+def test_angles_are_measured_in_millimetres_not_cells(catalog, plates_per_stud, expect_sloped):
+    run_studs = 6
+    rise = run_studs * plates_per_stud * 3.2
+    mesh = prism_xz([(0.0, 0.0), (run_studs * 8.0, 0.0), (run_studs * 8.0, rise)], 24.0)
+    _, sloped, _ = hints(seed_from(mesh), catalog)
+    if expect_sloped:
+        assert sloped.any(axis=2)[: run_studs - 1].all()
+    else:
+        assert not sloped.any()
+
+
+def test_pitched_roof_is_sloped_along_both_faces(catalog):
+    """A 45-degree roof, 8 studs wide with its ridge on a stud boundary, 5 studs long:
+    the top cell of every column is sloped, the gable ends included."""
+    roof = prism_xz([(0.0, 0.0), (64.0, 0.0), (32.0, 32.0)], 40.0)
+    design, sloped, open_top = hints(seed_from(roof), catalog)
+    assert design.shape == (8, 5, 10)
+    assert not (sloped & ~open_top).any()
+    zz = np.arange(design.shape[2])
+    top = (design.filled * zz).argmax(axis=2)
+    x, y = np.meshgrid(np.arange(8), np.arange(5), indexing="ij")
+    assert sloped[x, y, top].all()
+
+
+def top_sloped(design: Design, sloped: np.ndarray) -> np.ndarray:
+    """For each (x, y) column: is its highest filled cell sloped?"""
+    zz = np.arange(design.shape[2])
+    top = (design.filled * zz).argmax(axis=2)
+    x, y = np.meshgrid(np.arange(design.shape[0]), np.arange(design.shape[1]), indexing="ij")
+    return sloped[x, y, top]
+
+
+@pytest.mark.parametrize("angle", [30, 45, 60])
+@pytest.mark.parametrize("length", [40.2, 40.5, 41.0])
+def test_roof_whose_gable_pokes_a_little_into_one_more_row(catalog, angle, length):
+    """The gable wall at the far end only just reaches into a sixth row of studs. It runs
+    along the slope, not across it, so it must not take the slope away from that row."""
+    rise = 32.0 * np.tan(np.radians(angle))
+    roof = prism_xz([(0.0, 0.0), (64.0, 0.0), (32.0, rise)], length)
+    design, sloped, open_top = hints(seed_from(roof), catalog)
+    assert design.shape[:2] == (8, 6)
+    assert not (sloped & ~open_top).any()
+    assert top_sloped(design, sloped).all(), top_sloped(design, sloped).astype(int).T
+
+
+def test_roof_on_an_odd_sized_house_is_sloped_to_its_far_end(catalog):
+    """A 61 x 40.4 mm house with a 45-degree roof: the last row, which the house only just
+    reaches, is sloped like every other row. (Column x=3 holds the ridge in its middle,
+    where the two faces cancel sideways, so it keeps its studs in every row.)"""
+    w, d, h = 61.0, 40.4, 19.2
+    house = concat(
+        box_seed((w, d, h)),
+        prism_xz([(0.0, h), (w, h), (w / 2, h + w / 2)], d),
+    )
+    design, sloped, _ = hints(seed_from(house), catalog)
+    rows = top_sloped(design, sloped).T  # rows[y] is the row of columns at y
+    assert design.shape[:2] == (8, 6)
+    expected = np.array([True, True, True, False, True, True, True, True])
+    for y, row in enumerate(rows):
+        assert np.array_equal(row, expected), f"row y={y}: {row.astype(int)}"
+
+
+def test_narrow_free_standing_ramp_is_sloped_in_every_column(catalog):
+    """A 45-degree ramp only 2 mm wide: its side walls run along the slope, so every column
+    along it is sloped, not every other one."""
+    design, sloped, open_top = hints(seed_from(wedge(45, 6, width_studs=0.25)), catalog)
+    assert design.shape[:2] == (6, 1)
+    assert not (sloped & ~open_top).any()
+    assert sloped.any(axis=2)[:5].all(), sloped.any(axis=2).astype(int).T
+
+
+def test_roof_made_of_thin_sheets_is_sloped(catalog):
+    """A roof modelled as two 1 mm sheets (as low-poly houses often are): each top cell
+    holds both the sheet's top and its underside. Undersides are left out, so the cell
+    follows the top and is sloped; were they averaged in, the two faces would cancel and
+    the roof would get no slopes at all."""
+    s = 1.0 * np.sqrt(2.0)  # 1 mm thick, measured upright
+    roof = concat(
+        prism_xz([(0.0, 0.0), (32.0, 32.0), (32.0, 32.0 + s), (0.0, s)], 40.0),
+        prism_xz([(32.0, 32.0), (64.0, 0.0), (64.0, s), (32.0, 32.0 + s)], 40.0),
+    )
+    design, sloped, open_top = hints(seed_from(roof), catalog)
+    assert design.shape[:2] == (8, 5)
+    assert not (sloped & ~open_top).any()
+    assert top_sloped(design, sloped).all(), top_sloped(design, sloped).astype(int).T
+
+
+def test_roof_on_a_house(catalog):
+    """A 30-degree roof on a box: the roof is sloped, the walls and eaves stay as they are."""
+    w, d, h = 48.0, 32.0, 19.2
+    rise = (w / 2) * np.tan(np.radians(30))
+    house = concat(
+        box_seed((w, d, h)),
+        prism_xz([(0.0, h), (w, h), (w / 2, h + rise)], d),
+    )
+    design, sloped, open_top = hints(seed_from(house), catalog)
+    assert sloped.any(axis=2).all()  # every column, as the roof covers all of them
+    assert not sloped[:, :, : int(h / 3.2) - 1].any()  # nothing in the walls
+
+
+def test_wall_with_a_tiny_chamfer_is_not_sloped(catalog):
+    """A block whose right side pokes 0.5 mm into a new column, with a 0.4 mm chamfer on
+    its top edge: that column's top cell is mostly wall, so it keeps its studs."""
+    h = 19.2
+    profile = [(0.0, 0.0), (32.5, 0.0), (32.5, h - 0.4), (32.1, h), (0.0, h)]
+    design, sloped, _ = hints(seed_from(prism_xz(profile, 16.0)), catalog)
+    assert design.shape == (5, 2, 6)
+    assert not sloped.any()
+
+
+def test_cone(catalog):
+    """A 45-degree cone is sloped all round, except at its tip, where the slopes meet from
+    every side; cones steeper than 70 degrees or flatter than 20 have no sloped cells.
+    (The cone is 11 studs across, so its tip is in the middle of one column; with the tip on
+    a corner, each of the four columns there holds one side of it, and is sloped.)"""
+    mesh = trimesh.creation.cone(radius=44.0, height=44.0, sections=96)
+    design, sloped, open_top = hints(seed_from(mesh), catalog)
+    assert not (sloped & ~open_top).any()
+    xs, ys, zs = np.nonzero(open_top)
+    centre = np.array(design.shape[:2]) / 2
+    distance = np.hypot(xs + 0.5 - centre[0], ys + 0.5 - centre[1])
+    away = distance > 1.5
+    assert sloped[xs[away], ys[away], zs[away]].all()
+    tip = zs == zs.max()
+    assert not sloped[xs[tip], ys[tip], zs[tip]].any()
+    for height in (44.0 * np.tan(np.radians(80)), 44.0 * np.tan(np.radians(10))):
+        steep_or_flat = trimesh.creation.cone(radius=44.0, height=height, sections=96)
+        assert not hints(seed_from(steep_or_flat), catalog)[1].any()
+
+
+def sphere_seed() -> Seed:
+    return seed_from(trimesh.creation.icosphere(4, radius=64.0))
+
+
+def test_sphere_has_a_band_on_its_upper_half(catalog):
+    seed = sphere_seed()
+    design, sloped, open_top = hints(seed, catalog)
+    assert design.shape == (16, 16, 40)
+    assert not (sloped & ~open_top).any()
+    # how far above level the sphere is at each open cell's middle (its latitude)
+    xs, ys, zs = np.nonzero(open_top)
+    middle = (np.c_[xs, ys, zs] + 0.5) * CELL - 64.0
+    latitude = np.degrees(np.arcsin(middle[:, 2] / np.linalg.norm(middle, axis=1)))
+    marked = sloped[xs, ys, zs]
+    assert marked.sum() > 60
+    assert marked[(latitude > 30) & (latitude < 62)].all()  # the band
+    assert not marked[latitude > 78].any()  # not on the very top
+    assert not marked[latitude < 0].any()  # not below the equator
+    assert not sloped[:, :, :20].any()
+    # the band goes all the way round
+    angle = np.degrees(np.arctan2(middle[marked, 1], middle[marked, 0]))
+    assert np.histogram(angle, bins=8, range=(-180, 180))[0].min() > 0
+
+
+def test_inside_out_mesh_gets_no_sloped_cells(catalog):
+    """Normals follow the winding: wound inside out, the top of a sphere faces down, which
+    counts as an underside, so nothing is sloped (the cells filled stay about the same)."""
+    mesh = trimesh.creation.icosphere(4, radius=64.0)
+    mesh.invert()
+    design, sloped, _ = hints(seed_from(mesh), catalog)
+    assert not sloped.any()
+    normal, _, _ = hints(sphere_seed(), catalog)
+    assert abs(int(design.filled.sum()) - int(normal.filled.sum())) < 0.15 * normal.filled.sum()
+
+
+def test_hollowing_keeps_the_finish_of_the_cells_that_remain(catalog):
+    seed = sphere_seed()
+    solid, solid_sloped, _ = hints(seed, catalog)
+    hollow, hollow_sloped, _ = hints(seed, catalog, hollow=True)
+    assert hollow.filled.sum() < solid.filled.sum()
+    kept = hollow.filled
+    assert solid.finish is not None and hollow.finish is not None
+    assert np.array_equal(hollow.finish[kept], solid.finish[kept])
+    assert (hollow.finish[~kept] == FINISH_STUDS).all()
+    assert np.array_equal(hollow_sloped, solid_sloped)  # no sloped cell was hollowed out
+
+
+def test_slope_hints_can_be_turned_off(catalog):
+    design, sloped, _ = hints(sphere_seed(), catalog, slope_hints=False)
+    assert not sloped.any()
+    assert design.finish is not None and (design.finish == FINISH_STUDS).all()
+    with_hints = hints(sphere_seed(), catalog)[0]
+    assert np.array_equal(design.colors, with_hints.colors)  # the cells do not change
+
+
+def test_slope_hints_are_deterministic(pawn_path, catalog):
+    seed = load_seed(pawn_path, studs=20)
+    first = voxelize(seed, catalog)
+    assert first.finish is not None and (first.finish == FINISH_SLOPED).any()
+    for _ in range(2):
+        again = voxelize(seed, catalog)
+        assert again.finish is not None and np.array_equal(again.finish, first.finish)
+    assert first.fingerprint() == voxelize(seed, catalog).fingerprint()
+
+
+def test_slope_hints_only_in_the_body_never_in_the_padding(catalog):
+    design = voxelize(sphere_seed(), catalog)  # default margin of 2
+    assert design.finish is not None
+    sloped = design.finish == FINISH_SLOPED
+    assert sloped.any()
+    assert not (sloped & ~design.filled).any()
+    assert not sloped[:2].any() and not sloped[-2:].any() and not sloped[:, :, 40:].any()
+
+
+def test_200k_triangles_at_48_studs_with_slope_hints_is_fast(catalog):
+    mesh = trimesh.creation.icosphere(5, radius=1.0)  # 20,480 triangles, made denser below
+    mesh = mesh.subdivide().subdivide()
+    mesh = trimesh.Trimesh(mesh.vertices[:, :] * [1.0, 1.0, 0.6], mesh.faces)
+    faces = np.asarray(mesh.faces)[:200_000]  # a bowl-like cap and band, open at the bottom
+    mesh = trimesh.Trimesh(mesh.vertices, faces)
+    seed = seed_from(mesh)
+    seed.vertices *= 48 * 8.0 / seed.extent_mm.max()
+    start = time.perf_counter()
+    design = voxelize(seed, catalog)
+    elapsed = time.perf_counter() - start
+    assert len(seed.faces) == 200_000
+    assert elapsed < 5.0, f"took {elapsed:.1f} s"
+    assert design.finish is not None and (design.finish == FINISH_SLOPED).sum() > 100
+
+
+# ---- the seed keeps its place on the grid ---------------------------------------------------
+
+CAT = Path(__file__).resolve().parent.parent / "samples" / "models" / "cat.glb"
+
+
+def rounded_bar(width: float, height: float, length: float, radius: float) -> trimesh.Trimesh:
+    """A bar along y whose two top edges are rounded alike: mirror-symmetric in x, exactly.
+
+    The (x, z) outline is centred on x = 0, and its left half is the right half negated."""
+    angles = np.radians(np.linspace(0.0, 90.0, 7))
+    right = [(width / 2, 0.0)] + [
+        (width / 2 - radius + radius * np.cos(a), height - radius + radius * np.sin(a))
+        for a in angles
+    ]
+    left = [(-x, z) for x, z in reversed(right)]
+    return prism_xz(right + left, length)
+
+
+def coloured_by_facing(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Flat tops red, everything else blue (so the colours are as symmetric as the shape)."""
+    colours = np.tile(np.array([20, 40, 220, 255], dtype=np.uint8), (len(mesh.faces), 1))
+    colours[np.asarray(mesh.face_normals)[:, 2] > 0.99] = (200, 30, 30, 255)
+    mesh.visual = trimesh.visual.ColorVisuals(mesh, face_colors=colours)
+    return mesh
+
+
+def swap_xy(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The same solid turned so x and y change places (faces reversed to keep facing out)."""
+    vertices = np.asarray(mesh.vertices)[:, [1, 0, 2]]
+    return trimesh.Trimesh(vertices, np.asarray(mesh.faces)[:, ::-1], process=False)
+
+
+def at_zero(seed: Seed) -> Seed:
+    """The seed as load_seed used to leave it: minimum corner at (0, 0, 0)."""
+    vertices = seed.vertices - seed.vertices.min(axis=0)
+    return Seed(vertices=vertices, faces=seed.faces, face_colors=seed.face_colors)
+
+
+def mirrored(design: Design, axis: int) -> bool:
+    assert design.finish is not None
+    return bool(
+        np.array_equal(design.colors, np.flip(design.colors, axis))
+        and np.array_equal(design.finish, np.flip(design.finish, axis))
+    )
+
+
+@pytest.mark.parametrize(
+    ("width", "radius", "axis"),
+    [(9.71, 1.6, 0), (6.4, 1.3, 0), (9.71, 1.6, 1), (6.4, 1.3, 1)],
+)
+def test_symmetric_model_comes_out_symmetric(tmp_path, catalog, width, radius, axis):
+    """A bar of fractional width with both top edges rounded: mirror-symmetric in the grid.
+
+    With the old placement (minimum corner at 0) the rounding on one side fell in a narrow
+    last column and was marked sloped while the other side was not."""
+    mesh = rounded_bar(width, 3.0, 16.0, radius)  # file units: studs
+    if axis == 1:
+        mesh = swap_xy(mesh)
+    path = tmp_path / "bar.ply"
+    coloured_by_facing(mesh).export(str(path))
+    seed = load_seed(path, studs=16)
+    assert seed.face_colors is not None
+    slack = (np.ceil(width) - width) / 2 * 8.0
+    assert seed.vertices.min(axis=0)[axis] == pytest.approx(slack, abs=1e-4)
+
+    design = voxelize(seed, catalog)
+    assert design.finish is not None
+    assert body(design).shape[axis] == np.ceil(width)
+    assert (design.finish == FINISH_SLOPED).any()
+    assert len(np.unique(design.colors[design.colors != EMPTY])) == 2
+    assert np.array_equal(design.filled, np.flip(design.filled, axis))
+    assert mirrored(design, axis)
+    assert mirrored(voxelize(seed, catalog, hollow=True, shell_studs=1), axis)
+
+    # the same mesh placed the old way is the one that came out lopsided
+    old = voxelize(at_zero(seed), catalog)
+    assert old.shape == design.shape
+    assert not mirrored(old, axis)
+
+
+def test_cat_slope_hints_are_mirror_symmetric(catalog):
+    """The sample cat is mirror-symmetric left to right; so are its filled cells, colours
+    and slope hints at 16 studs. Placed the old way, its back was sloped on one side only."""
+    seed = load_seed(CAT, studs=16)
+    assert seed.vertices.min(axis=0)[0] == pytest.approx((10 - 9.71465903) / 2 * 8, abs=1e-6)
+    design = voxelize(seed, catalog)
+    assert design.finish is not None
+    assert (design.finish == FINISH_SLOPED).sum() > 10
+    assert np.array_equal(design.filled, design.filled[::-1])
+    assert mirrored(design, 0)
+    assert not mirrored(voxelize(at_zero(seed), catalog), 0)
+
+
+def test_seed_starting_at_zero_gives_the_same_design_as_before(catalog, pawn_path):
+    """Fingerprints of Designs made before the seed kept its offset (seeds starting at 0).
+
+    The cat's two values were recorded again when colour matching began to count lightness
+    half (bricksnap/catalog); with the earlier weighting the code still gives the earlier
+    values, so only the colours differ. The pawn has no colours and never changed."""
+    cat = at_zero(load_seed(CAT, studs=16))
+    assert voxelize(cat, catalog).fingerprint() == "140cbc02fe84b9e7"
+    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "8e8ed1a8400f9386"
+    pawn = at_zero(load_seed(pawn_path, studs=24))
+    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "851d2a1e04735432"
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("start_cells", [3.7, 1.0, -0.4, -2.0])
+def test_seed_not_starting_in_the_first_cell_is_moved_to_zero(catalog, axis, start_cells):
+    """Outside the first cell (or anywhere but 0 in z) the seed is moved to start at 0."""
+    base = at_zero(load_seed(CAT, studs=12))
+    shift = np.zeros(3)
+    shift[axis] = start_cells * CELL[axis]
+    moved = Seed(vertices=base.vertices + shift, faces=base.faces, face_colors=base.face_colors)
+    assert voxelize(moved, catalog).fingerprint() == voxelize(base, catalog).fingerprint()
+
+
+def test_seed_starting_within_the_first_cell_keeps_its_offset(catalog):
+    """A seed point p lies in body cell floor(p / CELL_MM) when the seed starts within the
+    first cell and fits in ceil(extent / cell) cells there; z always starts at 0."""
+    bar = box_seed((20.0, 24.0, 9.6), origin=(3.0, 0.0, 1.6))  # 2.5 studs, starting 3 mm in
+    nub = box_seed((0.6, 24.0, 3.2), origin=(16.4, 0.0, 11.2))  # on top, at x = 2.05 cells
+    seed = seed_from(concat(bar, nub))
+    seed.vertices += [3.0, 0.0, 1.6]  # seed_from moved it to 0; put it back
+    design = voxelize(seed, catalog, margin_studs=0)
+    assert design.shape == (3, 3, 4)  # 2.5 studs need 3 cells, 4 plates need 4 layers
+    assert design.filled[:, :, :3].all()
+    assert np.flatnonzero(design.filled[:, :, 3].any(axis=1)).tolist() == [2]
+    # moved to 0 the nub would be at 13.4 mm, in column 1
+    at_0 = voxelize(seed_from(concat(bar, nub)), catalog, margin_studs=0)
+    assert np.flatnonzero(at_0.filled[:, :, 3].any(axis=1)).tolist() == [1]
+
+    # a seed that would need one more cell at its offset is moved to 0 instead of squashed
+    box = box_seed((24.0, 24.0, 9.6), origin=(3.2, 0.0, 0.0))
+    design = voxelize(seed_from(box), catalog, margin_studs=0)
+    moved = Seed(vertices=np.asarray(box.vertices, dtype=float), faces=box.faces)
+    assert voxelize(moved, catalog, margin_studs=0).fingerprint() == design.fingerprint()
+    assert design.shape == (3, 3, 3) and design.filled.all()

@@ -178,9 +178,10 @@ class Catalog:
     ) -> int:
         """LDraw code of the catalogue colour that looks closest to an RGB value (0-255 each).
 
-        Closeness is measured the way eyes judge it (the CIEDE2000 difference), not in raw RGB, so
-        black snaps to Black rather than Dark Brown and an orange-red to Red rather than
-        Dark Orange. On an exact tie the colour that comes first in the catalogue wins.
+        Closeness is measured the way eyes judge it (the CIEDE2000 difference, with lightness
+        counted half), not in raw RGB, so black snaps to Black rather than Dark Brown and a
+        coral red to Red rather than a brown. On an exact tie the colour that comes first in
+        the catalogue wins.
         """
         one = np.asarray([float(v) for v in rgb], dtype=np.float64).reshape(1, 3)
         return int(self.nearest_colours(one, allowed=allowed, solid_only=solid_only)[0])
@@ -203,14 +204,23 @@ class Catalog:
         palette = _rgb_to_lab(np.asarray([c.rgb for c in pool], dtype=np.float64))
         rgb = np.asarray(rgb, dtype=np.float64).reshape(-1, 3)
         out = np.empty(len(rgb), dtype=np.int64)
+        shortlist = min(_SHORTLIST, len(pool))
         for start in range(0, len(rgb), _SNAP_CHUNK):
             lab = _rgb_to_lab(rgb[start : start + _SNAP_CHUNK])
-            d = _colour_difference(lab, palette)
-            out[start : start + len(lab)] = codes[d.argmin(axis=1)]  # first minimum wins
+            # The exact measure is costly, so it is only worked out for the few palette
+            # colours that a cheaper, similar measure puts nearest. The winner is always
+            # among those: a test compares this against measuring every colour.
+            near = np.argpartition(_rough_difference(lab, palette), shortlist - 1, axis=1)
+            near = np.sort(near[:, :shortlist], axis=1)  # catalogue order: first minimum wins
+            d = _delta_e(lab[:, None, :], palette[near])
+            best = near[np.arange(len(lab)), d.argmin(axis=1)]
+            out[start : start + len(lab)] = codes[best]
         return out
 
 
 _SNAP_CHUNK = 20_000
+_SHORTLIST = 12
+_K_LIGHTNESS = 2.0
 _D65 = np.array([0.95047, 1.0, 1.08883])
 _RGB_TO_XYZ = np.array(
     [
@@ -232,14 +242,38 @@ def _rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     )
 
 
-def _colour_difference(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
-    """CIEDE2000 colour difference between every row of ``lab1`` (n, 3) and of ``lab2`` (k, 3).
+def _rough_difference(lab: np.ndarray, palette: np.ndarray) -> np.ndarray:
+    """A cheap stand-in for the colour difference (the older CIE94 form, squared), used only
+    to shortlist palette colours: (n, 3) against (k, 3) gives (n, k)."""
+    c1 = np.hypot(lab[:, 1], lab[:, 2])[:, None]
+    c2 = np.hypot(palette[:, 1], palette[:, 2])[None, :]
+    d_l = lab[:, None, 0] - palette[None, :, 0]
+    d_a = lab[:, None, 1] - palette[None, :, 1]
+    d_b = lab[:, None, 2] - palette[None, :, 2]
+    d_c = c1 - c2
+    d_h2 = np.maximum(d_a**2 + d_b**2 - d_c**2, 0.0)
+    c_mean = (c1 + c2) / 2
+    d_l = d_l / _K_LIGHTNESS
+    return d_l**2 + (d_c / (1 + 0.045 * c_mean)) ** 2 + d_h2 / (1 + 0.015 * c_mean) ** 2
 
-    The standard measure of how different two colours look. Plain distance in CIELAB is not
-    good enough here: it sends a strong blue to purple and a mid grey to a tan.
+
+def _colour_difference(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
+    """CIEDE2000 colour difference between every row of ``lab1`` (n, 3) and of ``lab2`` (k, 3)."""
+    return _delta_e(lab1[:, None, :], lab2[None, :, :])
+
+
+def _delta_e(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
+    """CIEDE2000 colour difference between two arrays of CIELAB colours that broadcast
+    against each other (last axis 3).
+
+    The standard measure of how different two colours look, with lightness counted half
+    (``_K_LIGHTNESS``; the 2:1:1 weighting the textile industry uses). Hue and saturation
+    then decide before lightness does, which is how a person picks a brick colour: a coral
+    red belongs with Red, not with a brown that happens to be equally light. Plain distance
+    in CIELAB is not good enough here: it sends a strong blue to purple.
     """
-    l1, a1, b1 = (lab1[:, None, i] for i in range(3))
-    l2, a2, b2 = (lab2[None, :, i] for i in range(3))
+    l1, a1, b1 = lab1[..., 0], lab1[..., 1], lab1[..., 2]
+    l2, a2, b2 = lab2[..., 0], lab2[..., 1], lab2[..., 2]
     c_mean = (np.hypot(a1, b1) + np.hypot(a2, b2)) / 2
     g = 0.5 * (1 - np.sqrt(c_mean**7 / (c_mean**7 + 25.0**7)))
     a1p, a2p = (1 + g) * a1, (1 + g) * a2
@@ -270,9 +304,8 @@ def _colour_difference(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
     s_h = 1 + 0.015 * cp_mean * t
     r_c = 2 * np.sqrt(cp_mean**7 / (cp_mean**7 + 25.0**7))
     r_t = -r_c * np.sin(np.radians(60 * np.exp(-(((h_mean - 275) / 25) ** 2))))
-    return np.sqrt(
-        (d_l / s_l) ** 2 + (d_c / s_c) ** 2 + (d_h / s_h) ** 2 + r_t * (d_c / s_c) * (d_h / s_h)
-    )
+    d_l = d_l / (_K_LIGHTNESS * s_l)
+    return np.sqrt(d_l**2 + (d_c / s_c) ** 2 + (d_h / s_h) ** 2 + r_t * (d_c / s_c) * (d_h / s_h))
 
 
 def _hex_to_rgb(text: str) -> tuple[int, int, int]:

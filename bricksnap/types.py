@@ -71,7 +71,8 @@ class Seed:
     """The input model after loading: oriented, scaled, and moved to the origin.
 
     ``vertices`` are millimetres at the final build size. z is up, the object's front faces
-    -y, and the bounding box's minimum corner is at (0, 0, 0).
+    -y, the model stands on z = 0, and in x and y it is centred in the smallest whole number
+    of studs that holds it (so its minimum corner is less than half a stud from 0).
     """
 
     vertices: np.ndarray  # (n, 3) float64, millimetres
@@ -112,8 +113,9 @@ class Design:
     colors: np.ndarray  # int16 [nx, ny, nz]; EMPTY or an LDraw colour code
     finish: np.ndarray | None = None  # uint8 [nx, ny, nz]; FINISH_* for the top of each cell
     seed_offset: tuple[int, int, int] = (0, 0, 0)
-    """Cell at which the seed's minimum corner sits. The grid is padded so edits have room
-    to grow the shape; seed point p (mm) lies in cell floor(p / CELL_MM) + seed_offset."""
+    """Cell at which the seed's own first cell sits. The grid is padded so edits have room
+    to grow the shape; seed point p (mm) lies in cell floor(p / CELL_MM) + seed_offset. (The
+    seed's minimum corner is up to half a stud inside that cell: see ``Seed``.)"""
     details: list[Detail] = field(default_factory=list)
     regions: dict[str, dict[str, Any]] = field(
         default_factory=dict

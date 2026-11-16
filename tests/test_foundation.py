@@ -203,6 +203,10 @@ def test_colours_snap_the_way_eyes_judge_them(catalog):
         (255, 140, 0): "Orange",
         (255, 192, 203): "Bright Pink",
         (60, 40, 20): "Dark Brown",
+        (232, 97, 71): "Red",  # the sample car's coral body: not Nougat, a skin-tone brown
+        (210, 180, 140): "Tan",
+        (70, 74, 76): "Dark Bluish Grey",
+        (240, 200, 60): "Yellow",
     }
     for rgb, want in cases.items():
         assert name[catalog.nearest_colour(rgb)] == want, rgb
@@ -214,7 +218,7 @@ def test_colours_snap_the_way_eyes_judge_them(catalog):
     assert catalog.nearest_colour(catalog.colours[36].rgb, solid_only=False) in (4, 36)
 
 
-def test_colour_difference_matches_published_values():
+def test_colour_difference_matches_published_values(monkeypatch):
     """A few of the reference pairs published with the CIEDE2000 formula (Sharma et al.)."""
     from bricksnap.catalog import _colour_difference
 
@@ -226,6 +230,9 @@ def test_colour_difference_matches_published_values():
         ((60.2574, -34.0099, 36.2677), (60.4626, -34.1751, 39.4387), 1.2644),
         ((2.0776, 0.0795, -1.1350), (0.9033, -0.0636, -0.5514), 0.9082),
     ]
+    import bricksnap.catalog as cat_module
+
+    monkeypatch.setattr(cat_module, "_K_LIGHTNESS", 1.0)  # the published values use 1:1:1
     for a, b, want in pairs:
         got = _colour_difference(np.array([a], dtype=float), np.array([b], dtype=float))[0, 0]
         assert abs(got - want) < 1e-4, (a, b, got)
@@ -247,3 +254,22 @@ def test_rough_build_is_the_plain_conversion_and_is_reused(tmp_path, pawn_path):
     stamp = project.rough_build_path.read_bytes()
     assert rough_build(project).parts == rough.parts
     assert project.rough_build_path.read_bytes() == stamp
+
+
+def test_the_colour_shortlist_never_changes_the_answer(catalog):
+    """nearest_colours measures only a shortlist exactly; it must agree with measuring all."""
+    import bricksnap.catalog as cat_module
+
+    rng = np.random.default_rng(11)
+    rgb = np.concatenate(
+        [
+            rng.integers(0, 256, size=(60_000, 3)),
+            np.array([c.rgb for c in catalog.colours.values()]),
+            np.array([[v, v, v] for v in range(256)]),  # every grey
+        ]
+    ).astype(np.float64)
+    solid = [c for c in catalog.colours.values() if not c.transparent]
+    palette = cat_module._rgb_to_lab(np.array([c.rgb for c in solid], dtype=np.float64))
+    exact = cat_module._colour_difference(cat_module._rgb_to_lab(rgb), palette).argmin(axis=1)
+    want = np.array([c.code for c in solid])[exact]
+    assert np.array_equal(catalog.nearest_colours(rgb), want)

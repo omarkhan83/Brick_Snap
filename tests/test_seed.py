@@ -60,7 +60,9 @@ def test_pawn_loads_upright_scaled_and_at_origin(pawn_path):
     assert seed.source == "pawn.stl"
     assert seed.vertices.dtype == np.float64 and seed.vertices.shape[1] == 3
     assert seed.faces.dtype == np.int64 and seed.faces.shape[1] == 3
-    np.testing.assert_allclose(seed.vertices.min(axis=0), 0.0, atol=1e-12)
+    # 11.29 studs wide and deep: centred in 12 studs, so it starts 0.35 studs in; z starts at 0
+    slack = (12 - 30 / 42.5 * 16) / 2 * 8.0
+    np.testing.assert_allclose(seed.vertices.min(axis=0), [slack, slack, 0.0], atol=1e-12)
     # 30 x 30 x 42.5 mm, Z-up: the height is the longest side and becomes 16 studs
     np.testing.assert_allclose(seed.extent_mm, [30 / 42.5 * 128, 30 / 42.5 * 128, 128.0])
     assert seed.face_colors is None
@@ -780,3 +782,59 @@ def test_bad_up_axis(pawn_path, up):
 def test_seed_error_is_a_value_error(tmp_path):
     with pytest.raises(ValueError):
         load_seed(tmp_path / "x.stl", studs=16)
+
+
+# ---- place on the stud grid -----------------------------------------------------------------
+
+
+def write_box_stl(path, size, origin=(0.0, 0.0, 0.0)) -> None:
+    """An ASCII STL box (full double precision, unlike binary STL) of ``size`` at ``origin``."""
+    mesh = trimesh.creation.box(bounds=[origin, np.add(origin, size)])
+    write_ascii_stl(path, np.asarray(mesh.vertices)[np.asarray(mesh.faces)].tolist())
+
+
+def test_model_is_centred_in_whole_studs(tmp_path):
+    """A box 9.71 x 16 x 5 studs spans x = 0.145 to 9.855 studs: the same slack each side."""
+    path = tmp_path / "box.stl"
+    write_box_stl(path, (9.71, 16.0, 5.0), origin=(-3.0, 7.5, -2.25))  # file units: studs
+    seed = load_seed(path, studs=16)
+    low, high = seed.vertices.min(axis=0), seed.vertices.max(axis=0)
+    assert low[0] == pytest.approx((10 - 9.71) / 2 * 8.0, abs=1e-9)
+    assert high[0] == pytest.approx(80.0 - (10 - 9.71) / 2 * 8.0, abs=1e-9)
+    assert low[1] == 0.0 and low[2] == 0.0  # whole-stud side and the ground: exactly 0
+    assert seed.extent_mm.max() == 16 * 8.0
+    assert seed.extent_mm[1] == 16 * 8.0
+    np.testing.assert_allclose(seed.extent_mm, [9.71 * 8, 128.0, 40.0], rtol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("size", "studs", "expected_mm"),
+    [
+        ((16.0, 6.4, 3.0), 16, (0.0, 0.3 * 8.0, 0.0)),  # centred front to back too
+        ((6.0, 16.0, 4.3), 16, (0.0, 0.0, 0.0)),  # height is never centred
+        ((7.0 + 5e-7, 12.0, 4.5), 12, (0.0, 0.0, 0.0)),  # within 1e-6 of a whole stud
+        ((7.0001, 12.0, 4.5), 12, ((8 - 7.0001) / 2 * 8.0, 0.0, 0.0)),
+        ((3.25, 2.5, 6.0), 12, ((7 - 6.5) / 2 * 8.0, (5 - 5.0) / 2 * 8.0, 0.0)),  # scaled x2
+    ],
+)
+def test_minimum_corner_follows_the_centring_rule(tmp_path, size, studs, expected_mm):
+    path = tmp_path / "box.stl"
+    write_box_stl(path, size, origin=(1.0, -2.0, 0.5))
+    seed = load_seed(path, studs=studs)
+    low = seed.vertices.min(axis=0)
+    np.testing.assert_allclose(low, expected_mm, atol=1e-9)
+    assert low[2] == 0.0
+    assert (low[:2] >= 0.0).all() and (low[:2] < 4.0).all()
+    assert seed.extent_mm.max() == pytest.approx(studs * 8.0, abs=1e-9)
+    # the model always fits in the smallest whole number of studs that holds it
+    studs_wide = np.ceil(seed.extent_mm[:2] / 8.0 - 1e-6)
+    assert (seed.vertices.max(axis=0)[:2] <= studs_wide * 8.0 + 8e-6).all()
+
+
+@pytest.mark.parametrize("studs", [MIN_STUDS, 7, 16, 48, MAX_STUDS])
+def test_pawn_is_centred_in_whole_studs(pawn_path, studs):
+    seed = load_seed(pawn_path, studs=studs)
+    side = 30 / 42.5 * studs  # studs; the pawn is 30 x 30 x 42.5 mm
+    slack = (np.ceil(side) - side) / 2 * 8.0
+    np.testing.assert_allclose(seed.vertices.min(axis=0), [slack, slack, 0.0], atol=1e-9)
+    assert seed.vertices.min(axis=0)[2] == 0.0
