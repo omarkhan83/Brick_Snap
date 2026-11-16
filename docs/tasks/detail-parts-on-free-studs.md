@@ -1,6 +1,6 @@
 # Detail parts: let the designer place small parts on free studs
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 2
 
 Add the `place_detail` edit operation and about 20 detail parts to the parts table (round tile, round plate,
@@ -11,5 +11,5 @@ Done when the designer can put two round-tile eyes on a model's top surface, the
 and the parts appear in the LDraw file and the viewer.
 
 ## Notes
-Starts after `stage-1-foundation`. Side-facing details (eyes on the side of a head) need a brick with a
-stud on its side and are stage 3.
+The edit operations are specified in `bricksnap/design.py`; the parts are placed by `bricksnap/finish.py`.
+Side-facing details (eyes on the side of a head) need a brick with a stud on its side and are stage 3.

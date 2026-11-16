@@ -3,7 +3,7 @@
 The order of work. There are no dates here on purpose: what matters is the sequence. Only the lead
 (Alec-42, through his agent) edits this file. Everyone else proposes changes through `docs/decisions/`.
 
-**Current stage: 1**
+**Current stage: 2**
 
 Pick tasks from the current stage first. A task's `stage:` line says where it belongs.
 
@@ -11,7 +11,7 @@ Pick tasks from the current stage first. A task's `stage:` line says where it be
 
 | Stage | Goal | Done when |
 |---|---|---|
-| 1 | **Model in, valid real-brick file out, and the AI loop alive** | Pawn, box, cylinder, and sphere build with zero loose bricks, solid and hollow. The AI makes one visible, valid change to a model through the clean-room runner |
+| 1 | **Model in, valid real-brick file out, and the AI loop alive** | Pawn, box, cylinder, and sphere build with zero loose bricks, solid and hollow, at three sizes. A flat (zero-height) model is rejected with a message. The AI makes one visible, valid change to a model through the clean-room runner |
 | 2 | **Looks designed** | A cat 12 to 16 studs long: rough build and designed build side by side, clearly different, both valid |
 | 3 | **Steerable and showable** | Three showcase models run from seed to finished set, including a typed edit |
 | 4 | **Presentable** | The two-minute walkthrough works from a clean checkout |
@@ -22,6 +22,8 @@ Pick tasks from the current stage first. A task's `stage:` line says where it be
 Engine skeleton and tests. Prototype moved to `legacy/`. Mesh to plate-resolution grid. Parts and colours
 table. Layout solver with real interlock. Checks. LDraw export. Pictures without a GPU. A bare AI loop
 (three edit types, one render) through the clean-room runner, with the parity check. A viewer page.
+
+**Done.** What was shown, with pictures: `docs/stages/stage-1.md`.
 
 ### Stage 2: looks designed
 
@@ -58,6 +60,11 @@ model.
 6. Seed makers: guides for scanning apps, image-to-3D, a logo image to a relief, the prototype's photo mode.
 7. Stickers and printed parts. Price estimates. A printable kit of the basic parts.
 
+### Alongside any stage
+
+`licence-and-photo-credits` (a licence for the project, credits for photos and part data) does not depend
+on the engine and can be done at any time.
+
 ## If something has to be dropped
 
 Drop in this order: a real web app (the command line plus the viewer page is enough); our own instruction
@@ -66,7 +73,7 @@ AI paints instead); printable STL output.
 
 ## Lanes
 
-Once the stage 1 foundation is in, people can work side by side without touching the same files:
+Lanes are groups of files. People can work side by side by staying in different lanes:
 
 | Lane | Files | Kind of work |
 |---|---|---|
@@ -74,7 +81,7 @@ Once the stage 1 foundation is in, people can work side by side without touching
 | Parts and export | `bricksnap/catalog/`, `ldraw.py`, `export.py` | Parts table, file formats, checking files open in Studio |
 | Designer | `bricksnap/designer/`, `design.py` | Prompt, tools, test runs, judging |
 | Viewer | `viewer/` | The web page |
-| No code | `samples/`, `docs/` | Collecting licensed test models, rating results, the walkthrough script, ordering parts |
+| No code | `samples/`, Notes in `docs/tasks/` | Collecting licensed test models, rating results, the walkthrough script, ordering parts |
 
 ## How we know a stage is done
 

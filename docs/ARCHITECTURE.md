@@ -1,8 +1,9 @@
 # Architecture
 
 How BrickSnap is built. Read `docs/VISION.md` first for why. This document describes the target design;
-`docs/ROADMAP.md` says how much of it exists yet. If the code and this document disagree, fix whichever is
-wrong in the same commit.
+`docs/ROADMAP.md` says how much of it exists yet, so files named here may be planned rather than present.
+If the code and this document disagree, that is a bug: the lead's agent fixes whichever is wrong; anyone
+else records it as a task.
 
 ## The idea in one picture
 
@@ -58,7 +59,7 @@ projects/<name>/
   designer/          transcripts of AI design runs
 ```
 
-`projects/` is ignored by git. Example projects worth keeping go in `samples/projects/`.
+`projects/` is ignored by git (see `.gitignore`). Example projects worth keeping go in `samples/projects/`.
 
 ## The Design
 
@@ -148,7 +149,8 @@ Prompt and tool definitions live in `bricksnap/designer/` as plain files, define
 ### Running it clean
 
 The designer must behave as it would through a bare API call: only our prompt, only our tools. For now it
-runs through headless Claude Code, started from an empty temporary folder:
+runs through headless Claude Code on the lead's subscription, started from an empty temporary folder by
+`bricksnap/designer/runner.py`:
 
 ```
 claude -p --system-prompt-file <prompt.md>   # replaces Claude Code's whole default prompt
@@ -156,21 +158,40 @@ claude -p --system-prompt-file <prompt.md>   # replaces Claude Code's whole defa
        --mcp-config <ours.json> --strict-mcp-config   # only our tool server
        --setting-sources "" --disable-slash-commands --no-session-persistence
        --allowedTools mcp__bricksnap --permission-mode dontAsk
-       --model <id> --effort <level> --output-format stream-json
+       --model <id> --effort <level> --max-turns <n> --output-format stream-json --verbose
 ```
 
-`--bare` cannot be used: it turns off subscription login. `bricksnap/designer/parity.py` checks what the
-model actually receives (tool list, any text Claude Code adds) and writes it down; anything that cannot be
-removed is recorded in a decision. Later the same prompt and tools run on the API with no changes.
+The runner also removes `ANTHROPIC_API_KEY` and every inherited `CLAUDE*` variable from the child's
+environment (so the API key is never spent and nothing leaks in from another Claude Code session), and
+sets the variables that switch off auto memory, CLAUDE.md loading, built-in agents, bundled skills, and
+non-essential network traffic. `--bare` cannot be used: it turns off subscription login.
+
+What was measured (Claude Code 2.1.325): with these settings the model receives our system prompt, exactly
+our four tools, no built-in tools, no skills, no agents, and no project or memory files. Four things remain
+that no documented setting removes:
+
+- one identity line before our prompt ("You are a Claude agent, built on Anthropic's Claude Agent SDK.");
+- one sentence after it asking for independent tool calls to be made together;
+- an environment note (working folder, operating system, model name, today's date);
+- a reminder holding the account's email address.
+
+Claude Code also lists three built-in plugins in its start-up report; they add no tools and no text the
+model sees. None of this concerns the design task, the model has no tool that could act on it, and the
+prompt tells it to ignore it. All of it disappears when the same prompt and tools run on the API.
+
+`bricksnap/designer/parity.py` repeats the measurement (`uv run python -m bricksnap.designer.parity`), so we
+notice if a Claude Code update changes it. The runner itself stops a run at once if Claude Code reports
+that an API key is in use, if our tool server did not start, or if a different model answered than the
+one asked for.
 
 Starting the designer is the only thing in BrickSnap that sends data off the computer.
 
 ## Parts and colours
 
-`bricksnap/catalog/parts.json` and `colours.json` are a small, hand-checked table: about 40 parts and 30
+`bricksnap/catalog/parts.json` and `colours.json` are a small, checked table: 50 parts and 40
 colours, each with its LDraw file, BrickLink ID, footprint, height in plates, where its studs are, and
 which colours it really exists in. The solver only uses part and colour pairs from this table. The table
-is derived from the LDraw library (CC BY 2.0) and Rebrickable's data; `catalog/SOURCES.md` says how.
+is derived from the LDraw library (CC BY 4.0, a few files CC BY 2.0) and Rebrickable's data; `catalog/SOURCES.md` says how.
 
 Nothing at run time needs the full LDraw library, a GPU, or a paid licence.
 
@@ -227,3 +248,27 @@ point for the optional printable output.
 - Nothing leaves the computer except through the AI design step.
 - Text from a file name, file contents, or the AI goes into a web page with `textContent`, never
   `innerHTML`.
+
+## Glossary
+
+| Word | Meaning |
+|---|---|
+| Stud | The round bump on top of a part. Also the unit of width and depth: one stud is 8 mm |
+| Plate | The thin flat part, 3.2 mm tall. Also the unit of height: a brick is three plates tall |
+| Brick | The standard tall part: three plates (9.6 mm) |
+| Tile | A plate with a smooth top and no studs |
+| Slope | A part with a slanted face. A "cheese slope" is the tiny 1x1 wedge, two plates tall |
+| Detail part | A small part used for looks: round tile, cone, grille, and so on |
+| Seed | The 3D model a project starts from |
+| Design | The grid of coloured cells and notes: what the model should look like |
+| Build | The list of real parts and positions: how the model is made |
+| Layout solver | The code that turns a Design into a Build |
+| Loose part | A part that is not connected to the main model through studs |
+| LDraw | The standard open file format for LEGO models (`.ldr`), and the community parts library behind it |
+| LDU | LDraw's length unit. One stud is 20 LDU; one plate is 8 LDU tall |
+| BrickLink Studio | Free design software from BrickLink that opens LDraw files, renders them, and orders parts |
+| Wanted list | BrickLink's shopping list, which can be uploaded as a file |
+| AI designer | The language model that edits the Design through four tools |
+| Clean-room runner | The code that starts the AI designer with only our prompt and tools (see "Running it clean") |
+| Parity check | The test that shows the AI designer really received only our prompt and tools |
+| Headless Chromium | A web browser with no window, driven by a test script to check the viewer page |

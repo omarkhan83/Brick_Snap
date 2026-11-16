@@ -1,6 +1,6 @@
 # Make-buildable pass: change the shape as little as possible so it can actually be built
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 2
 
 Parts only hold through studs, vertically. Wide overhangs, sheets one plate thin, and the ceilings of hollow
@@ -12,4 +12,5 @@ Done when a hollow box, a mushroom shape (wide cap on a thin stem), and a table 
 connected piece, and the report lists the cells that were added.
 
 ## Notes
-Starts after `stage-1-foundation`.
+The contract is the opening comment of `bricksnap/buildable.py`. Its cheapest repair is recolouring cells
+nobody can see, so that a feature in its own colour is held from inside the model.

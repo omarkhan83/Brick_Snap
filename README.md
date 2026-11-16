@@ -1,29 +1,38 @@
 # BrickSnap
 
-> **Where this is going.** This page describes the first prototype. The project is being rebuilt to turn any
-> object or 3D model into a brick set of real LEGO® parts that looks designed and works, with an AI acting as
-> art director. Read [`docs/VISION.md`](docs/VISION.md) for the goal, [`docs/ROADMAP.md`](docs/ROADMAP.md) for
-> the order of work, and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it is built.
->
-> LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.
+Turn any object or 3D model into a brick set of real LEGO® parts that looks designed and works.
 
-Turn a real object (phone-sized up to 3D-printer-sized) into a kit of snap-together, 3D-printable bricks, with a step-by-step instruction booklet.
+You give it a 3D model. A solver builds it from real, interlocking bricks and plates. An AI acts as art
+director: it decides what makes the object recognisable at brick scale and reshapes and recolours the design,
+while the solver guarantees the result still holds together. Out comes a standard LDraw file you can open in
+BrickLink Studio, with building steps.
 
-Two ways in:
-- **From photos**: front, side and top photos with a ruler in shot (back and bottom are optional, for colour). The app finds the object, carves a 3D shape from the three outlines, and builds it from bricks using colours from the photos.
-- **Upload a 3D model**: STL, OBJ, GLB or 3MF. The model is sliced into bricks at the height you choose.
+- [`docs/VISION.md`](docs/VISION.md): what we are building and why
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): the order of work and where we are
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it is built
 
-Output: a single STL with every brick laid out flat for printing, plus a printable instruction booklet (cover, parts list, one page per layer).
+LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.
 
 ## Run it
 
-No install or build step. Open `index.html` in a browser (Chrome works best).
+You need [uv](https://docs.astral.sh/uv/). Then, in this folder:
 
-If a browser blocks something when opened as a file, run the tiny local server and go to http://localhost:8765/:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\serve.ps1
 ```
+uv sync                                                    # once: installs everything
+uv run bricksnap new samples/models/pawn.stl --studs 16    # model in, bricks out
+uv run bricksnap view pawn                                 # look at it in 3D in your browser
+```
+
+`new` makes a folder under `projects/` holding the build (`build.ldr` opens in BrickLink Studio), a picture
+comparing the model with the build (`renders/compare.png`), and the check report. Other commands:
+
+| Command | What it does |
+|---|---|
+| `bricksnap build PROJECT` | Rebuild from the current design and check it |
+| `bricksnap ops PROJECT edits.json --build` | Apply edit operations by hand |
+| `bricksnap design PROJECT` | Let the AI designer improve it. The only command that sends anything off your computer |
+| `bricksnap render PROJECT` | Write the comparison picture |
+| `bricksnap view PROJECT` | Open the 3D viewer |
 
 ## Working on it as a team
 
@@ -32,35 +41,46 @@ Everyone works through an AI coding agent (Claude Code, Codex, Cursor, and so on
 - At the start of a session it pulls the latest version and tells you what your teammates changed.
 - **Tasks** live in [`docs/tasks/`](docs/tasks): what is open and who is on what. Ask "what's open?" or "add this to the list".
 - **Decisions** live in [`docs/decisions/`](docs/decisions). Big changes are written up as a proposal first, and your agent will ask for your opinion on your teammates' proposals.
-- When it finishes, it checks the app still works and pushes, so nothing sits on only one person's computer.
+- When it finishes, it runs the tests and pushes, so nothing sits on only one person's computer.
 
-One-time setup: you need to be a collaborator on the GitHub repository, with git signed in on your computer.
+One-time setup: you need to be a collaborator on the GitHub repository, with git signed in on your computer, and `uv` installed.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `index.html` | The whole app: HTML, CSS and JS in one file. three.js r128 and its loaders come from a CDN. |
-| `sample-photos/` | Test photo sets (house, controller, duck, bottles) with rulers. Originals for the real photos are in the `*-original/` folders. |
-| `sample-models/pawn.stl` | A small test model (chess pawn, 42.5 mm). |
-| `tools/` | PowerShell scripts that generated the sample photos and model, plus `serve.ps1` (Windows). `check.mjs` is the check agents run before pushing. |
-| `AGENTS.md`, `CLAUDE.md`, `docs/` | Rules for the AI agents, the vision, roadmap and architecture, open tasks, and recorded decisions. |
+| `bricksnap/` | The engine: model to grid, layout solver, checks, LDraw export, pictures, the AI designer's tools |
+| `viewer/` | The 3D viewer page |
+| `tests/` | Tests. `uv run pytest` runs them |
+| `samples/models/` | Test models, each with its licence |
+| `docs/` | Vision, roadmap, architecture, open tasks, recorded decisions |
+| `AGENTS.md`, `CLAUDE.md` | Rules for the AI agents |
+| `tools/catalog/` | Scripts that rebuild the parts table from the LDraw library |
+| `legacy/` | The original prototype (below) |
 
-## How it works (short version)
+## The prototype
 
-1. **Find the object**: the background colour is read from the edge of the box, and Otsu's method picks the cut-off between object and background.
-2. **Scale**: two clicks on the ruler give mm per pixel.
-3. **Shape**: a voxel grid is carved so a cell stays only if the front, side and top outlines all cover it. Uploaded models are voxelized by sampling their surface and flood-filling the outside.
-4. **Hollow (default)**: only a shell 2 bricks thick is kept; the inside is left empty to save plastic. Solid is still an option.
-5. **Bricks**: cells snap to a 17-colour palette, then merge into bricks (2×4 down to 1×1). Each brick is scored on size and on how many bricks below it grips, so joins stagger like a real brick wall. Loose bricks get joined onto a neighbour, or get a pillar down through the hollow. Stud pitch is 8, 12 or 16 mm, with a 0.2 mm printing gap.
-6. **Instructions**: each step adds up to 8 bricks, working round the layer, with the new bricks outlined in red.
+`legacy/index.html` is where the project started: a single web page that turns three photos (or a 3D model)
+into a kit of custom 3D-printable bricks. Open it by double-clicking; nothing to install. It is kept working
+but is no longer developed. Its three-photo mode is a candidate for a future way of making a model to start
+from, and its printable-brick generator for an optional printable output.
 
-## Image credits
+If a browser blocks something when it is opened as a file, on Windows run
+`powershell -ExecutionPolicy Bypass -File legacy\tools\serve.ps1` and go to http://localhost:8765/.
 
-These sample photos are from Wikimedia Commons under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Rulers were added on top of them.
+## Credits
+
+Part numbers, shapes, and colours come from the [LDraw](https://www.ldraw.org/) parts library (CC BY 4.0, a
+few files CC BY 2.0) and from [Rebrickable](https://rebrickable.com/)'s data; see
+[`bricksnap/catalog/SOURCES.md`](bricksnap/catalog/SOURCES.md). Test models are CC0; see
+[`samples/models/README.md`](samples/models/README.md).
+
+### Prototype image credits
+
+The prototype's sample photos (in `legacy/sample-photos/`) are from Wikimedia Commons under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Rulers were added on top of them.
 
 - `real-ds4-top-with-ruler.png` and `ds4-original/`: "Sony DualShock 4 wireless controller for PlayStation 4 (black)" by ITEagle Europe - Sebastiaan Broekhoven
 - `bottle-black-*` and `bottle-original/steel-bottle.jpg`: "Stainless Steel Water Bottle" by Gannu03
 - `bottle-red-*` and `bottle-original/red-grey-bottle.jpg`: "Red and Grey Water Bottle" by Zohasheikh
 
-All other sample images and models were generated by the scripts in `tools/`.
+All other sample images and models were generated by the scripts in `legacy/tools/`.

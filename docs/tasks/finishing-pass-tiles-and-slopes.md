@@ -1,6 +1,6 @@
 # Finishing pass: tiles on smooth tops, slopes on steps
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-15)
 - stage: 2
 
 After the solver has placed bricks and plates, swap parts that have nothing above them for better-looking
@@ -12,4 +12,5 @@ Done when a sphere and a pitched roof shape visibly lose their staircase in the 
 passes its checks, and only part and colour pairs from the parts table are used.
 
 ## Notes
-Starts after `stage-1-foundation`.
+The contract is the opening comment of `bricksnap/finish.py`. The seed's slanted surfaces are marked by
+`bricksnap/voxelize.py`; the designer marks more with the `set_finish` edit.

@@ -3,9 +3,8 @@
 - owner: nobody
 - stage: 1
 
-Needs a person with Windows or a Mac; Studio does not run on Linux. Install BrickLink Studio (free), open a
-`build.ldr` produced by the engine (the lead's agent will put one in `samples/projects/` when stage 1 is
-done), and answer:
+Needs a person with Windows or a Mac; Studio does not run on Linux. Install BrickLink Studio (free), open
+`samples/projects/pawn/build.ldr` (the picture next to it is `renders/compare.png`), and answer:
 
 1. Does it open without errors, and does it look like the picture next to it?
 2. Are the building steps kept (Studio's step list), or is it all one step?
@@ -15,5 +14,6 @@ done), and answer:
 Done when the answers are written under Notes, with screenshots added to the same folder as the file.
 
 ## Notes
-Can start as soon as a sample file exists. Whether steps survive import is not documented by Studio, so
-this is the only way to find out.
+The sample file is in place, so this can start now. Whether steps survive import is not documented by
+Studio, so this is the only way to find out. Later stages add tiles, slopes, and detail parts; when they
+do, a second sample will be added here and the same four questions asked of it.

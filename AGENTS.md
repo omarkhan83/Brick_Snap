@@ -13,7 +13,19 @@ BrickSnap turns any object or 3D model into a LEGO-compatible brick set that loo
 - `docs/ROADMAP.md`: the order of work and the current stage. Read it before picking work.
 - `docs/ARCHITECTURE.md`: how it is built. Read it before changing code.
 
-The lead developer is Alec (GitHub `Alec-42`). His agent owns the roadmap and the architecture.
+Words such as stud, plate, Design, Build, and clean-room runner are explained in the glossary at the end of
+`docs/ARCHITECTURE.md`.
+
+## People
+
+| Person | GitHub | Role |
+|---|---|---|
+| Alec | `Alec-42` | Lead developer. His agent owns the roadmap and the architecture |
+| Omar | `omarkhan83` | Owns the GitHub repository; wrote the original prototype |
+
+The first time you work here for someone not in this table, add a row for them (name, GitHub user, what they
+like working on) in your first commit. Your user's name for task files is whatever `git config user.name`
+prints.
 
 ## Every session
 
@@ -24,7 +36,8 @@ The lead developer is Alec (GitHub `Alec-42`). His agent owns the roadmap and th
 3. Read `docs/VISION.md`, `docs/ROADMAP.md`, every file in `docs/decisions/` and `docs/tasks/`, and look at
    the commits the pull brought in.
 4. Give the user a short catch-up (a few lines): what teammates changed, which proposals are waiting for
-   their opinion, and what is in progress and by whom. Skip it if nothing is new.
+   their opinion, and what is in progress and by whom. Skip it if nothing is new. In a first session on a
+   fresh clone, instead say in two sentences what the project is, which stage it is at, and what is open.
 
 **Before you change code**
 
@@ -38,8 +51,9 @@ The lead developer is Alec (GitHub `Alec-42`). His agent owns the roadmap and th
 
 **While working**
 
-- Change only what the task needs. Stay inside the files your task or lane covers (lanes are listed in
-  `docs/ROADMAP.md`). Do not reformat, rename, reorder, or tidy code you are not changing.
+- Change only what the task needs. Stay inside the files your task covers; `docs/ROADMAP.md` groups files
+  into "lanes" so that people working side by side do not touch the same ones. Do not reformat, rename,
+  reorder, or tidy code you are not changing.
 - Match the style of the code around you.
 - Commit small, working steps. Say what changed and why in plain English.
 
@@ -60,8 +74,9 @@ The lead developer is Alec (GitHub `Alec-42`). His agent owns the roadmap and th
 - Merge conflict: keep the intent of both sides. If you cannot tell what the other side intended, stop and
   ask your user rather than guess. Their side is a teammate's decision, not noise.
 - Never commit secrets, API keys, or personal files. Look at `git status` before you stage.
-- Only the lead's agent changes this file, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, and
-  `bricksnap/types.py`. Anyone else proposes the change (see "Decisions").
+- Only the lead's agent changes this file, `docs/VISION.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, and
+  `bricksnap/types.py`. Anyone else proposes the change (see "Decisions"). The one exception is adding
+  your user's row to the People table above.
 
 ## Tasks: `docs/tasks/<short-slug>.md`
 
@@ -110,33 +125,53 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   decision as `proposed`, push it, and do not build it yet.
 - **When you see a proposal** your user has not answered, ask them and add their line under Responses.
 - A proposal becomes `accepted` when the lead agrees under Responses. If the lead has not answered after 3
-  days and nobody has objected, it is accepted. The lead's agent may record the lead's own decisions as
-  `accepted` directly.
+  days and nobody has objected, it is accepted: whichever agent notices changes the status line and adds a
+  Responses line saying so. The lead's agent may record the lead's own decisions as `accepted` directly.
 - **Anyone may object** to any decision, including the lead's, by adding a line under Responses. The lead
   must answer it in writing.
 - Never edit the substance of an accepted decision. Write a new one and mark the old one superseded.
 
 ## Verifying a change
 
-1. `node tools/check.mjs` must pass. It checks that the prototype's script still parses and that every
-   local file the page refers to exists.
-2. If the change affects what a user sees or downloads, exercise it. Use browser tools if you have them;
-   otherwise ask your user to try it and tell them exactly what they should see.
+1. Run all three; all must pass:
+   - `uv run pytest`
+   - `uv run ruff check`
+   - `uv run ty check`
+2. If the change affects what a user sees (the viewer page, a picture, an exported file), look at the result
+   yourself: the tests drive the viewer in a headless browser and save screenshots in `tests/artifacts/`,
+   and `uv run bricksnap render <project>` writes pictures you can open. If you cannot look, ask your user
+   to and tell them exactly what they should see.
+3. A change to documents only needs no checks beyond making sure the files it mentions exist.
 
-This section changes when the Python engine lands (stage 1): the checks become `uv run pytest`,
-`uv run ruff check`, and `uv run ty check`.
+## Setup and common snags
+
+- **You need** git (signed in to GitHub, and your user added as a collaborator on the repository by Omar)
+  and `uv` (https://docs.astral.sh/uv/). Run `uv sync` once after cloning and after any pull that changes
+  `pyproject.toml`. Nothing else has to be installed by hand. For browser tests, run
+  `uv run playwright install chromium` once.
+- **`git push` is rejected:** someone pushed first. `git pull --rebase`, re-run the checks, push again.
+- **`git pull --rebase` stops with a conflict:** resolve it following the merge-conflict rule above. If you
+  cannot, run `git rebase --abort` (this loses nothing) and ask your user.
+- **Nothing you may work on:** tell your user what is in progress and by whom, and offer the "No code" lane
+  in `docs/ROADMAP.md` or adding ideas as `open` tasks.
+- **You need a decision from the lead:** write it as a proposal. Decision files are how this team talks
+  across schedules; your user can also message Alec directly.
 
 ## State of the code
 
-The project is moving from a prototype to the engine described in `docs/ARCHITECTURE.md`.
+- **The engine** is `bricksnap/`, a Python package: a model file goes in, a checked build of real parts
+  comes out. `docs/ARCHITECTURE.md` describes every module; `docs/ROADMAP.md` says which stage we are in.
+  `uv run bricksnap --help` lists the commands. Each module starts with a CONTRACT in its opening comment:
+  keep the code, its tests, and that text in agreement.
+- **The viewer** is `viewer/`, a web page with no build step, served by `uv run bricksnap view <project>`.
+- **The AI design step** (`uv run bricksnap design <project>`) runs through the user's own Claude Code
+  login and uses their subscription. Never start it unless your user asks. The tests that would start it
+  are skipped unless asked for by name.
+- **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
+  still opens by double-click. It is not developed further: do not fix or extend it.
+- `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in
+  `samples/projects/`.
 
-- **The prototype** is `index.html`: one page that fills a shape with custom 3D-printed bricks.
-  `sample-photos/`, `sample-models/`, and `tools/*.ps1` belong to it. It is being moved to `legacy/` and
-  is not developed further. Do not fix or extend it; its known bugs are not being fixed.
-- **The engine** (`bricksnap/`, a Python package) is being laid down by the lead's agent as the task
-  `stage-1-foundation`. Until that task is finished, do not create files under `bricksnap/`, `viewer/`, or
-  `tests/`. Tasks that can be done meanwhile say so.
-
-Things that must stay true are listed at the end of `docs/ARCHITECTURE.md`. The three that matter most:
-the AI never places parts directly; every part and colour comes from the parts table; nothing leaves the
-user's computer except through the AI design step.
+Things that must stay true are listed in `docs/ARCHITECTURE.md`. The three that matter most: the AI never
+places parts directly; every part and colour comes from the parts table; nothing leaves the user's computer
+except through the AI design step.

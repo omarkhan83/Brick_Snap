@@ -81,7 +81,7 @@ Each level builds on the one below. `docs/ROADMAP.md` says which stage is curren
   Following LEGO's Fair Play policy: write "LEGO® bricks" or "LEGO-compatible", never "LEGOs"; never use
   the LEGO logo; the product is called BrickSnap, with no LEGO in its name or web address. User-facing
   pages carry the disclaimer above.
-- Part numbers and shapes come from the LDraw parts library (CC BY 2.0) and must be credited.
+- Part numbers and shapes come from the LDraw parts library (CC BY 4.0, a few files CC BY 2.0) and must be credited.
 - A model of something copyrighted (a film spaceship, a branded car) is the user's own responsibility. We
   do not ship such models as samples.
 
