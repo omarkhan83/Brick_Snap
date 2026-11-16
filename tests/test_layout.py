@@ -741,3 +741,282 @@ def test_hopeless_design_ends_quickly(catalog):
     build = solve_checked(design, catalog)
     assert time.perf_counter() - start < 10
     assert len(build.parts) >= 25
+
+
+# ---- sturdiness -------------------------------------------------------------------------------
+
+
+def checks_weak_spots(build: Build, catalog) -> tuple[int, int]:
+    """(weak spots, largest load) exactly as bricksnap.checks finds them."""
+    from bricksnap.checks import _find_spots, check
+
+    report = check(build, catalog)
+    heading = [ln for ln in report.text.splitlines() if "weak spot" in ln and "strengthen" in ln]
+    count = int(heading[0].split()[0]) if heading else 0
+    occ = occupancy(build, catalog)[0]
+    g = connection_graph(build, catalog, occ)
+    biggest: set[int] = max(nx.connected_components(g), key=len)
+    main = sorted(biggest)
+    anchors = {i for i in main if build.parts[i].z == 0}
+    largest = max(
+        (s.at_stake for s in _find_spots(build, catalog, occ, g, main, anchors)), default=0
+    )
+    return count, largest
+
+
+def head_and_body() -> Design:
+    """A body standing on the ground and a head as big as its upper half stuck to its side.
+
+    They share a face six studs wide and four bricks tall; the head stands on nothing else.
+    """
+    filled = np.zeros((12, 6, 24), dtype=bool)
+    filled[:6, :, :] = True  # the body, 6 x 6 studs, 8 bricks tall
+    filled[6:, :, 12:] = True  # the head, 6 x 6 studs, 4 bricks tall, beside the body's top
+    return design_of(filled)
+
+
+def crossing_levels(build: Build, catalog, plane_x: int, levels: range) -> int:
+    """Plate levels in which some part reaches across the plane between x-1 and x."""
+    crossed = set()
+    for p in build.parts:
+        w, _, h = catalog.footprint(p)
+        if p.x < plane_x < p.x + w:
+            crossed.update(z for z in range(p.z, p.z + h) if z in levels)
+    return len(crossed)
+
+
+@pytest.mark.parametrize("seed", list(range(0, 40)))
+def test_lone_links_agree_with_the_checks(seed, catalog):
+    from bricksnap.layout import lone_links, sturdiness
+
+    design = random_blob(seed) if seed % 4 else random_shell(seed)
+    build = solve(design, catalog, sturdy=False)
+    count, largest = checks_weak_spots(build, catalog)
+    links = lone_links(build, catalog)
+    assert len(links) == count
+    assert max((ln.load for ln in links), default=0) == largest
+    assert sturdiness(build, catalog)[:2] == (largest, count)
+
+
+def test_lone_links_agree_with_the_checks_on_a_finished_build(catalog):
+    # tiles, slopes and detail parts too: the analysis goes through bricksnap.connect
+    from bricksnap.layout import lone_links
+
+    build = Build.load(
+        __import__("pathlib").Path(__file__).parent.parent
+        / "samples"
+        / "projects"
+        / "cat-designed"
+        / "build.json"
+    )
+    count, largest = checks_weak_spots(build, catalog)
+    links = lone_links(build, catalog)
+    assert (len(links), max(ln.load for ln in links)) == (count, largest)
+    assert links == sorted(links, key=lambda ln: -ln.load)
+
+
+def test_lone_links_of_a_plain_column(catalog):
+    # five 1x1 bricks stacked, each joined to the next by one stud: the joint over the
+    # bottom brick carries four, the next one three; the parts carry the same groups as the
+    # joints, so the joints stand for them, and smaller groups are not weak spots
+    from bricksnap.layout import lone_links, sturdiness
+
+    build = solve(design_of(np.ones((1, 1, 15), dtype=bool)), catalog)
+    links = lone_links(build, catalog)
+    assert [(ln.load, ln.joint is not None) for ln in links] == [(4, True), (3, True)]
+    assert sturdiness(build, catalog) == (4, 2, 7)
+    assert checks_weak_spots(build, catalog) == (2, 4)
+
+
+def test_head_against_a_body_is_tied_in_many_layers(catalog):
+    # The shape the contract names. The solver already met this before the sturdiness work
+    # (its build here is unchanged), so this is a guard against losing it, not a test of the
+    # sturdiness step; the shapes below are the ones the step and the seam rule change.
+    from bricksnap.layout import sturdiness
+
+    design = head_and_body()
+    build = solve_checked(design, catalog)
+    assert_one_piece(build, catalog)
+    levels = range(12, 24)
+    crossed = crossing_levels(build, catalog, 6, levels)
+    assert crossed >= len(levels) / 2, f"the shared face is crossed in {crossed} of 12 levels"
+    head = sum(1 for p in build.parts if p.x >= 6)
+    largest = sturdiness(build, catalog)[0]
+    assert largest <= head / 4, f"{largest} parts hang on one link; the head has {head} parts"
+
+
+def uncrossed_neighbours(build: Build, catalog, plane_x: int, courses: range) -> int:
+    """Pairs of neighbouring brick courses in which no part reaches across the plane."""
+    levels = set()
+    for p in build.parts:
+        w, _, h = catalog.footprint(p)
+        if p.x < plane_x < p.x + w:
+            levels.update(range(p.z, p.z + h))
+    crossed = [any(z in levels for z in range(3 * k, 3 * k + 3)) for k in courses]
+    return sum(1 for a, b in zip(crossed, crossed[1:], strict=False) if not a and not b)
+
+
+def test_a_head_wider_than_the_body(catalog):
+    # like the sample cat's head: wider than the body it is stuck to, so the parts of the
+    # head beside the shared face would rather run along it than across it. The solver used
+    # to hang the whole head on one part.
+    from bricksnap.layout import sturdiness
+
+    filled = np.zeros((9, 6, 21), dtype=bool)
+    filled[:6, 1:5, :] = True  # the body, 6 x 4 studs, 7 bricks tall
+    filled[6:, :, 12:] = True  # the head, 3 x 6 studs, its top three bricks beside the body
+    build = solve_checked(design_of(filled), catalog)
+    assert_one_piece(build, catalog)
+    assert uncrossed_neighbours(build, catalog, 6, range(4, 7)) == 0
+    head = sum(1 for p in build.parts if p.x >= 6)
+    largest = sturdiness(build, catalog)[0]
+    assert largest <= head / 4, f"{largest} parts hang on one link; the head has {head} parts"
+
+
+def test_a_tower_on_a_wide_base(catalog):
+    from bricksnap.layout import sturdiness
+
+    filled = np.zeros((10, 10, 24), dtype=bool)
+    filled[:, :, :6] = True  # a base two bricks thick
+    filled[3:7, 3:7, 6:] = True  # a 4 x 4 tower six bricks tall on it
+    build = solve_checked(design_of(filled), catalog)
+    assert_one_piece(build, catalog)
+    plain = solve(design_of(filled), catalog, sturdy=False)
+    tower = sum(1 for p in build.parts if p.z >= 6)
+    largest = sturdiness(build, catalog)[0]
+    assert largest <= sturdiness(plain, catalog)[0]
+    assert largest < 3, f"{largest} of the tower's {tower} parts hang on one part"
+
+
+def test_a_t_shape(catalog):
+    # a stem with a bar across its top: each arm of the bar hangs off the stem
+    from bricksnap.layout import sturdiness
+
+    filled = np.zeros((12, 4, 24), dtype=bool)
+    filled[4:8, :, :18] = True
+    filled[:, :, 18:] = True
+    build = solve_checked(design_of(filled), catalog)
+    assert_one_piece(build, catalog)
+    levels = range(18, 24)
+    for plane in (4, 8):
+        assert crossing_levels(build, catalog, plane, levels) >= len(levels) / 2
+    assert sturdiness(build, catalog)[0] < 3
+
+
+def head_off_centre() -> np.ndarray:
+    """A body 8 x 4 studs, 8 bricks tall, and a small head 7 x 4 studs, 3 bricks tall, stuck
+    to its side one stud off-centre, standing on nothing else. The body's 8-stud width suits
+    2 x 8 bricks that end exactly at the shared face, so the face tends to stay uncrossed."""
+    filled = np.zeros((15, 5, 24), dtype=bool)
+    filled[:8, 0:4, :] = True
+    filled[8:, 1:5, 9:18] = True
+    return filled
+
+
+def test_a_small_head_gets_a_second_connection(catalog):
+    # a build of about 34 parts: the step must be allowed to add a part or two even though
+    # 2 in 100 of 34 rounds down to none (it used to leave the whole head on one 2 x 8)
+    from bricksnap.layout import sturdiness
+
+    design = design_of(head_off_centre())
+    plain = solve(design, catalog, sturdy=False)
+    build = solve_checked(design, catalog)
+    assert_one_piece(build, catalog)
+    head = sum(1 for p in build.parts if p.x >= 8)
+    before, after = sturdiness(plain, catalog)[0], sturdiness(build, catalog)[0]
+    assert before > head / 4  # without the step the head hangs on one part
+    assert after <= head / 4, f"{after} parts hang on one link; the head has {head} parts"
+    assert uncrossed_neighbours(build, catalog, 8, range(3, 6)) == 0
+
+
+def head_variant(bw: int, bd: int, hd: int, hw: int, off: int, hb: int, z0: int) -> np.ndarray:
+    """A body ``bw`` x ``bd`` studs and 8 bricks tall; beside it (from x = bw) a head ``hd``
+    deep and ``hw`` wide, centred on the body or ``off`` studs off, ``hb`` bricks tall,
+    starting at plate level ``z0`` (a multiple of 3), standing on nothing else."""
+    top = z0 + 3 * hb
+    ny = max(bd, hw) + 1
+    filled = np.zeros((bw + hd, ny, max(24, top)), dtype=bool)
+    by = (ny - bd) // 2
+    filled[:bw, by : by + bd, :24] = True
+    hy = (ny - hw) // 2 + off
+    filled[bw:, max(0, hy) : hy + hw, z0:top] = True
+    return filled
+
+
+HEAD_VARIANTS = [
+    # narrow and off-centre heads on a body whose width suits parts that end at the face
+    (8, 4, 2, 4, 1, 3, 9),
+    (8, 4, 7, 4, 1, 3, 9),
+    (8, 6, 2, 4, 0, 4, 12),
+    (8, 6, 4, 6, 1, 4, 9),
+    (8, 6, 7, 4, 1, 4, 9),
+    (8, 6, 6, 4, 0, 3, 15),
+    (8, 6, 3, 8, 0, 3, 9),
+    (8, 6, 2, 8, 0, 4, 9),
+    (6, 4, 3, 4, 1, 3, 12),
+    (6, 6, 2, 6, 0, 4, 9),
+    (4, 6, 3, 4, 1, 2, 9),
+    (4, 4, 6, 8, 0, 4, 12),
+]
+
+
+@pytest.mark.parametrize("variant", HEAD_VARIANTS)
+def test_heads_against_bodies_are_crossed_every_second_course(variant, catalog):
+    # the contract's seam rule: parts cross a face shared through several layers in at least
+    # every second layer wherever the cells allow (a 1 x 2 brick across always fits here)
+    filled = head_variant(*variant)
+    build = solve_checked(design_of(filled), catalog)
+    assert_one_piece(build, catalog)
+    bw, z0, top = variant[0], variant[6], min(24, variant[6] + 3 * variant[5])
+    gaps = uncrossed_neighbours(build, catalog, bw, range(z0 // 3, top // 3))
+    assert gaps == 0, f"{gaps} pairs of neighbouring courses have no part across the face"
+
+
+def test_small_builds_get_enough_work_for_sturdiness(catalog):
+    # a lump of 150 cells and about 45 parts: the work allowed is a share of the work done
+    # before, which for a build this small is a handful of trials. A floor lets the step
+    # reach the heavy links (it used to stop with 21 parts on one link, where 5 is possible).
+    from bricksnap.layout import sturdiness
+
+    design = random_blob(2146)
+    build = solve_checked(design, catalog)
+    assert_one_piece(build, catalog)
+    assert sturdiness(build, catalog)[0] <= 5
+
+
+def test_sturdiness_never_makes_random_blobs_worse(catalog):
+    from bricksnap.layout import sturdiness
+
+    better = 0
+    for seed in range(100):
+        design = random_blob(1000 + seed) if seed % 3 else random_shell(1000 + seed)
+        plain = solve(design, catalog, sturdy=False)
+        build = solve_checked(design, catalog)
+        assert len(pieces(build, catalog)) <= len(pieces(plain, catalog)), f"seed {seed}"
+        got, before = sturdiness(build, catalog), sturdiness(plain, catalog)
+        assert got[0] <= before[0], f"seed {seed}: largest load {before[0]} -> {got[0]}"
+        assert got <= before, f"seed {seed}: {before} -> {got}"
+        # the step may add at most 2 parts in 100 to what there was, and at least 3 parts
+        n = len(plain.parts)
+        assert len(build.parts) <= n + max(3, int(0.02 * n)), f"seed {seed}"
+        better += got < before
+    assert better >= 10, f"only {better} of 100 blobs got sturdier"
+
+
+def test_sturdy_builds_still_number_their_steps(catalog):
+    # on a build the sturdiness step really changes, so the steps are numbered after it
+    design = design_of(head_off_centre())
+    build = solve_checked(design, catalog)
+    plain = solve(design, catalog, sturdy=False)
+    where = lambda b: sorted((p.part, p.x, p.y, p.z, p.rot) for p in b.parts)  # noqa: E731
+    assert where(build) != where(plain)
+    steps = [p.step for p in build.parts]
+    assert steps == sorted(steps) and sorted(set(steps)) == list(range(1, max(steps) + 1))
+    by_step: dict[int, list] = defaultdict(list)
+    for p in build.parts:
+        by_step[p.step].append(p)
+    for parts in by_step.values():
+        assert len(parts) <= 8
+        assert len({(p.z, catalog.parts[p.part].kind) for p in parts}) == 1
+    order = sorted(build.parts, key=lambda p: p.step)
+    assert [p.z for p in order] == sorted(p.z for p in order)

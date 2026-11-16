@@ -50,18 +50,28 @@ Quality bar, enforced by tests
 - Speed: a 34,000-cell solid model in under 20 seconds; a 16-stud model in about a second.
 
 STAGE 3 ADDITION TO THE CONTRACT: sturdiness
-(Being built by the lead's agent; until this line is removed, what follows is not in the
-code yet.)
 A build can be one piece and still fragile: a whole section held by one part, or by one
 stud. Once the model is one piece, the solver also makes it sturdy, as far as the Design
-allows.
+allows. ``solve(..., sturdy=False)`` leaves out the sturdiness step (the seam rule below
+still applies while tiling); it is there for comparisons and tests.
+
+``lone_links(build, catalog) -> list[LoneLink]`` lists a Build's lone links, heaviest first
+(``load``, ``part``, ``joint`` as (lower, upper) for a single-stud joint, ``lifted``, ``run``,
+``members``: indices into ``build.parts``), and ``sturdiness(build, catalog)`` gives
+(largest load, number of lone links, sum of their loads). Both work on any Build, finished
+ones too, and agree with ``bricksnap.checks``: the number of lone links is the number of
+weak spots it reports.
 
 - Words. Give the connection graph a "ground" node joined to every part at z = 0. A *lone
   link* is a part (not on the ground) whose removal would cut other parts off from the
   ground, or a joint between two parts that is a group's only connection and engages a
   single stud. Its *load* is the number of parts it would cut off. This is what
   ``bricksnap.checks`` reports as weak spots; work it out here from ``bricksnap.connect``
-  (this module still may not import ``bricksnap.checks``).
+  (this module still may not import ``bricksnap.checks``). As in the checks, a group that
+  stands on the ground itself but is joined to the rest by one part or one stud (a leg) is
+  a lone link too ("lifted": it comes away when the model is lifted); groups of fewer than
+  3 parts do not count; a part and a joint that cut off the same group count once; and a
+  run of parts each carrying everything beyond it (a plain column) counts once.
 - Goal. Lower, in this order of importance: the largest load; the number of lone links
   whose load is 3 or more; the sum of the loads. Never raise the number of pieces, never
   change which cells are covered or their colours, use only bricks and plates in pairs that
@@ -75,9 +85,10 @@ allows.
 - Tests must include: a head against a body (two boxes of one colour sharing a face six
   studs wide and four bricks tall, the head standing on nothing else): parts cross the
   shared plane in at least half the layers, and no lone link carries more than a quarter of
-  the head; a tower on a wide base; a T shape; a hundred random blobs (never more pieces,
-  the same cells covered, the largest load never higher than without this step); the
-  step still numbers building steps correctly.
+  the head; a head wider than the body (which the solver used to hang on one part); a
+  tower on a wide base; a T shape; a hundred random blobs (never more pieces, the same
+  cells covered, the largest load never higher than without this step); the step still
+  numbers building steps correctly; lone links agree with the checks.
 - Measured on the scorecard (``uv run bricksnap bench`` against samples/scorecard.json): weak
   spots fall on the cat, the car and the knight, no model gains a loose part, and the part
   count rises by no more than three in a hundred overall.
@@ -133,7 +144,74 @@ odd-sized boxes do not fill up with 1x1s and 1x2s.
 
 Building steps grow from one part through parts beside it. A part that touches no part of
 its height joins the nearest step of that height with room, and a part whose neighbours
-all have steps already joins one of those steps if it has room.
+all have steps already joins one of those steps if it has room. When all of a height is
+given out, a step left with a single part takes over a part beside it from a bigger step,
+if both steps still hang together, so curved shapes keep few one-part steps.
+
+Seams through several layers. A seam below that already runs further down weighs more: for
+each edge between two cells of the layer, the seam penalty counts the edge of the layer
+directly below (and, in repair, above) as 1, plus ``W_SEAM_RUN`` for every further plate
+level, up to ``SEAM_DEPTH``, through which the same edge is a seam without a break. A part
+lying along a plane that is a seam all the way down (a head against a body) therefore pays
+more the longer the plane has gone uncrossed, and a part across it wins in the next layer
+or the one after; a seam that is crossed every second layer stays as cheap as before. On
+the sample cat this alone took the largest load from 101 parts to 10. A larger weight
+crosses seams a little more often but leaves more small parts, so that brick layers are
+tiled four ways more often, which costs time.
+
+Lone links (``_lone_links``) are worked out on the graph of parts exactly as
+``bricksnap.checks`` does: the same main piece and base, one depth-first search from a root
+joined to every part on the base (parts and single-stud joints whose loss cuts a group off
+it), and one over the plain graph of the main piece (groups standing on the base that come
+away when lifted), then the same merging of groups and runs. ``lone_links`` feeds it from
+``connect.connection_graph`` and so handles any Build; the solver feeds it from its own
+cells (two vertically adjacent cells of different parts are one stud engaged).
+
+The sturdiness step (``_Solver.sturdy``) runs after repair, only on a model that is one
+piece. It first crosses faces (``_cross_faces``): for each vertical plane between two rows of
+cells, the side-by-side pairs of one colour across it are labelled into patches within the
+plane (a face: a head against a body), and a *gap* is two neighbouring brick courses in which
+a face has pairs but no part reaches across. The seam weighting leaves such gaps where the
+parts that fit one side end exactly at the face (a body 8 studs wide filled with 2 x 8
+bricks). For each gap the step forces a part across the middle pair of the busiest level, in
+the upper course and then the lower one, with the same re-tiling as below, and keeps the
+change if the model is still one piece, the faces have fewer gaps and (largest load, number,
+sum of loads) is no worse. (Faces go first: when they were crossed after the lone links,
+about three times as many head-against-body shapes kept a gap, and the samples gained
+nothing.) Then it takes the heaviest lone link not yet given up on, and lists places
+where a part could give its group a second connection that does not pass through it:
+side-by-side cells of one colour, one in the group and one elsewhere (not in the part
+itself). Per layer and direction it keeps the middle place of the stretch, nearest layers
+first. For cells of one
+layer it re-tiles a window there with a part forced across them (repair's ``_join``: the
+pair's two parts alone, then a window one stud wider, then that window in three layers, then
+the second-best forced part); for a brick cell beside a plate cell it turns the window's
+bricks into plates first (repair's ``_demote``). A quick test rejects a change that broke
+the model into pieces or left the group hanging on the same link; otherwise the lone links
+are counted again and the change is kept only if (largest load, number, sum of loads) went
+down, and undone through the journal if not. A link none of whose places helps is given up
+on until the parts around it change. The work allowed is ``STURDY_SHARE`` times the parts
+placed before the step, with each attempt and each count of lone links or of gaps charged as
+the placements it costs in time, so the step takes at most about three quarters as long as
+the rest of the solve; with tiling itself a little slower for the seam weighting, the
+samples at 16 studs stay under twice the time with some room (placements track time only
+roughly). A small build gets at least ``STURDY_MIN_WORK``
+(its whole solve takes a few hundredths of a second, and a share of that is only a handful
+of trials); the smallest sample, the star, makes more placements than that before the step.
+The step adds at most ``STURDY_EXTRA_PARTS`` of the parts there were, but at least
+``STURDY_MIN_EXTRA`` parts: rounded down, 2 in 100 is none below 50 parts, and most fixes
+cost one part.
+
+What the face crossing does not reach: a face only one course tall has no gap to find, and
+a face that a part can cross only by cutting the model into pieces, or only by making some
+group hang more heavily, stays uncrossed (about 12 of 4,860 plain head-against-body shapes
+keep a gap).
+
+What it does not reach: a group joined to the rest only through cells of another colour,
+or through nothing beside it at all (a thin tail standing on one brick, the ears of a
+cat), has no place to try, so its lone links stay. The finishing pass runs after the solver
+and can split parts that tie sections together (a brick under a sloped edge becomes a
+slope and smaller parts), which adds lone links the solver never saw.
 """
 
 from __future__ import annotations
@@ -148,6 +226,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from bricksnap.catalog import Catalog
+from bricksnap.connect import connection_graph, occupancy
 from bricksnap.types import EMPTY, PLATES_PER_BRICK, Build, Design, Placement
 
 # score weights
@@ -157,6 +236,8 @@ W_SEAL = 400.0  # the part closes off a small piece that no later part can reach
 W_BELOW = 2.5  # per different part directly below (or above, when it exists)
 W_SUPPORT = 2.0  # sits on (or hangs from) something at all
 W_SEAM = 1.5  # per unit of the part's outline lying on a seam below / above
+W_SEAM_RUN = 0.2  # extra seam weight per further plate level the seam runs down (or up)
+SEAM_DEPTH = 7  # plate levels looked at below (and above) a layer for seams running through
 W_DIR = 0.6  # long side along the layer's preferred direction
 W_TRAP = 3.0  # per same-colour cell beside the part that it would leave with no free neighbour
 W_JITTER = 0.05  # seeded noise to break ties differently per seed
@@ -184,6 +265,18 @@ REPAIR_PLACE_BUDGET = 10000  # parts placed in repair, plus one per 5 filled cel
 LOOKAHEAD_NEUTRAL = 12  # joins that leave the count unchanged followed up, per seam
 LOOKAHEAD_MOVES = 8  # follow-up repairs tried after each
 REPAIR_DEPTH = 2  # changes that may be chained before the count has to drop
+MIN_LOAD = 3  # a lone link carrying fewer parts than this is not a weak spot
+STURDY_PLACES = 6  # places tried per lone link
+STURDY_CONFIGS = ((0, False, 0), (1, False, 0), (1, True, 0), (0, False, 1))  # (r, 3 layers, rank)
+STURDY_DEMOTES = 2  # places per lone link where bricks are turned into plates first
+STURDY_DEMOTE_RADII = (0, 1)
+STURDY_EXTRA_PARTS = 0.02  # parts sturdiness may add, as a share of the parts there were
+STURDY_MIN_EXTRA = 3  # ... but at least this many, so a small build can take a fix at all
+STURDY_SHARE = 0.75  # work allowed for sturdiness, as a share of the placements made before
+STURDY_MIN_WORK = 100  # ... but at least this much, so a small build gets more than a few trials
+SEAM_COST = 2  # placement-equivalents of time a count of uncrossed faces costs
+LINKS_COST = 20  # parts per placement-equivalent of time, for counting the analysis
+TRIAL_COST = 8  # placement-equivalents of time a trial costs besides the parts it places
 
 Key = tuple[str, int]  # ("b", z0) for a brick layer, ("p", z) for a plate layer
 Cell = tuple[int, int]
@@ -258,8 +351,8 @@ class _Layer:
     same_y: np.ndarray  # bool [nx, ny-1]
     below: list[list[int]]  # part index under each cell, -1 for none
     above: list[list[int]]  # part index over each cell, -1 for none
-    seam_x: np.ndarray  # int [nx-1, ny] count of part edges below/above between x and x+1
-    seam_y: np.ndarray  # int [nx, ny-1] the same between y and y+1
+    seam_x: np.ndarray  # float [nx-1, ny] weight of part edges below/above between x and x+1
+    seam_y: np.ndarray  # float [nx, ny-1] the same between y and y+1
     pref: int  # 0: long side along x preferred, 1: along y
     rev: bool  # among equally constrained cells, take the last one in scan order
 
@@ -304,6 +397,7 @@ class _Solver:
         self.tile_budget = 0
         self.placed = 0
         self.place_budget = 0
+        self.sturdy_on = True
         self.occ = np.full((nx, ny, nz), -1, dtype=np.int32)
         self.parts: list[_Part | None] = []
         self._log: list[tuple] = []  # journal of changes, so they can be undone
@@ -617,10 +711,20 @@ class _Solver:
         below = self.occ[:, :, z0 - 1] if z0 > 0 else np.full((self.nx, self.ny), -1, np.int32)
         top = z0 + h
         above = self.occ[:, :, top] if top < self.nz else np.full((self.nx, self.ny), -1, np.int32)
-        bx, by = _seams(below)
-        ax, ay = _seams(above)
-        seam_x = bx.astype(np.int64) + ax
-        seam_y = by.astype(np.int64) + ay
+        # a seam below (or above) counts more the further it already runs down (or up)
+        seam_x = np.zeros((self.nx - 1, self.ny))
+        seam_y = np.zeros((self.nx, self.ny - 1))
+        for slab in (
+            self.occ[:, :, max(0, z0 - SEAM_DEPTH) : z0][:, :, ::-1],
+            self.occ[:, :, top : top + SEAM_DEPTH],
+        ):
+            if slab.shape[2] == 0:
+                continue
+            sx, sy = _seams(slab)
+            run_x = np.cumprod(sx, axis=2).sum(axis=2)
+            run_y = np.cumprod(sy, axis=2).sum(axis=2)
+            seam_x += np.where(run_x > 0, 1 + W_SEAM_RUN * (run_x - 1), 0.0)
+            seam_y += np.where(run_y > 0, 1 + W_SEAM_RUN * (run_y - 1), 0.0)
         layer_index = z0 // 3 if kind == "b" else z0
         return _Layer(
             key=key,
@@ -716,9 +820,9 @@ class _Solver:
         fc = L.free[win] & (L.col[win] == c)
         sx = L.seam_x[ex0 : ex1 - 1, ey0:ey1] * (fc[:-1, :] & fc[1:, :])
         sy = L.seam_y[ex0:ex1, ey0 : ey1 - 1] * (fc[:, :-1] & fc[:, 1:])
-        syc = np.zeros((sx.shape[0], sx.shape[1] + 1), dtype=np.int64)
+        syc = np.zeros((sx.shape[0], sx.shape[1] + 1))
         syc[:, 1:] = sx.cumsum(1)
-        sxc = np.zeros((sy.shape[0] + 1, sy.shape[1]), dtype=np.int64)
+        sxc = np.zeros((sy.shape[0] + 1, sy.shape[1]))
         sxc[1:, :] = sy.cumsum(0)
         SY, SX = syc.tolist(), sxc.tolist()
         roots = L.root[x_lo:x_hi, y_lo:y_hi].tolist()
@@ -1152,6 +1256,281 @@ class _Solver:
             if not progressed:
                 return
 
+    # ---- sturdiness --------------------------------------------------------------------------
+
+    def _edges(self) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray]:
+        """(part index of each node, lower node, upper node, studs engaged) of every joint.
+
+        Bricks and plates have studs and anti-studs over their whole footprint, so two
+        vertically adjacent cells of different parts are one stud engaged.
+        """
+        ids = [i for i, p in enumerate(self.parts) if p is not None]
+        n = len(ids)
+        node = np.full(len(self.parts) + 1, -1, dtype=np.int64)
+        node[ids] = np.arange(n)
+        lo, hi = self.occ[:, :, :-1], self.occ[:, :, 1:]
+        m = (lo >= 0) & (hi >= 0) & (lo != hi)
+        code = node[lo[m]] * n + node[hi[m]]
+        uniq, counts = np.unique(code, return_counts=True)
+        return ids, uniq // max(n, 1), uniq % max(n, 1), counts
+
+    def _may_help(self, group_cells: np.ndarray, link: LoneLink) -> bool:
+        """A quick test before the full count: the build is still one piece, and the parts
+        on ``group_cells`` reach the ground without ``link`` (a change that leaves the group
+        hanging on the same link cannot help it)."""
+        ids, lo, hi, _ = self._edges()
+        n = len(ids)
+        self.placed += 2 + n // (4 * LINKS_COST)
+        whole = coo_matrix((np.ones(len(lo)), (lo, hi)), shape=(n, n))
+        if n and connected_components(whole, directed=False)[0] != 1:
+            return False
+        if link.lifted:
+            return True  # the group stands on the ground anyway: let the full count judge
+        node = np.full(len(self.parts) + 1, -1, dtype=np.int64)
+        node[ids] = np.arange(n)
+        if link.joint is None:
+            if self.parts[link.part] is None:
+                return True  # the part itself was re-tiled: let the full count judge
+            cut = node[link.part]
+            keep = (lo != cut) & (hi != cut)
+        else:
+            a, b = (node[i] if self.parts[i] is not None else -1 for i in link.joint)
+            if a < 0 or b < 0:
+                return True
+            keep = ~(((lo == a) & (hi == b)) | ((lo == b) & (hi == a)))
+        ground = [k for k, i in enumerate(ids) if (p := self.parts[i]) is not None and p.z == 0]
+        rows = np.concatenate([lo[keep], np.full(len(ground), n)])
+        cols = np.concatenate([hi[keep], np.asarray(ground, dtype=np.int64)])
+        graph = coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(n + 1, n + 1))
+        labels = connected_components(graph, directed=False)[1]
+        members = node[np.unique(self.occ[group_cells])]
+        return bool((labels[members] == labels[n]).all())
+
+    def links(self) -> tuple[tuple[int, int, int], list[LoneLink]]:
+        """(largest load, lone links, sum of loads) and the lone links, with part indices."""
+        ids, lo, hi, counts = self._edges()
+        n = len(ids)
+        self.placed += 4 + n // LINKS_COST  # its cost in time, counted against the budget
+        edges = list(zip(lo.tolist(), hi.tolist(), counts.tolist(), strict=True))
+        parts = [p for p in self.parts if p is not None]
+        z = [p.z for p in parts]
+        volume = [float(p.w * p.d * p.h) for p in parts]
+        found, total = _lone_links(n, edges, z, volume, [True] * n)
+        out = [
+            LoneLink(
+                ln.load,
+                ids[ln.part],
+                None if ln.joint is None else (ids[ln.joint[0]], ids[ln.joint[1]]),
+                ln.lifted,
+                ln.run,
+                tuple(ids[i] for i in ln.members),
+            )
+            for ln in found
+        ]
+        return (out[0].load if out else 0, len(out), total), out
+
+    def _sturdy_moves(self, link: LoneLink) -> list[Move]:
+        """Places where a part could give ``link``'s group a second connection.
+
+        Side-by-side cells of one colour, one in the group and one in the rest of the model
+        (not in the part the group depends on): a part across them joins the group to the
+        rest without passing through that part. Cells of one layer are joined by re-tiling
+        ("join"); a brick cell beside a plate cell first needs the bricks there turned into
+        plates ("demote"). One place per layer and direction, the middle one of the
+        stretch; joins first, layers nearest the link first.
+        """
+        group = np.zeros(len(self.parts) + 1, dtype=bool)
+        group[list(link.members)] = True
+        occ = self.occ
+        in_g = (occ >= 0) & group[occ]
+        rest = (occ >= 0) & ~in_g
+        if link.joint is None:
+            rest &= occ != link.part
+        p = self.parts[link.part]
+        zp = p.z if p is not None else 0
+        col, br = self.colors, self._brick_cells()
+        upper = br & (np.arange(self.nz) % PLATES_PER_BRICK != 0)  # a brick is listed once
+        found: dict[tuple[int, int, int, int], list[tuple[Cell, Cell]]] = {}
+        for axis, (lo, hi) in enumerate(_SIDE):
+            colour = col[lo] == col[hi]
+            kinds = (colour & (br[lo] == br[hi]) & ~upper[lo], colour & (br[lo] != br[hi]))
+            for mode, same in enumerate(kinds):
+                for flip, (g, r) in enumerate(((in_g, rest), (rest, in_g))):
+                    xs, ys, zs = np.nonzero(same & g[lo] & r[hi])
+                    for x, y, z in zip(xs.tolist(), ys.tolist(), zs.tolist(), strict=True):
+                        b = (x + 1, y) if axis == 0 else (x, y + 1)
+                        found.setdefault((mode, z, axis, flip), []).append(((x, y), b))
+        moves = []
+        for (mode, z, _, _), pairs in found.items():
+            pairs.sort()
+            a, b = pairs[len(pairs) // 2]
+            moves.append((mode, abs(z - zp), z, a, b))
+        moves.sort()
+        joins = [(z, a, b, "join") for m, _, z, a, b in moves if m == 0][:STURDY_PLACES]
+        demotes = [(z, a, b, "demote") for m, _, z, a, b in moves if m == 1][:STURDY_DEMOTES]
+        return joins + demotes
+
+    def _face_gaps(self) -> tuple[int, list[Move]]:
+        """(gaps, places to cross them) on faces shared through several brick courses.
+
+        A face is a patch of side-by-side cells of one colour, one on each side of a vertical
+        plane between two rows of cells (patches are labelled within the plane, so two heads
+        on one plane are two faces). A gap is two neighbouring courses in which the face has
+        such cells but no part reaches across it. For each gap, the middle pair of the level
+        with the most pairs, in the upper course and then in the lower one.
+        """
+        occ, col, f = self.occ, self.colors, self.filled
+        nc, nz = self.ncourse, self.nz
+        course = np.arange(nz) // PLATES_PER_BRICK
+        gaps = 0
+        moves: dict[Move, None] = {}
+        for axis, (lo, hi) in enumerate(_SIDE):
+            pair = f[lo] & f[hi] & (col[lo] == col[hi])
+            cross = pair & (occ[lo] == occ[hi])
+            if axis == 1:
+                pair, cross = pair.transpose(1, 0, 2), cross.transpose(1, 0, 2)
+            for p in np.nonzero(pair.any(axis=(1, 2)))[0].tolist():
+                lab, n = ndimage.label(pair[p])
+                ks = np.broadcast_to(course, lab.shape)
+                has = np.bincount(lab.ravel() * nc + ks.ravel(), minlength=(n + 1) * nc)
+                cr = cross[p]
+                hit = np.bincount(lab[cr] * nc + ks[cr], minlength=(n + 1) * nc)
+                open_ = ((has > 0) & (hit == 0)).reshape(n + 1, nc)[1:]
+                cs, kk = np.nonzero(open_[:, :-1] & open_[:, 1:])
+                gaps += len(cs)
+                for c, k in zip((cs + 1).tolist(), kk.tolist(), strict=True):
+                    for k2 in (k + 1, k):
+                        zs = list(range(3 * k2, min(3 * k2 + 3, nz)))
+                        count = (lab[:, zs] == c).sum(axis=0)
+                        z = zs[int(np.argmax(count))]
+                        qs = np.nonzero(lab[:, z] == c)[0]
+                        q = int(qs[len(qs) // 2])
+                        a, b = ((p, q), (p + 1, q)) if axis == 0 else ((q, p), (q, p + 1))
+                        ka, kb = self._key_of(z, a), self._key_of(z, b)
+                        if ka == kb:
+                            moves[(ka[1], a, b, "join")] = None
+                        else:
+                            moves[(z, a, b, "demote")] = None
+        return gaps, list(moves)
+
+    def _cross_faces(self, score: tuple[int, int, int], max_parts: int) -> None:
+        """Put parts across faces left uncrossed in two neighbouring courses (a head against
+        a body). A change is kept only if the model stays one piece, the parts stay within
+        ``max_parts``, the faces have fewer gaps, and (largest load, lone links, sum of
+        loads) is no worse than ``score``."""
+        gaps, moves = self._face_gaps()
+        self.placed += SEAM_COST
+        failed: set[Move] = set()
+        while gaps and not self.out_of_budget():
+            self._log.clear()
+            improved = False
+            for move in moves:
+                if move in failed:
+                    continue
+                z, a, b, mode = move
+                if mode == "join":
+                    cfgs = STURDY_CONFIGS
+                else:  # (radius, plate layer of the forced part) for _demote
+                    cfgs = tuple((r, False, z) for r in STURDY_DEMOTE_RADII)
+                for r, three, rank in cfgs:
+                    if self.out_of_budget():
+                        return
+                    mark = len(self._log)
+                    self.placed += TRIAL_COST
+                    if mode == "join":
+                        done = self._join(self._key_of(z, a), a, b, r, three, rank)
+                    else:
+                        done = self._demote(z, a, b, r, rank)
+                    if (
+                        done is None
+                        or sum(p is not None for p in self.parts) > max_parts
+                        or self.piece_count() != 1
+                    ):
+                        self._rollback(mark)
+                        continue
+                    new_gaps, new_moves = self._face_gaps()
+                    self.placed += SEAM_COST
+                    new_score = self.links()[0] if new_gaps < gaps else score
+                    if new_gaps < gaps and new_score <= score:
+                        gaps, moves, score = new_gaps, new_moves, new_score
+                        improved = True
+                        break
+                    self._rollback(mark)
+                if improved:
+                    break
+                failed.add(move)
+            if not improved:
+                return
+
+    def sturdy(self) -> None:
+        """Give heavily loaded groups a second connection, as far as the Design allows.
+
+        Only for a model that is one piece. First faces left uncrossed in two neighbouring
+        courses get a part across (``_cross_faces``). Then a change is kept when the number
+        of pieces stays one, the parts added stay within ``STURDY_EXTRA_PARTS`` (at least
+        ``STURDY_MIN_EXTRA``), and (largest load, lone links, sum of loads) goes down; the
+        heaviest lone link is worked on first. The work is bounded by a share of the work
+        done before (at least ``STURDY_MIN_WORK``), so it always ends.
+        """
+        if self.nseg == 0 or self.piece_count() != 1:
+            return
+        # the work allowed is a share of the work done so far, so the whole solve takes at
+        # most about (1 + STURDY_SHARE) times as long as it did without this step; a small
+        # build, whose solve takes hundredths of a second, gets a fixed amount instead
+        self.tile_budget = 2 * self.tiles_done + 1
+        self.place_budget = self.placed + max(STURDY_MIN_WORK, int(STURDY_SHARE * self.placed))
+        n_parts = sum(p is not None for p in self.parts)
+        max_parts = n_parts + max(STURDY_MIN_EXTRA, int(STURDY_EXTRA_PARTS * n_parts))
+        self._cross_faces(self.links()[0], max_parts)
+        self._log.clear()
+        score, links = self.links()
+        failed: set[tuple] = set()
+        while not self.out_of_budget():
+            self._log.clear()
+            target = next(
+                (
+                    ln
+                    for ln in links
+                    if ln.load >= MIN_LOAD and (ln.part, ln.joint, ln.members) not in failed
+                ),
+                None,
+            )
+            if target is None:
+                return
+            improved = False
+            group_cells = np.isin(self.occ, target.members)
+            for place, (z, a, b, mode) in enumerate(self._sturdy_moves(target)):
+                key = self._key_of(z, a)
+                if mode == "join":
+                    cfgs = STURDY_CONFIGS if place == 0 else STURDY_CONFIGS[:1]
+                else:  # (radius, plate layer of the forced part) for _demote
+                    cfgs = tuple((r, False, z) for r in STURDY_DEMOTE_RADII)
+                for r, three, rank in cfgs:
+                    if self.out_of_budget():
+                        return
+                    mark = len(self._log)
+                    self.placed += TRIAL_COST
+                    if mode == "join":
+                        done = self._join(key, a, b, r, three, rank)
+                    else:
+                        done = self._demote(z, a, b, r, rank)
+                    if done is None or not self._may_help(group_cells, target):
+                        self._rollback(mark)
+                        continue
+                    if sum(p is not None for p in self.parts) > max_parts:
+                        self._rollback(mark)
+                        continue
+                    new_score, new_links = self.links()
+                    if new_score < score:
+                        score, links = new_score, new_links
+                        improved = True
+                        break
+                    self._rollback(mark)
+                if improved:
+                    break
+            if not improved:
+                failed.add((target.part, target.joint, target.members))
+
     # ---- whole solve ------------------------------------------------------------------------
 
     def solve(self) -> list[_Part]:
@@ -1163,7 +1542,281 @@ class _Solver:
         self._log.clear()
         self.repair()
         self._log.clear()
+        if self.sturdy_on:
+            self.sturdy()
+            self._log.clear()
         return [p for p in self.parts if p is not None]
+
+
+# ---- sturdiness: lone links --------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class LoneLink:
+    """A place a group of parts depends on alone (a weak spot in the check report)."""
+
+    load: int  # parts that would come away
+    part: int  # the part they depend on; for a single-stud joint, the part that comes away
+    joint: tuple[int, int] | None  # (lower, upper) of a single-stud joint, None for a part
+    lifted: bool  # the group stands on the ground itself and only comes away when lifted
+    run: int  # parts in a row that each carry everything beyond them (1 for a joint)
+    members: tuple[int, ...]  # the parts that would come away, sorted
+
+
+@dataclass(slots=True)
+class _Spot:
+    at: int
+    kind: int  # 0 single-stud joint, 1 part
+    key: tuple[tuple[int, int], ...]  # the group, as merged ranges of ``order``
+    order: list[int]
+    lifted: bool
+    part: int
+    part_pos: int = -1
+    joint: tuple[int, int] | None = None
+    run: int = 1
+
+
+def _merge(ranges: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    merged: list[tuple[int, int]] = []
+    for a, b in sorted(ranges):
+        if a == b:
+            continue
+        if merged and merged[-1][1] == a:
+            merged[-1] = (merged[-1][0], b)
+        else:
+            merged.append((a, b))
+    return tuple(merged)
+
+
+def _dfs(
+    adj: list[list[int]], root: int
+) -> tuple[list[int], list[int], list[int], list[int], list[int]]:
+    """Iterative depth-first search (Tarjan): preorder, place in it, low links, parent, size."""
+    n = len(adj)
+    disc = [-1] * n
+    low = [0] * n
+    parent = [-1] * n
+    size = [0] * n
+    order = [root]
+    disc[root] = 0
+    stack = [(root, iter(adj[root]))]
+    while stack:
+        v, it = stack[-1]
+        advanced = False
+        for w in it:
+            if disc[w] < 0:
+                parent[w] = v
+                disc[w] = low[w] = len(order)
+                order.append(w)
+                stack.append((w, iter(adj[w])))
+                advanced = True
+                break
+            if w != parent[v]:
+                low[v] = min(low[v], disc[w])
+        if advanced:
+            continue
+        stack.pop()
+        size[v] = len(order) - disc[v]
+        p = parent[v]
+        if p >= 0:
+            low[p] = min(low[p], low[v])
+    return order, disc, low, parent, size
+
+
+def _lone_links(
+    n: int,
+    edges: list[tuple[int, int, int]],
+    z: list[int],
+    volume: list[float],
+    known: list[bool],
+) -> tuple[list[LoneLink], int]:
+    """The lone links of a graph of ``n`` parts, and the sum of their loads.
+
+    ``edges`` are (lower, upper, studs engaged). The main piece, its base and the two
+    searches are exactly those of ``bricksnap.checks`` (see its implementation notes), so the
+    links found here are its weak spots: groups of fewer than ``MIN_LOAD`` parts are left
+    out, a joint and a part that cut off the same group count once, and a run of parts each
+    carrying everything beyond it counts once.
+    """
+    nbrs: list[list[int]] = [[] for _ in range(n)]
+    studs: dict[tuple[int, int], int] = {}
+    for a, b, s in edges:
+        nbrs[a].append(b)
+        nbrs[b].append(a)
+        studs[(a, b) if a < b else (b, a)] = s
+    if n == 0:
+        return [], 0
+    rows = [a for a, _, _ in edges]
+    cols = [b for _, b, _ in edges]
+    graph = coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(n, n))
+    _, labels = connected_components(graph, directed=False)
+    on_ground = [known[i] and z[i] == 0 for i in range(n)]
+    best_label, best_rank = -1, None
+    vol = np.bincount(labels, weights=volume, minlength=int(labels.max()) + 1)
+    grounded_l = np.zeros(len(vol), dtype=bool)
+    first = np.full(len(vol), n, dtype=np.int64)
+    for i in range(n - 1, -1, -1):
+        first[labels[i]] = i
+        if on_ground[i]:
+            grounded_l[labels[i]] = True
+    for lab in range(len(vol)):
+        rank = (bool(grounded_l[lab]), float(vol[lab]), -int(first[lab]))
+        if best_rank is None or rank > best_rank:
+            best_label, best_rank = lab, rank
+    main = [i for i in range(n) if labels[i] == best_label]
+    main_known = [i for i in main if known[i]]
+    if not main_known or len(main) < MIN_LOAD + 1:
+        return [], 0
+    base_z = 0 if grounded_l[best_label] else min(z[i] for i in main_known)
+    is_anchor = [False] * n
+    for i in main_known:
+        if z[i] == base_z:
+            is_anchor[i] = True
+    anchors = [i for i in main_known if is_anchor[i]]
+
+    def lower_upper(p: int, v: int) -> tuple[int, int]:
+        return (p, v) if z[p] < z[v] else (v, p)
+
+    def single(p: int, v: int) -> bool:
+        return studs[(p, v) if p < v else (v, p)] == 1
+
+    spots: list[_Spot] = []
+    # first search: against the base, through a root joined to every part resting on it
+    root = n
+    adj = [list(nb) for nb in nbrs] + [anchors]
+    for i in anchors:
+        adj[i].append(root)
+    order, disc, low, parent, size = _dfs(adj, root)
+    cut_children: dict[int, list[int]] = {}
+    for v in order[1:]:
+        p = parent[v]
+        if p == root:
+            continue
+        a, b = disc[v], disc[v] + size[v]
+        if low[v] >= disc[p]:
+            cut_children.setdefault(p, []).append(v)
+        if low[v] > disc[p] and single(p, v) and b - a >= MIN_LOAD:
+            spots.append(_Spot(b - a, 0, ((a, b),), order, False, v, joint=lower_upper(p, v)))
+    for c_part, children in cut_children.items():
+        if is_anchor[c_part]:
+            continue
+        at = sum(size[c] for c in children)  # the subtrees never overlap
+        if at >= MIN_LOAD:
+            key = _merge([(disc[c], disc[c] + size[c]) for c in children])
+            spots.append(_Spot(at, 1, key, order, False, c_part, disc[c_part]))
+
+    # second search: the plain graph of the main piece, for groups that stand on the base
+    # themselves but come away when the model is lifted
+    total = len(anchors)
+    if total >= 2:
+        n_main = len(main)
+        order, disc, low, parent, size = _dfs(nbrs, main[0])
+        prefix = [0]
+        for i in order:
+            prefix.append(prefix[-1] + is_anchor[i])
+        children_of: dict[int, list[int]] = {}
+        separated: dict[int, list[int]] = {}
+        for v in order[1:]:
+            p = parent[v]
+            children_of.setdefault(p, []).append(v)
+            a, b = disc[v], disc[v] + size[v]
+            if low[v] >= disc[p]:
+                separated.setdefault(p, []).append(v)
+            if low[v] > disc[p] and single(p, v) and 0 < prefix[b] - prefix[a] < total:
+                if b - a <= n_main - (b - a):
+                    at, key, away = b - a, ((a, b),), v
+                else:
+                    at, key, away = n_main - (b - a), _merge([(0, a), (b, n_main)]), p
+                if at >= MIN_LOAD:
+                    spots.append(_Spot(at, 0, key, order, True, away, joint=lower_upper(p, v)))
+        for v, seps in separated.items():
+            if is_anchor[v] or n_main - 1 - max(size[c] for c in seps) < MIN_LOAD:
+                continue  # whichever piece stays, fewer than MIN_LOAD parts come away
+            comps: list[tuple[int, tuple[tuple[int, int], ...], int]] = []
+            for c in seps:
+                a, b = disc[c], disc[c] + size[c]
+                comps.append((b - a, ((a, b),), prefix[b] - prefix[a]))
+            rest_size = n_main - 1 - sum(c[0] for c in comps)
+            if rest_size > 0:
+                dv, ev = disc[v], disc[v] + size[v]
+                sep_set = set(seps)
+                rest = [(0, dv), (ev, n_main)] + [
+                    (disc[c], disc[c] + size[c]) for c in children_of.get(v, []) if c not in sep_set
+                ]
+                comps.append((rest_size, _merge(rest), total - sum(c[2] for c in comps)))
+            grounded = [c for c in comps if c[2] > 0]
+            if len(grounded) < 2:
+                continue
+            biggest = max(c[0] for c in grounded)
+            tied = [k for k, c in enumerate(grounded) if c[0] == biggest]
+            stays = tied[0]
+            if len(tied) > 1:
+                stays = min(
+                    tied,
+                    key=lambda k: min(order[i] for a, b in grounded[k][1] for i in range(a, b)),
+                )
+            away_c = [c for k, c in enumerate(grounded) if k != stays]
+            at = sum(c[0] for c in away_c)
+            if at >= MIN_LOAD:
+                key = _merge([r for c in away_c for r in c[1]])
+                spots.append(_Spot(at, 1, key, order, True, v, disc[v]))
+
+    # one per group (a joint wins over a part), then runs of parts count once
+    best: dict[tuple[bool, tuple[tuple[int, int], ...]], _Spot] = {}
+    for s in spots:
+        kept = best.get((s.lifted, s.key))
+        if kept is None or s.kind < kept.kind:
+            best[(s.lifted, s.key)] = s
+    successor: dict[tuple[bool, int], _Spot] = {}
+    has_predecessor: set[tuple[bool, int]] = set()
+    for t in best.values():
+        if t.kind != 1:
+            continue
+        d = t.part_pos
+        s = best.get((t.lifted, _merge([*t.key, (d, d + 1)])))
+        if s is not None and s.kind == 1:
+            successor[(s.lifted, s.part)] = t
+            has_predecessor.add((t.lifted, t.part))
+    out: list[LoneLink] = []
+    for s in best.values():
+        if s.kind == 1:
+            if (s.lifted, s.part) in has_predecessor:
+                continue
+            end = s
+            while (end.lifted, end.part) in successor:
+                end = successor[(end.lifted, end.part)]
+                s.run += 1
+        members = tuple(sorted(s.order[k] for a, b in s.key for k in range(a, b)))
+        out.append(LoneLink(s.at, s.part, s.joint, s.lifted, s.run, members))
+    out.sort(key=lambda ln: (-ln.load, ln.joint is None, ln.lifted, ln.members))
+    return out, sum(s.at for s in best.values())
+
+
+def lone_links(build: Build, catalog: Catalog) -> list[LoneLink]:
+    """The weak spots of ``build`` as ``bricksnap.checks`` finds them, heaviest first."""
+    return _lone_links_of_build(build, catalog)[0]
+
+
+def sturdiness(build: Build, catalog: Catalog) -> tuple[int, int, int]:
+    """(largest load, number of lone links, sum of their loads): lower is sturdier."""
+    links, total = _lone_links_of_build(build, catalog)
+    return (links[0].load if links else 0, len(links), total)
+
+
+def _lone_links_of_build(build: Build, catalog: Catalog) -> tuple[list[LoneLink], int]:
+    occ = occupancy(build, catalog)[0]
+    graph = connection_graph(build, catalog, occ)
+    known = [p.part in catalog.parts for p in build.parts]
+    volume = [
+        float(np.prod(catalog.footprint(p))) if k else 0.0
+        for p, k in zip(build.parts, known, strict=True)
+    ]
+    edges = []
+    for a, b, s in graph.edges(data="studs"):
+        lo, hi = (a, b) if build.parts[a].z < build.parts[b].z else (b, a)
+        edges.append((int(lo), int(hi), int(s)))
+    z = [p.z for p in build.parts]
+    return _lone_links(len(build.parts), edges, z, volume, known)
 
 
 def _gap(p: _Part, q: _Part) -> int:
@@ -1205,6 +1858,7 @@ def _assign_steps(parts: list[_Part], shape: tuple[int, int, int]) -> list[int]:
         left = set(idxs)
         frontier: set[int] = set()  # parts touching ones already given a step
         size: dict[int, int] = {}  # parts in each step of this height
+        members: dict[int, list[int]] = {}
         while left:
             nearby = frontier & left
             start = min(nearby) if nearby else min(left)
@@ -1216,6 +1870,7 @@ def _assign_steps(parts: list[_Part], shape: tuple[int, int, int]) -> list[int]:
                     s = min(room)[1]
                     steps[start] = s
                     size[s] += 1
+                    members[s].append(start)
                     left.discard(start)
                     continue
             step += 1
@@ -1249,11 +1904,39 @@ def _assign_steps(parts: list[_Part], shape: tuple[int, int, int]) -> list[int]:
                 steps[u] = step
                 frontier |= adj[u]
             size[step] = len(group)
+            members[step] = group
+        # a step left with one part takes a part beside it from a bigger step, when both
+        # steps still hang together afterwards
+        for s, mem in members.items():
+            if len(mem) != 1:
+                continue
+            for q in sorted(adj[mem[0]]):
+                t = steps[q]
+                rest = [u for u in members[t] if u != q]
+                if t != s and len(rest) >= 2 and _touching(rest, adj):
+                    members[t] = rest
+                    mem.append(q)
+                    steps[q] = s
+                    break
     return steps
 
 
-def solve(design: Design, catalog: Catalog, *, seed: int = 0) -> Build:
+def _touching(group: list[int], adj: dict[int, set[int]]) -> bool:
+    """Whether the parts of ``group`` form one patch through parts side by side."""
+    inside = set(group)
+    seen = {group[0]}
+    todo = [group[0]]
+    while todo:
+        for v in adj[todo.pop()] & inside:
+            if v not in seen:
+                seen.add(v)
+                todo.append(v)
+    return len(seen) == len(inside)
+
+
+def solve(design: Design, catalog: Catalog, *, seed: int = 0, sturdy: bool = True) -> Build:
     solver = _Solver(design, catalog, seed)
+    solver.sturdy_on = sturdy
     parts = solver.solve()
     parts.sort(key=lambda p: (p.z, 0 if p.kind == "plate" else 1, p.y, p.x))
     steps = _assign_steps(parts, design.shape)
