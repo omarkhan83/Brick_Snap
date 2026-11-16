@@ -1,0 +1,710 @@
+"""Start the AI designer so that it sees only our prompt and our tools (the clean-room runner).
+
+For now the model runs through headless Claude Code on the user's subscription. The
+requirement (docs/decisions/2026-11-15-ai-designer-runs-clean-and-is-the-only-thing-that-
+sends-data.md) is that it behaves as it would through a bare API call.
+
+CONTRACT (tests go in tests/test_designer_runner.py)
+
+``build_command(prompt_file, mcp_config_file, model, effort, max_turns) -> list[str]``
+returns exactly:
+
+    claude -p
+      --system-prompt-file <prompt_file>        replaces Claude Code's whole default prompt
+      --tools ""                                no built-in tools
+      --mcp-config <mcp_config_file> --strict-mcp-config
+      --setting-sources ""                      no user, project or local settings
+      --disable-slash-commands
+      --no-session-persistence
+      --allowedTools mcp__bricksnap
+      --permission-mode dontAsk
+      --model <model> --effort <effort> --max-turns <max_turns>
+      --output-format stream-json --verbose
+
+(``--bare`` must NOT be used: it disables subscription login. ``--verbose`` is required by
+Claude Code for stream-json output in print mode.) The user message is written to the
+process's standard input, not put on the command line.
+
+``run_designer(project, instruction=None, model="claude-opus-5-5", effort="high",
+max_turns=40, timeout_s=1800) -> DesignerRun``
+- Runs from a new, empty temporary directory, so no CLAUDE.md or project file can be picked
+  up. Writes the MCP config there: one server, "bricksnap", command ``sys.executable`` with
+  args ``-m bricksnap.designer.mcp_server <absolute project path>``.
+- Environment: a copy of the current one, changed as follows.
+  Removed: ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (the API key must not be spent; the
+  subscription login is used), and every variable whose name starts with CLAUDE (CLAUDECODE,
+  CLAUDE_CODE_*, CLAUDE_EFFORT, CLAUDE_PID and so on) except CLAUDE_CODE_OAUTH_TOKEN and
+  CLAUDE_CONFIG_DIR, so a run started from inside another Claude Code session does not
+  inherit that session's settings.
+  Set (each confirmed to work on Claude Code 2.1.325): CLAUDE_CODE_DISABLE_AUTO_MEMORY=1,
+  CLAUDE_CODE_DISABLE_CLAUDE_MDS=1, CLAUDE_CODE_ATTRIBUTION_HEADER=0,
+  CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1, CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1,
+  CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1, CLAUDE_CODE_DISABLE_ATTACHMENTS=1,
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, and MAX_MCP_OUTPUT_TOKENS=200000 (pictures
+  returned by our tools count against this limit; the default of 25000 is too small).
+- Known leftovers that no documented flag removes (measured 2026-11-15): Claude Code puts the
+  line "You are a Claude agent, built on Anthropic's Claude Agent SDK." before our system
+  prompt, appends an "# Environment" block (working directory, platform, shell, OS version,
+  a note about untrusted downloads, the model name and today's date), and attaches a
+  reminder holding the account's email address to the user message. None of it concerns
+  the design task and the model has no tool that could act on it. ``parity.py`` reports
+  these so we notice if they change.
+- The user message is ``instruction`` if given, otherwise a fixed default asking the designer
+  to improve the model following its process.
+- Standard output is stream-json, one JSON object per line. Every line is appended to
+  ``<project>/designer/<UTC timestamp>.jsonl`` as it arrives. From it, collect: the tool
+  list announced in the ``system``/``init`` event, the names of the tools called, the final
+  result text, the number of turns, and any error.
+- Returns a ``DesignerRun``. A missing ``claude`` executable, a timeout, a non-zero exit or
+  an error result gives ``ok=False`` with a plain-language ``error``; it does not raise.
+- Tests must not start a real model: test ``build_command``, the environment scrubbing and
+  the stream parsing (feed it recorded lines). One test marked ``@pytest.mark.designer``
+  runs a real session; it is excluded by default.
+
+Implementation notes
+--------------------
+- ``designer_env(base)`` does the environment scrubbing; ``StreamParser`` reads the
+  stream-json lines (unknown event types and lines that are not JSON are kept in the
+  transcript and otherwise ignored); ``redact(text)`` replaces e-mail addresses with
+  "<account email>" and the home directory with "~". Everything the runner hands back for
+  display (``final_text``, ``error``, ``tool_errors``) has been redacted. The raw transcript
+  is not redacted; it stays inside the project folder, which git ignores.
+- The MCP config also sets ``PYTHONPATH`` for the server to the folder that holds the
+  ``bricksnap`` package, so the server starts from the empty temporary folder even when
+  BrickSnap is not installed into the interpreter.
+- If the ``init`` event reports that the "bricksnap" server did not connect, the run is
+  stopped at once with a plain error instead of letting the model work without tools.
+- If the ``init`` event gives an ``apiKeySource`` other than "none", Claude Code holds an API
+  key of its own (a Console login, say) and would spend it; the run is stopped at once.
+- Claude Code can switch models in mid-session: when a safety check stops a reply it adds a
+  message of its own to the conversation (a ``user`` event with ``isSynthetic``) and carries
+  on with another model (an assistant ``fallback`` block and a ``system`` /
+  ``model_refusal_fallback`` event), then reports success. That is context we did not supply,
+  so the parser records it, with the model named in each assistant message and in the
+  result's ``modelUsage``, and ``run_designer`` returns ``ok=False`` with a plain explanation
+  (the edits and the reply are still kept). ``DesignerRun.models_used`` lists the models that
+  answered. The expected model is the one the ``init`` event names (Claude Code resolves
+  aliases such as "opus" there); a dated name of the same model counts as the same.
+- The stdout reader never dies silently: if reading an event or writing the transcript
+  fails, the failure becomes the run's error, the process is stopped, and the rest of the
+  output is still drained so the child cannot block on a full pipe.
+- Text is redacted before it is shortened, so an address cut in half cannot slip through.
+- ``DesignerRun`` also carries the names of tools whose calls came back as errors
+  (``tool_errors``, with the error text), the wall-clock ``duration_s`` and, when Claude
+  Code reports it, ``cost_usd`` (the notional API price; a subscription run is not billed
+  per call).
+- ``python -m bricksnap.designer.runner <project> [--instruction TEXT]`` runs the designer
+  and prints each tool call as it happens, then the redacted summary.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from bricksnap.project import Project
+
+DEFAULT_MODEL = "claude-opus-5-5"
+PROMPT_FILE = Path(__file__).parent / "prompt.md"
+DEFAULT_INSTRUCTION = (
+    "Improve this model so that it looks designed rather than merely converted, "
+    "following your process."
+)
+
+SERVER_NAME = "bricksnap"
+TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
+
+REMOVED_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+KEPT_CLAUDE_ENV = ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR")
+SET_ENV = {
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
+    "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS": "1",
+    "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS": "1",
+    "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "MAX_MCP_OUTPUT_TOKENS": "200000",
+}
+
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
+
+
+@dataclass
+class DesignerRun:
+    ok: bool
+    transcript: Path | None = None
+    tools_announced: list[str] = field(default_factory=list)
+    tools_called: list[str] = field(default_factory=list)
+    turns: int = 0
+    final_text: str = ""
+    error: str = ""
+    tool_errors: list[str] = field(default_factory=list)
+    duration_s: float = 0.0
+    cost_usd: float | None = None
+    models_used: list[str] = field(default_factory=list)
+
+
+# ---- redaction ------------------------------------------------------------------------------
+
+
+def redact(text: str, home: str | None = None) -> str:
+    """Replace e-mail addresses with "<account email>" and the home directory with "~"."""
+    text = _EMAIL.sub("<account email>", text)
+    home = str(Path.home()) if home is None else home
+    home = home.rstrip("/\\")
+    if len(home) > 1:
+        text = text.replace(home, "~")
+    return text
+
+
+# ---- command and environment ----------------------------------------------------------------
+
+
+def build_command(
+    prompt_file: Path, mcp_config_file: Path, *, model: str, effort: str, max_turns: int
+) -> list[str]:
+    return [
+        "claude",
+        "-p",
+        "--system-prompt-file",
+        str(prompt_file),
+        "--tools",
+        "",
+        "--mcp-config",
+        str(mcp_config_file),
+        "--strict-mcp-config",
+        "--setting-sources",
+        "",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "--allowedTools",
+        "mcp__bricksnap",
+        "--permission-mode",
+        "dontAsk",
+        "--model",
+        model,
+        "--effort",
+        effort,
+        "--max-turns",
+        str(max_turns),
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    ]
+
+
+def designer_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment for the Claude Code child process (see the contract above)."""
+    base = os.environ if base is None else base
+    env: dict[str, str] = {}
+    for key, value in base.items():
+        if key in REMOVED_ENV:
+            continue
+        if key.startswith("CLAUDE") and key not in KEPT_CLAUDE_ENV:
+            continue
+        env[key] = value
+    env.update(SET_ENV)
+    return env
+
+
+def mcp_config(project_path: Path) -> dict[str, Any]:
+    """The MCP config: one stdio server serving the designer's tools for this project."""
+    package_root = Path(__file__).resolve().parent.parent.parent
+    return {
+        "mcpServers": {
+            SERVER_NAME: {
+                "type": "stdio",
+                "command": sys.executable,
+                "args": ["-m", "bricksnap.designer.mcp_server", str(project_path.resolve())],
+                "env": {"PYTHONPATH": str(package_root)},
+            }
+        }
+    }
+
+
+# ---- reading the stream ---------------------------------------------------------------------
+
+
+def _short(text: str, limit: int = 300) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _tool_result_text(item: dict[str, Any]) -> str:
+    content = item.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            str(c.get("text", ""))
+            for c in content
+            if isinstance(c, dict) and c.get("type") == "text"
+        )
+    return ""
+
+
+class StreamParser:
+    """Collects what matters from Claude Code's stream-json output, one line at a time."""
+
+    def __init__(self) -> None:
+        self.init: dict[str, Any] | None = None
+        self.tools_announced: list[str] = []
+        self.tools_called: list[str] = []
+        self.tool_errors: list[str] = []
+        self.texts: list[str] = []
+        self.result: dict[str, Any] | None = None
+        self.not_json = 0
+        self.models_used: list[str] = []  # every model that answered, in order of appearance
+        self.switches: list[str] = []  # plain-language notes of Claude Code changing course
+        self._pending: dict[str, str] = {}  # tool_use id -> tool name
+
+    def _model_seen(self, model: object) -> None:
+        if isinstance(model, str) and model and model not in self.models_used:
+            self.models_used.append(model)
+
+    def _switch(self, note: str) -> None:
+        note = _short(redact(note), 400)
+        if note not in self.switches:
+            self.switches.append(note)
+
+    def feed(self, line: str) -> dict[str, Any] | None:
+        """Read one line; return the event if it was a JSON object, otherwise None."""
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            event = json.loads(line)
+        except ValueError:
+            self.not_json += 1
+            return None
+        if not isinstance(event, dict):
+            self.not_json += 1
+            return None
+        kind = event.get("type")
+        if kind == "system" and event.get("subtype") == "init":
+            self.init = event
+            tools = event.get("tools")
+            if isinstance(tools, list):
+                self.tools_announced = [str(t) for t in tools]
+        elif kind == "system" and event.get("subtype") == "model_refusal_fallback":
+            self._switch(
+                f"Claude Code switched from {event.get('original_model', 'the requested model')} "
+                f"to {event.get('fallback_model', 'another model')} after a safety check stopped "
+                f"a reply (scope: {event.get('scope', 'unknown')})."
+            )
+        elif kind == "assistant":
+            message = event.get("message")
+            if isinstance(message, dict):
+                self._model_seen(message.get("model"))
+            for item in self._content(event):
+                if item.get("type") == "tool_use":
+                    name = str(item.get("name", ""))
+                    self.tools_called.append(name)
+                    if "id" in item:
+                        self._pending[str(item["id"])] = name
+                elif item.get("type") == "text" and item.get("text"):
+                    self.texts.append(str(item["text"]))
+                elif item.get("type") == "fallback":
+                    self._switch(
+                        f"Claude Code fell back from {self._model_name(item.get('from'))} to "
+                        f"{self._model_name(item.get('to'))}."
+                    )
+        elif kind == "user":
+            if event.get("isSynthetic"):
+                said = " ".join(
+                    str(c.get("text", "")) for c in self._content(event) if c.get("type") == "text"
+                )
+                self._switch(
+                    "Claude Code added a message of its own to the conversation (a safety check "
+                    f'had stopped a reply): "{_short(said, 160)}"'
+                )
+            for item in self._content(event):
+                if item.get("type") == "tool_result" and item.get("is_error"):
+                    name = self._pending.get(str(item.get("tool_use_id", "")), "a tool")
+                    self.tool_errors.append(f"{name}: {_short(redact(_tool_result_text(item)))}")
+        elif kind == "result":
+            self.result = event
+            usage = event.get("modelUsage")
+            if isinstance(usage, dict):
+                for model in usage:
+                    self._model_seen(model)
+        return event
+
+    @staticmethod
+    def _model_name(side: object) -> str:
+        if isinstance(side, dict) and isinstance(side.get("model"), str):
+            return side["model"]
+        return "another model"
+
+    @staticmethod
+    def _content(event: dict[str, Any]) -> list[dict[str, Any]]:
+        message = event.get("message")
+        if not isinstance(message, dict):
+            return []
+        content = message.get("content")
+        if not isinstance(content, list):
+            return []
+        return [c for c in content if isinstance(c, dict)]
+
+    # ---- conclusions ----
+
+    def server_status(self) -> str | None:
+        """The status the init event gives our MCP server ("connected", "failed", ...)."""
+        if not self.init:
+            return None
+        servers = self.init.get("mcp_servers")
+        for server in servers if isinstance(servers, list) else []:
+            if isinstance(server, dict) and server.get("name") == SERVER_NAME:
+                return str(server.get("status", ""))
+        return "missing"
+
+    def api_key_source(self) -> str | None:
+        """The init event's ``apiKeySource`` ("none" when the subscription login is used)."""
+        source = self.init.get("apiKeySource") if self.init else None
+        return None if source is None else str(source)
+
+    def model_switch_note(self, requested: str | None = None) -> str:
+        """A plain explanation when a model other than the expected one answered, or ""."""
+        expected = self.init.get("model") if self.init else None
+        if not isinstance(expected, str) or not expected:
+            expected = requested
+        others = [m for m in self.models_used if expected and not _same_model(m, expected)]
+        if not self.switches and not others:
+            return ""
+        parts = [f"Claude Code switched models during the run (requested: {expected})."]
+        parts.extend(self.switches)
+        if self.models_used:
+            parts.append("Models that answered: " + ", ".join(self.models_used) + ".")
+        parts.append(
+            "So the run did not behave like a bare API call; check the result before using it."
+        )
+        return " ".join(parts)
+
+    @property
+    def turns(self) -> int:
+        if self.result and isinstance(self.result.get("num_turns"), int):
+            return int(self.result["num_turns"])
+        return 0
+
+    @property
+    def final_text(self) -> str:
+        if self.result and isinstance(self.result.get("result"), str):
+            return self.result["result"]
+        return self.texts[-1] if self.texts else ""
+
+    @property
+    def cost_usd(self) -> float | None:
+        cost = self.result.get("total_cost_usd") if self.result else None
+        return float(cost) if isinstance(cost, int | float) else None
+
+    def result_error(self, max_turns: int | None = None) -> str:
+        """A plain-language error from the result event, or "" when it succeeded."""
+        if self.result is None:
+            return ""
+        subtype = str(self.result.get("subtype", ""))
+        if subtype == "success" and not self.result.get("is_error"):
+            return ""
+        if subtype == "error_max_turns":
+            limit = f" ({max_turns})" if max_turns else ""
+            return (
+                f"The designer used all its turns{limit} before it finished. The edits it made "
+                "so far are saved; run it again or allow more turns."
+            )
+        detail = self.result.get("result")
+        if not isinstance(detail, str) or not detail.strip():
+            errors = self.result.get("errors")
+            detail = "; ".join(str(e) for e in errors) if isinstance(errors, list) else ""
+        detail = _short(redact(detail or subtype or "unknown problem"))
+        return f"Claude Code reported a problem: {detail}"
+
+
+def _same_model(used: str, expected: str) -> bool:
+    """True when ``used`` is ``expected`` or a dated name of it ("claude-x-20261101")."""
+    if used == expected:
+        return True
+    a, b = sorted((used, expected), key=len)
+    return re.fullmatch(re.escape(a) + r"-\d{8}", b) is not None
+
+
+def _duration_words(seconds: int) -> str:
+    if seconds >= 120 and seconds % 60 == 0:
+        return f"{seconds // 60} minutes"
+    return f"{seconds} second" + ("" if seconds == 1 else "s")
+
+
+# ---- running --------------------------------------------------------------------------------
+
+
+def _timestamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def run_designer(
+    project: Project,
+    *,
+    instruction: str | None = None,
+    model: str = DEFAULT_MODEL,
+    effort: str = "high",
+    max_turns: int = 40,
+    timeout_s: int = 1800,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+    prompt_file: Path | None = None,
+) -> DesignerRun:
+    """Run the AI designer on ``project`` (see the contract above). Never raises for the
+    usual failures; they come back as ``ok=False`` with ``error`` in plain words.
+
+    ``on_event`` is called with each stream-json event as it arrives (for progress output).
+    ``prompt_file`` replaces the system prompt (the parity check uses it); default prompt.md.
+    """
+    started = time.monotonic()
+    project_path = project.path.resolve()
+    transcript = project.designer_dir / f"{_timestamp()}.jsonl"
+    run = DesignerRun(ok=False, transcript=transcript)
+    parser = StreamParser()
+    message = instruction if instruction and instruction.strip() else DEFAULT_INSTRUCTION
+
+    with tempfile.TemporaryDirectory(prefix="bricksnap-designer-") as tmp:
+        work = Path(tmp)
+        config_file = work / "mcp.json"
+        config_file.write_text(json.dumps(mcp_config(project_path), indent=1), encoding="utf-8")
+        cmd = build_command(
+            (prompt_file or PROMPT_FILE).resolve(),
+            config_file,
+            model=model,
+            effort=effort,
+            max_turns=max_turns,
+        )
+        # an empty folder of its own as the working directory, kept apart from the config
+        cwd = work / "cwd"
+        cwd.mkdir()
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                env=designer_env(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError:
+            run.error = (
+                "Claude Code is not installed here: the 'claude' command was not found. "
+                "Install Claude Code and sign in with your subscription, then try again."
+            )
+            run.duration_s = time.monotonic() - started
+            return run
+        except OSError as e:
+            run.error = redact(f"Claude Code could not be started: {e}")
+            run.duration_s = time.monotonic() - started
+            return run
+
+        stderr_tail: list[str] = []
+        server_failed = threading.Event()
+        api_key_used = threading.Event()
+        reader_problem: list[str] = []
+
+        def stop(problem: str) -> None:
+            if not reader_problem:
+                reader_problem.append(problem)
+            with contextlib.suppress(OSError):
+                proc.kill()
+
+        def handle(line: str, out: Any) -> None:
+            out.write(line if line.endswith("\n") else line + "\n")
+            out.flush()
+            event = parser.feed(line)
+            if event is None:
+                return
+            if event.get("type") == "system" and event.get("subtype") == "init":
+                if parser.server_status() not in ("connected", None):
+                    server_failed.set()
+                    proc.kill()
+                elif parser.api_key_source() not in ("none", None):
+                    api_key_used.set()
+                    proc.kill()
+            if on_event is not None:
+                # progress output must never stop a run
+                with contextlib.suppress(Exception):
+                    on_event(event)
+
+        def read_stdout() -> None:
+            # Whatever goes wrong here, keep draining stdout so the child cannot block on a
+            # full pipe, and make the failure the run's error.
+            assert proc.stdout is not None
+            try:
+                out = transcript.open("a", encoding="utf-8")
+            except OSError as e:
+                stop(f"the transcript could not be written ({e})")
+                out = None
+            try:
+                for line in proc.stdout:
+                    if reader_problem or out is None:
+                        continue
+                    try:
+                        handle(line, out)
+                    except Exception as e:
+                        stop(str(e) or type(e).__name__)
+            finally:
+                if out is not None:
+                    out.close()
+
+        def read_stderr() -> None:
+            assert proc.stderr is not None
+            for line in proc.stderr:
+                stderr_tail.append(line.rstrip("\n"))
+                del stderr_tail[:-20]
+
+        readers = [
+            threading.Thread(target=read_stdout, daemon=True),
+            threading.Thread(target=read_stderr, daemon=True),
+        ]
+        for t in readers:
+            t.start()
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(message)
+            proc.stdin.close()
+        except OSError:
+            pass  # the process ended early; its exit code and output say why
+
+        timed_out = False
+        try:
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            proc.kill()
+            proc.wait()
+        for t in readers:
+            t.join(timeout=10)
+
+    run.tools_announced = parser.tools_announced
+    run.tools_called = parser.tools_called
+    run.tool_errors = parser.tool_errors
+    run.turns = parser.turns
+    run.final_text = redact(parser.final_text)
+    run.cost_usd = parser.cost_usd
+    run.models_used = list(parser.models_used)
+    run.duration_s = time.monotonic() - started
+    switched = parser.model_switch_note(model)
+
+    if server_failed.is_set():
+        run.error = (
+            "The design tools could not be started inside Claude Code (the bricksnap tool "
+            f"server reported '{parser.server_status()}'), so the run was stopped."
+        )
+    elif api_key_used.is_set():
+        run.error = redact(
+            "Claude Code would use an API key, not your Claude subscription (it reported the "
+            f"key source as '{parser.api_key_source()}'), so the run was stopped before the "
+            "model did any work. Sign in to Claude Code with your subscription instead of a "
+            "key, then try again."
+        )
+    elif reader_problem:
+        run.error = _short(
+            redact(
+                f"BrickSnap could not read Claude Code's output ({reader_problem[0]}), so the "
+                "run was stopped. The edits made so far are saved."
+            ),
+            500,
+        )
+    elif timed_out:
+        run.error = (
+            f"The designer did not finish within {_duration_words(timeout_s)} and was stopped. "
+            "The edits it made so far are saved."
+        )
+    elif parser.result is not None and parser.result_error(max_turns):
+        run.error = parser.result_error(max_turns)
+    elif proc.returncode != 0:
+        tail = _short(redact(" ".join(stderr_tail[-5:]))) if stderr_tail else "no details given"
+        run.error = f"Claude Code stopped with an error (exit code {proc.returncode}): {tail}"
+    elif parser.result is None:
+        run.error = "Claude Code ended without reporting a result, so the run may be incomplete."
+    elif switched:
+        run.error = switched + " The edits it made are saved."
+    else:
+        run.ok = True
+    return run
+
+
+# ---- command line ---------------------------------------------------------------------------
+
+
+def _progress(event: dict[str, Any]) -> None:
+    kind = event.get("type")
+    if kind == "system" and event.get("subtype") == "init":
+        tools = ", ".join(str(t) for t in event.get("tools") or [])
+        print(f"started; tools: {tools or 'none'}", flush=True)
+    elif kind == "assistant":
+        for item in StreamParser._content(event):
+            if item.get("type") == "tool_use":
+                name = str(item.get("name", "")).removeprefix(TOOL_PREFIX)
+                detail = ""
+                if name == "apply_ops":
+                    ops = (item.get("input") or {}).get("ops")
+                    detail = f" ({len(ops)} operations)" if isinstance(ops, list) else ""
+                print(f"-> {name}{detail}", flush=True)
+            elif item.get("type") == "text" and item.get("text"):
+                print(redact(str(item["text"])).strip() + "\n", flush=True)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        prog="python -m bricksnap.designer.runner",
+        description="Run the AI designer on a project (uses your Claude subscription).",
+    )
+    ap.add_argument("project", help="the project folder")
+    ap.add_argument("--instruction", default=None, help="what to ask the designer")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--effort", default="high")
+    ap.add_argument("--max-turns", type=int, default=40)
+    ap.add_argument("--timeout", type=int, default=1800, help="seconds")
+    args = ap.parse_args(argv)
+    try:
+        project = Project(args.project)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        raise SystemExit(2) from None
+    run = run_designer(
+        project,
+        instruction=args.instruction,
+        model=args.model,
+        effort=args.effort,
+        max_turns=args.max_turns,
+        timeout_s=args.timeout,
+        on_event=_progress,
+    )
+    calls: dict[str, int] = {}
+    for name in run.tools_called:
+        short = name.removeprefix(TOOL_PREFIX)
+        calls[short] = calls.get(short, 0) + 1
+    print("finished" if run.ok else "FAILED: " + run.error)
+    print(f"turns: {run.turns}; time: {run.duration_s:.0f} s")
+    print("tool calls: " + (", ".join(f"{k} x{v}" for k, v in calls.items()) or "none"))
+    for err in run.tool_errors:
+        print("tool error: " + err)
+    if run.transcript:
+        print("transcript: " + redact(str(run.transcript)))
+    raise SystemExit(0 if run.ok else 1)
+
+
+if __name__ == "__main__":
+    main()
