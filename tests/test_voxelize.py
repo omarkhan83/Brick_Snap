@@ -502,9 +502,12 @@ def test_round_solids_keep_their_volume(catalog, studs):
 def test_round_solids_across_sizes(catalog):
     """Diameters from 8 to 16 studs in quarter steps. Spheres stay within 5% of their volume
     at every size. Upright cylinders do not: at 9 studs the cells at least half covered by
-    the circle are 69 per layer against an area of 63.6 (8.5% over). That is rule 1 itself,
-    so what is checked is that each layer is exactly those cells (columns between 45% and
-    55% covered may go either way), and the volume within 9%."""
+    the circle are 69 per layer against an area of 63.6 (8.5% over), and rule 1 also keeps
+    cells the circle crosses near a corner whose lines across are more than half inside
+    on both axes. That is rule 1 itself, so what is checked is that each layer is exactly
+    those cells (cells within 0.05 of half covered may go either way, and within 0.08 of
+    half on their lines: three rays per axis measure a line average that coarsely), and
+    the volume within 9%."""
     k = (np.arange(40) + 0.5) / 40
     for studs in np.arange(8.0, 16.01, 0.25):
         r = studs * 4.0
@@ -519,7 +522,19 @@ def test_round_solids_across_sizes(catalog):
         centre = studs / 2
         d2 = (points[:, None, :, None] - centre) ** 2 + (points[None, :, None, :] - centre) ** 2
         share = (d2 < centre**2).mean(axis=(2, 3))
-        assert f[:, :, 0][share > 0.55].all() and not f[:, :, 0][share < 0.45].any(), studs
+        # along x, the line through each cell at each y: how much of it is inside the circle
+        n = f.shape[0]
+        half = np.sqrt(np.maximum(centre**2 - (points - centre) ** 2, 0.0))  # [j, sample]
+        cell = np.arange(n)[:, None, None]
+        chord = np.clip(
+            np.minimum(cell + 1, centre + half[None]) - np.maximum(cell, centre - half[None]), 0, 1
+        )  # [i, j, sample]: the line at y = points[j, sample] through cell (i, j)
+        meets = chord > 0
+        along_x = (chord * meets).sum(axis=2) / np.maximum(meets.sum(axis=2), 1)
+        lines = np.minimum(along_x, along_x.T)  # the circle is the same both ways
+        sure = (share > 0.55) | (lines > 0.58)
+        never = (share < 0.45) & (lines < 0.42)
+        assert f[:, :, 0][sure].all() and not f[:, :, 0][never].any(), studs
         assert abs(f.sum() / (upright.volume / np.prod(CELL)) - 1) < 0.09, studs
 
 
@@ -617,6 +632,58 @@ def stage1_fill(seed: Seed) -> np.ndarray:
 
 MODELS = sorted(p for p in (Path(__file__).resolve().parent.parent / "samples" / "models").iterdir()
                 if p.suffix in {".glb", ".stl"})  # fmt: skip
+
+
+# ---- the skin: cells the model only partly covers ---------------------------------------------
+
+
+@pytest.mark.parametrize("studs", [12, 16, 24])
+def test_skin_is_what_stage_1_filled_and_the_new_fill_left_empty(catalog, studs):
+    """Every sample model: the skin holds a colour exactly in the cells of stage 1's fill
+    that are left empty, and is EMPTY everywhere else (filled cells and the padding)."""
+    for path in MODELS:
+        seed = load_seed(path, studs=studs)
+        design = voxelize(seed, catalog, margin_studs=0)
+        assert design.skin is not None
+        old = stage1_fill(seed)
+        has_skin = design.skin != EMPTY
+        assert np.array_equal(has_skin, old & ~design.filled), path.name
+        assert has_skin.any(), path.name
+        for code in np.unique(design.skin[has_skin]):
+            assert int(code) in catalog.colours, (path.name, code)
+
+
+def test_skin_is_padded_like_the_colours(catalog):
+    design = voxelize(placed(cells_box((0.3, 0.3, 0.0), (2.4, 2.4, 2.5))), catalog)
+    assert design.skin is not None and design.skin.shape == design.shape
+    m = 2
+    assert (design.skin[:m] == EMPTY).all() and (design.skin[:, :m] == EMPTY).all()
+    assert (design.skin[design.filled] == EMPTY).all()
+    assert (design.skin != EMPTY).any()
+
+
+def test_skin_takes_the_colour_its_cell_would_have_had(catalog):
+    """A red box 2.4 studs wide on a wider blue base: the partly covered cells at the red
+    box's sides are red, as stage 1 showed them."""
+    base = box_seed((48.0, 48.0, 9.6))
+    top = box_seed((19.2, 19.2, 9.6), origin=(14.4, 14.4, 9.6))
+    mesh = concat(base, top)
+    colours = np.zeros((len(mesh.faces), 3), dtype=np.uint8)
+    colours[: len(base.faces)] = catalog.colours[1].rgb
+    colours[len(base.faces) :] = catalog.colours[4].rgb
+    design = voxelize(seed_from(mesh, colours), catalog, margin_studs=0)
+    assert design.skin is not None
+    up = design.skin[:, :, 3:]
+    assert (up != EMPTY).any()
+    assert set(np.unique(up[up != EMPTY]).tolist()) == {4}
+
+
+def test_hollowing_leaves_the_skin_alone(catalog):
+    seed = load_seed(SAMPLES / "pawn.stl", studs=16)
+    solid = voxelize(seed, catalog)
+    hollow = voxelize(seed, catalog, hollow=True)
+    assert solid.skin is not None and hollow.skin is not None
+    assert np.array_equal(solid.skin, hollow.skin)
 
 
 @pytest.mark.parametrize("studs", [12, 16, 24])
@@ -751,32 +818,67 @@ def test_box_off_the_grid_on_every_axis_gains_no_stray_cells(catalog):
     assert filled[:, :, 1:].sum() == 27  # nothing more
 
 
-def test_random_boxes_fill_only_cells_they_mostly_fill(catalog):
-    """Boxes of random size placed at random on all three axes at once: every filled cell
-    holds at least 38% of the box (more than half on each of two axes, or a skin of
-    something that is there anyway: never a stray or a lone bump), the box is never wider
-    than ceil(width) on any axis, and it is one piece."""
+def box_cells(lo, hi, shape) -> np.ndarray | None:
+    """The cells a box between lo and hi (cells) should fill: on each axis, the rows it
+    covers at least half of, and all their combinations, so a box. None when the box
+    covers a row within 0.02 of half (either answer is right there), or covers no row half
+    on some axis (rule 2 keeps it then, and need not keep it a box)."""
+    rows = []
+    for a in range(3):
+        k = np.arange(shape[a])
+        part = np.clip(np.minimum(k + 1, hi[a]) - np.maximum(k, lo[a]), 0, 1)
+        if (np.abs(part - 0.5) < 0.02).any() or not (part >= 0.5).any():
+            return None
+        rows.append(part >= 0.5)
+    return rows[0][:, None, None] & rows[1][None, :, None] & rows[2][None, None, :]
+
+
+def test_a_box_stays_a_box_wherever_it_sits(catalog):
+    """Boxes of random size (from 0.55 cells, so some under a cell thick) placed at random
+    on all three axes at once: wherever a box covers at least half of some row on each
+    axis, the filled cells are exactly a box, the rows the box covers at least half of on
+    each axis. Its corner and edge cells are kept although they can hold well under half
+    (0.6 x 0.6 of a cell is 0.36, a corner 0.6 x 0.6 x 0.6 is 0.22): judged by volume they
+    were dropped, and 1,688 boxes in 3,000 did not come out as boxes."""
     rng = np.random.default_rng(3)
+    checked = thin = 0
     for _ in range(400):
-        width = rng.uniform(1.5, 5.0, 3)
+        width = rng.uniform(0.55, 5.0, 3)
         lo = np.array([2.0, 2.0, 3.0]) + rng.uniform(0, 1, 3)
         hi = lo + width
         filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
-        cov = true_box_coverage(lo, hi, filled.shape)
-        assert cov[filled].min() >= 0.38, (lo, hi, np.argwhere(filled & (cov < 0.38)))
-        cells = np.argwhere(filled)
-        assert (cells.max(axis=0) - cells.min(axis=0) + 1 <= np.ceil(width)).all(), (lo, hi)
-        assert one_piece(filled)
+        want = box_cells(lo, hi, filled.shape)
+        if want is None:
+            continue
+        checked += 1
+        thin += bool((width < 1).any())
+        assert np.array_equal(filled, want), (lo, hi, np.argwhere(filled != want))
+    assert checked > 280 and thin > 50
 
 
-def test_corner_of_a_box_is_not_a_lone_bump(catalog):
-    """A box reaching 0.62, 0.59 and 0.51 of the way into its corner cell, which so holds
-    18%. That cell meets fuller neighbours on all three axes: it is the corner of something
-    larger, not the end of a rod, so it is not kept (nor is a neighbour filled to hold it)."""
-    lo, hi = np.array([2.617, 2.414, 3.528]), np.array([5.616, 6.896, 5.511])
+def test_corner_of_a_box_is_kept(catalog):
+    """A box reaching 0.62, 0.59 and 0.53 of the way into its corner cell, which so holds
+    19%: more than half along each axis, so the cell is the box's corner and is filled (a
+    box stays a box), and nothing beyond it is."""
+    lo, hi = np.array([2.617, 2.414, 3.528]), np.array([5.616, 6.896, 5.531])
     filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
-    assert not filled[5, 2, 5] and not filled[5, 2, 4]
-    assert true_box_coverage(lo, hi, filled.shape)[filled].min() >= 0.38
+    want = box_cells(lo, hi, filled.shape)
+    assert want is not None and want[5, 2, 5]
+    assert np.array_equal(filled, want)
+
+
+def test_a_cell_cut_diagonally_through_its_middle_is_judged_as_before(catalog):
+    """A prism whose sloping face, x + z = d (in cells), runs diagonally through the
+    middle of a row of cells when d = 4, and a little either side of it. The cells it cuts
+    hold 50%, 58% and 42%: filled, filled and not, as when cells were judged by volume."""
+    for d, kept in ((4.0, True), (4.08, True), (3.92, False)):
+        triangle = np.array([[0.0, 0.0], [d, 0.0], [0.0, d]]) * [CELL[0], CELL[2]]
+        mesh = prism_xz(triangle, 3 * CELL[1])
+        mesh.apply_translation([2 * CELL[0], 2 * CELL[1], 3 * CELL[2]])
+        filled = without_speck(voxelize(placed(mesh), catalog, margin_studs=0))
+        # the cells around (1.5, 2.5) and (2.5, 1.5) of the triangle, in the middle row in y
+        assert filled[3, 3, 5] == kept and filled[4, 3, 4] == kept, d
+        assert filled[2, 3, 3] and filled[3, 3, 4] and not filled[4, 3, 6]
 
 
 def test_thin_rods_at_random_positions(catalog):
@@ -833,6 +935,18 @@ def test_symmetric_sample_models_come_out_symmetric(catalog, studs):
         for axis in axes:
             assert np.array_equal(design.filled, np.flip(design.filled, axis)), (name, axis)
             assert mirrored(design, axis), (name, axis)
+
+
+def test_a_model_symmetric_to_a_tenth_of_a_millimetre_comes_out_symmetric(catalog):
+    """The sample duck is mirror-symmetric left to right only to within 0.08 mm (the tip of
+    its bill is 0.04 mm off the middle). A ray that only grazed the model used to count in
+    full and drag a line average down by up to 0.07, so one of two mirror cells on the bill
+    was filled and the other not; now such a ray counts in part, and line averages of
+    mirror cells within 0.02 of each other are made equal. (The skin is not always
+    symmetric here: the model really does reach a hair into a cell on one side only.)"""
+    for studs in (8, 12, 16, 24):
+        filled = voxelize(load_seed(SAMPLES / "duck.glb", studs=studs), catalog).filled
+        assert np.array_equal(filled, np.flip(filled, 0)), studs
 
 
 @pytest.mark.parametrize("fmt", ["glb", "stl", "ply"])
@@ -1602,10 +1716,11 @@ def at_zero(seed: Seed) -> Seed:
 
 
 def mirrored(design: Design, axis: int) -> bool:
-    assert design.finish is not None
+    assert design.finish is not None and design.skin is not None
     return bool(
         np.array_equal(design.colors, np.flip(design.colors, axis))
         and np.array_equal(design.finish, np.flip(design.finish, axis))
+        and np.array_equal(design.skin, np.flip(design.skin, axis))
     )
 
 
@@ -1661,13 +1776,15 @@ def test_seed_starting_at_zero_gives_the_same_design_as_before(catalog, pawn_pat
     such seeds do not change unnoticed. Recorded again when cells became filled by how much
     of them the model fills (stage 2), after the sample models were checked in pictures,
     and again after that fill's review (symmetry, stray cells, box corners, the colour and
-    slope hint of tops, standing); the values before that also predate the catalogue's
-    colour matching by eye."""
+    slope hint of tops, standing), and again in stage 3, when the Design gained its skin
+    and rule 1 began to judge each axis on its own (box corners), and for the pawn once more
+    when a ray that only grazes the model began to count in part (5 cells of the pawn); the
+    values before that also predate the catalogue's colour matching by eye."""
     cat = at_zero(load_seed(CAT, studs=16))
-    assert voxelize(cat, catalog).fingerprint() == "49cfc371cd0d61ce"
-    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "174deae05fa01fde"
+    assert voxelize(cat, catalog).fingerprint() == "5ba8ff8858ce9110"
+    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "844c7e6d36ce691b"
     pawn = at_zero(load_seed(pawn_path, studs=24))
-    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "608dc3bed4f1b61a"
+    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "1d5504448be23355"
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])

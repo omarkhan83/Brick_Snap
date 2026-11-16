@@ -108,6 +108,13 @@ class Design:
     """What the model should look like: a grid of coloured cells plus notes.
 
     This is the only thing the AI designer and chat edits change.
+
+    ``skin`` lists the cells the model only partly covers: the conversion left them empty
+    because the model fills less than half of each, but the model's surface does pass
+    through them. Each holds the colour it would have had (EMPTY everywhere else). The
+    make-buildable pass may fill one of them to hold a loose feature on, since that moves
+    the outline by less than half a cell. Edits never change it, and a cell an edit has
+    filled since is simply filled. A Design saved before skin existed loads with none.
     """
 
     colors: np.ndarray  # int16 [nx, ny, nz]; EMPTY or an LDraw colour code
@@ -121,6 +128,7 @@ class Design:
         default_factory=dict
     )  # name -> shape that defined it
     log: list[dict[str, Any]] = field(default_factory=list)  # every edit op applied, in order
+    skin: np.ndarray | None = None  # int16 [nx, ny, nz]; EMPTY, or a partly covered cell's colour
 
     def __post_init__(self) -> None:
         self.colors = np.asarray(self.colors, dtype=np.int16)
@@ -132,6 +140,12 @@ class Design:
             self.finish = np.asarray(self.finish, dtype=np.uint8)
             if self.finish.shape != self.colors.shape:
                 raise ValueError("Design.finish must have the same shape as Design.colors")
+        if self.skin is None:
+            self.skin = np.full(self.colors.shape, EMPTY, dtype=np.int16)
+        else:
+            self.skin = np.asarray(self.skin, dtype=np.int16)
+            if self.skin.shape != self.colors.shape:
+                raise ValueError("Design.skin must have the same shape as Design.colors")
         self.seed_offset = _triple(self.seed_offset)
 
     @property
@@ -145,10 +159,11 @@ class Design:
         return self.colors != EMPTY
 
     def copy(self) -> Design:
-        assert self.finish is not None
+        assert self.finish is not None and self.skin is not None
         return Design(
             colors=self.colors.copy(),
             finish=self.finish.copy(),
+            skin=self.skin.copy(),
             seed_offset=self.seed_offset,
             details=[Detail(**asdict(d)) for d in self.details],
             regions=json.loads(json.dumps(self.regions)),
@@ -158,8 +173,9 @@ class Design:
     def fingerprint(self) -> str:
         """A short code that changes whenever anything a Build depends on changes.
 
-        It covers the cells, their finish and the detail parts, not the edit log or the
-        region names. A Build records the fingerprint of the Design it was made from
+        It covers the cells, their finish, the detail parts and the skin, not the edit log
+        or the region names. A Design with no skin has the same fingerprint as before skin
+        existed. A Build records the fingerprint of the Design it was made from
         (``Build.design_id``), which is how we tell whether a Build is up to date.
         """
         assert self.finish is not None
@@ -168,11 +184,15 @@ class Design:
         h.update(np.ascontiguousarray(self.colors).tobytes())
         h.update(np.ascontiguousarray(self.finish).tobytes())
         h.update(json.dumps([asdict(d) for d in self.details], sort_keys=True).encode())
+        assert self.skin is not None
+        if (self.skin != EMPTY).any():
+            h.update(b"skin")
+            h.update(np.ascontiguousarray(self.skin).tobytes())
         return h.hexdigest()[:16]
 
     def save(self, npz_path: str | Path, json_path: str | Path | None = None) -> None:
         """Write the arrays to ``npz_path`` and, if given, the notes to ``json_path``."""
-        assert self.finish is not None
+        assert self.finish is not None and self.skin is not None
         npz_path = Path(npz_path)
         # numpy adds ".npz" to a name that lacks it, so the temporary name must end in it
         tmp = npz_path.with_name(f".{npz_path.stem}.{os.getpid()}.tmp.npz")
@@ -181,6 +201,7 @@ class Design:
                 tmp,
                 colors=self.colors,
                 finish=self.finish,
+                skin=self.skin,
                 seed_offset=np.asarray(self.seed_offset, dtype=np.int32),
             )
             os.replace(tmp, npz_path)
@@ -200,12 +221,14 @@ class Design:
             colors = data["colors"]
             finish = data["finish"]
             offset = _triple(data["seed_offset"])
+            skin = data["skin"] if "skin" in data.files else None  # older files have none
         notes: dict[str, Any] = {}
         if json_path is not None and Path(json_path).exists():
             notes = json.loads(Path(json_path).read_text(encoding="utf-8"))
         return cls(
             colors=colors,
             finish=finish,
+            skin=skin,
             seed_offset=offset,
             details=[Detail(**d) for d in notes.get("details", [])],
             regions=notes.get("regions", {}),

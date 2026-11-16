@@ -83,8 +83,14 @@ gap between them merged into one block, and a bottle neck doubled in width. Now:
 - Coverage. Each cell has a coverage: the share of its volume that lies inside the model,
   from 0 to 1, right to within about 0.1. "Inside" is as before: what the outside cannot
   reach, so scans with small holes still work.
-- Rule 1. A cell whose coverage is at least 0.5 is filled.
-- Rule 2, so that nothing vanishes. A cell with less coverage that the surface passes
+- Rule 1 (changed in stage 3). A cell is filled when, along each of the three axes, the
+  lines through it that meet the model lie at least half inside the model on average. Each
+  axis is judged on its own: a box's edge cell, 0.6 x 0.6 of it covered, is more than half
+  inside along every line that meets it, so it is filled although it holds only 0.36 of
+  its volume, and a box stays a box wherever it sits. (Judged by volume, boxes in a general
+  position lost their corners and edges.) A cell at least half covered is always filled;
+  a cell cut diagonally through its middle (a slanted face) is filled or not as by volume.
+- Rule 2, so that nothing vanishes. A cell rule 1 leaves empty that the surface passes
   through hands its material to the cell behind it: the neighbour across the face that the
   surface in the cell faces away from. If that neighbour is filled by rule 1, this cell is
   left empty (it was only the skin of something that is there anyway). Otherwise the
@@ -97,26 +103,50 @@ gap between them merged into one block, and a bottle neck doubled in width. Now:
 - Never fill a cell that stage 1 would have left empty.
 
 What must be true, and is tested
-- A box w studs wide, wherever it sits on the grid, comes out round(w) cells wide (either
-  neighbour when w is within 0.05 of a half), never wider than ceil(w). The same in y and,
-  in plates, in z. Two boxes with a gap of one cell or more between them stay apart.
-- A sphere or cylinder 8 studs or more across has a filled volume within 5% of its true
-  volume (stage 1 was far above).
+- A box placed anywhere on the grid that covers at least half of some row of cells on each
+  axis fills exactly a box of cells: on each axis, the rows it covers at least half of (so
+  floor(w) or ceil(w) cells for a box w studs wide, depending on where it sits; never wider
+  than ceil(w), and w on average over where it sits). The same in y and, in plates, in z.
+  Two boxes with a gap of one cell or more between them stay apart. (A box covering a row
+  within a hair of half may go either way there.) A box that covers no row half on some
+  axis (thinner than a cell there and straddling a row boundary, so under one cell of
+  either row) is kept by rule 2 instead, as a thin sheet or rod is (below), but not always
+  as a box: rule 2 judges a cell by where its material lies, not axis by axis, and such a
+  slab can lose a corner or edge cell (about a third of slabs 0.5 to 1 cell thick that
+  straddle a boundary did).
+- A sphere 8 studs or more across has a filled volume within 5% of its true volume (stage 1
+  was far above). A cylinder does not always: each layer of an upright cylinder is the
+  cells rule 1 fills, which at 9 studs is 8.5% more than the circle's area, and within 9%
+  at every size from 8 to 16 studs in quarter steps.
 - A rod 0.3 studs thick, along any axis, at any position (inside a row of cells, on the
   boundary between two rows, on the edge where four meet) is still there from end to end,
-  connected through faces, one cell thick (two where it sits exactly on a boundary, so the
-  result stays symmetric). The same for a sheet 0.2 studs thick, level or upright: no holes,
-  one cell thick. A rod or sheet running diagonally stays connected through faces.
+  connected through faces, and at most two cells thick (one inside a row; two where it sits
+  exactly on a boundary, so the result stays symmetric, and in about 2% of random positions
+  elsewhere, where the rays across the rod miss it and two cells measure alike). The same
+  for a sheet 0.2 studs thick, level or upright: no holes, one cell thick. A rod or sheet
+  running diagonally stays connected through faces.
 - A thin feature stays joined, through cell faces, to the body it grows from.
 - The number of face-connected pieces is the same as in stage 1's fill, for every sample
   model in samples/models at 12, 16 and 24 studs.
-- A mirror-symmetric model still gives a mirror-symmetric Design.
+- A mirror-symmetric model still gives a mirror-symmetric Design, skin included (tested on
+  the sample models from 4 to 24 studs). A model symmetric only to within a tenth of a
+  millimetre (the sample duck) gives mirror-symmetric filled cells, though its skin may
+  differ where the model reaches a hair into a cell on one side only. A file that is not
+  watertight can break this where a ray crosses a crack on one side only (the sample pawn
+  at 96 studs).
 - Colour and slope hints: a filled cell takes them from the surface inside it and, when the
   surface that bounds it lies in a neighbouring cell that was left empty (always the case
   for a cell filled without the surface passing through it), from that surface: the cell
   directly above for the slope hint, the nearest such neighbour for the colour. A top cell
   must not lose its hint or its colour because its skin cell was dropped.
 - Hollowing, padding, determinism and the speed limits are as before.
+
+STAGE 3 ADDITION TO THE CONTRACT: the skin
+- ``Design.skin`` holds, in each cell of stage 1's fill that the new fill leaves empty (the
+  cells the model passes through but covers less than half of), the colour stage 1 gave
+  that cell: the vote of its own surface. It is EMPTY everywhere else, including every
+  filled cell and the padding. Hollowing does not change it. The make-buildable pass uses
+  it (see bricksnap/buildable.py); a mirror-symmetric model gives a mirror-symmetric skin.
 
 Implementation notes
 --------------------
@@ -222,8 +252,26 @@ Coverage and the three rules (implementation notes)
   volume; box faces come out exact. Rule 1 alone puts a sphere 1 to 4% over its volume
   (thresholding a curved surface), 4% at 8 studs, and an upright cylinder up to 8.5% over
   (at 9 studs: 69 cells per layer are at least half covered, against an area of 63.6).
-- Rule 1 counts coverage from 0.5 - 1e-5 (the nudge into the solid takes up to 1e-6 from
-  each face), so a box covering exactly half of two cells fills both, symmetrically.
+- Rule 1 counts from 0.5 - 1e-5 (the nudge into the solid takes up to 1e-6 from each face),
+  so a box covering exactly half of two cells fills both, symmetrically.
+- Rule 1's lines are the rays already cast for the coverage: s x s of them along each axis
+  through each surface cell. A ray's share inside the cell is the sum of its sub-cells'
+  inside lengths; a ray whose run disagrees with the cells known outside and inside (a
+  crack in a file that is not watertight) uses the shares chosen for its sub-cells instead
+  (from the other axes' rays), since on the sample pawn such a ray found a crack on one
+  side only. Of the rays along an axis, those whose share is above 1e-6 meet the model;
+  the axis passes when their mean is at least 0.5 - 1e-5, and fails when none does. A ray
+  whose share is under 0.05 counts in proportion to its share (one of 0.02 counts as 0.4
+  of a ray): counted in full, a ray that only grazes the model dragged the mean down by up
+  to 0.07 the moment it touched, so a change of a hundredth of a millimetre could decide a
+  cell (the sample duck, symmetric to within 0.08 mm, came out lopsided at 16 studs). Rays
+  of a box all hold the same share, so a box is judged exactly as before; a larger
+  threshold would also raise the mean on curved surfaces (at 0.1, a sphere of 8 studs came
+  out 5.3% over its volume). The means of mirror-image cells that agree to within 0.02 are
+  made exactly equal (the sub-cells: to within 1e-3), so a model that is symmetric to
+  within a tenth of a millimetre gives symmetric filled cells. A cell at least half
+  covered is filled even if its rays say otherwise (with s = 3 they measure a line average
+  only to within about 0.07), so no cell rule 1 filled before is lost.
 - Rule 2: "the side the surface faces away from" is taken as the side the cell's material
   lies on: along each axis where the middle of the material (from the sub-cells) is at
   least 0.1 of a cell from the cell's middle, the neighbour on that side, when the material
@@ -346,6 +394,8 @@ _STEEP = float(np.cos(np.radians(70.0)))  # n_z at or below this: a wall or an u
 _FLAT = float(np.cos(np.radians(20.0)))  # n_z at or above this: a flat top
 _SUB_LIMIT = 4_000_000  # sub-cells of surface cells at 3 per axis; beyond this, 2 per axis
 _MATERIAL = 1e-6  # share of a sub-cell below which it holds none of the model
+_GRAZE = 0.05  # a ray holding less than this share of a cell's length counts only in part
+_LINE_NOISE = 0.02  # line averages of mirror-image cells this close are made equal
 _EVEN = 1e-5  # coverages this close count as equal (files store single precision)
 _NOISE = 1e-3  # sub-cell shares this close in mirror-image cells differ only by file noise
 _SQUARE = 1e-3  # rays whose squareness to the surface differs by less meet it alike
@@ -406,18 +456,26 @@ def voxelize(
     # 2. how much of each cell the model fills, and which cells keep its material
     s = _subdivision(int(surface.sum()))
     flip = _turned_out(tris[keep])
-    sub, occupied, index = _coverage(tris[keep], flip, body, surface, interior, s)
+    sub, occupied, index, lines = _coverage(tris[keep], flip, body, surface, interior, s)
     _even_out(sub, occupied, index)
+    _even_out_lines(lines, index)
     coverage = interior.astype(np.float64)
     # summed in sorted order, so that mirror-image cells come out exactly equal
     coverage[surface] = np.sort(sub.reshape(len(sub), -1), axis=1).sum(axis=1) / s**3
     empty_handed = surface & (coverage * s**3 <= _MATERIAL)  # cells the rays found nothing in
     net, area = _facing(nudged, flip, estimate, axes, body, index, empty_handed)
-    filled, went = _choose(coverage, sub, occupied, net, area, index, surface, stage1, crossed)
+    # rule 1: on every axis, the lines through the cell that meet the model are at least
+    # half inside it on average (so every cell at least half covered, and a box's corners)
+    across = np.zeros(body, dtype=bool)
+    across[surface] = (lines >= 0.5 - _HALF).all(axis=1)
+    rule1 = interior | (surface & (across | (coverage >= 0.5 - _HALF)))
+    filled, went = _choose(
+        coverage, sub, occupied, net, area, index, surface, stage1, crossed, rule1
+    )
 
     # 3. colours, from the surface in each filled cell and in the emptied cells around it
     dropped = surface & ~filled
-    colours = _colours(
+    colours, skin = _colours(
         nudged, estimate, axes, body, kept_code, codes, pairs, filled, dropped, went,
         default_colour,
     )  # fmt: skip
@@ -448,7 +506,9 @@ def voxelize(
     grid[m : m + nx, m : m + ny, :nz] = colours
     finish_grid = np.full(grid.shape, FINISH_STUDS, dtype=np.uint8)
     finish_grid[m : m + nx, m : m + ny, :nz] = finish
-    return Design(colors=grid, finish=finish_grid, seed_offset=(m, m, 0))
+    skin_grid = np.full(grid.shape, EMPTY, dtype=np.int16)
+    skin_grid[m : m + nx, m : m + ny, :nz] = skin
+    return Design(colors=grid, finish=finish_grid, seed_offset=(m, m, 0), skin=skin_grid)
 
 
 # ---- helpers --------------------------------------------------------------------------------
@@ -644,6 +704,20 @@ def _even_out(sub: np.ndarray, occupied: np.ndarray, index: np.ndarray) -> None:
         sub[mine[close]] = (a[close] + b[close]) / 2
 
 
+def _even_out_lines(lines: np.ndarray, index: np.ndarray) -> None:
+    """As ``_even_out``, for the line averages (n_surface, 3) of mirror-image cells: where
+    the two differ by no more than _NOISE, both take their mean, so they are exactly equal.
+    (Mirroring keeps each axis's lines lines of that axis, so the averages are compared
+    axis by axis.)"""
+    for axis in (0, 1):
+        mirror = np.flip(index, axis)
+        both = (index >= 0) & (mirror >= 0)
+        mine, theirs = index[both], mirror[both]
+        a, b = lines[mine], lines[theirs]
+        close = np.abs(a - b) <= _LINE_NOISE
+        lines[mine] = np.where(close, (a + b) / 2, a)
+
+
 def _subdivision(n_surface: int) -> int:
     """Sub-cells per axis for the coverage: 3 (27 per cell), or 2 on very large models."""
     return 3 if n_surface * 27 <= _SUB_LIMIT else 2
@@ -691,7 +765,7 @@ def _coverage(
     surface: np.ndarray,
     interior: np.ndarray,
     s: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """How much of each sub-cell of each surface cell lies inside the model.
 
     Each surface cell is cut into s x s x s sub-cells. Rays run along each axis through the
@@ -703,14 +777,17 @@ def _coverage(
     exact); a sub-cell no agreeing ray crosses takes their mean.
 
     Returns the share inside, (n_surface, s, s, s) indexed [cell, x, y, z]; which sub-cells
-    hold any of the model (material or a ray crossing); and the surface-cell index of each
-    body cell (-1 elsewhere)."""
+    hold any of the model (material or a ray crossing); the surface-cell index of each
+    body cell (-1 elsewhere); and, for each surface cell and axis (n_surface, 3), how much
+    of the cell's length the rays along that axis that meet the model in it lie inside it,
+    on average (0 when none does)."""
     n = int(surface.sum())
     index = np.full(body, -1, dtype=np.int64)
     index[surface] = np.arange(n)
     estimate = np.zeros((3, n, s, s, s))
     weight = np.zeros((3, n, s, s, s))
     agree = np.zeros((3, n, s, s, s), dtype=bool)
+    lines = np.zeros((n, 3))
     sub_tris = exact * s  # not nudged: triangles that share an edge must still share it
     normal = np.cross(sub_tris[:, 1] - sub_tris[:, 0], sub_tris[:, 2] - sub_tris[:, 0])
     length = np.linalg.norm(normal, axis=1)
@@ -729,7 +806,27 @@ def _coverage(
         np.take_along_axis(score, best, 0)[0] > 0, np.take_along_axis(estimate, best, 0)[0], mean
     )
     occupied = (share > _MATERIAL) | (weight.max(axis=0) > 0)
-    return share, occupied, index
+    # for each axis, the share of the cell's length inside the model along each of its s x s
+    # rays, averaged over the rays that meet the model in the cell (0 when none does); a ray
+    # holding less than _GRAZE counts in proportion, so one that starts to graze the model
+    # moves the average a little, not by a whole ray's worth
+    for axis in range(3):
+        # a ray whose run disagrees with the cells known outside and inside (a crack in the
+        # surface, a lone sheet) is replaced by the shares chosen for its sub-cells above
+        length = (
+            np.where(
+                agree[axis].all(axis=1 + axis),
+                estimate[axis].sum(axis=1 + axis),
+                share.sum(axis=1 + axis),
+            )
+            / s
+        )  # (n, s, s)
+        counts = np.where(length > _MATERIAL, np.minimum(length / _GRAZE, 1.0), 0.0)
+        total = counts.sum(axis=(1, 2))
+        lines[:, axis] = np.where(
+            total > 0, (length * counts).sum(axis=(1, 2)) / np.where(total > 0, total, 1.0), 0.0
+        )
+    return share, occupied, index, lines
 
 
 def _axis_coverage(
@@ -895,11 +992,12 @@ def _choose(
     surface: np.ndarray,
     stage1: np.ndarray,
     crossed: list[np.ndarray],
+    rule1: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Rules 1 to 3: which cells are filled (bool, the body's shape), and for each surface
-    cell under half full, the flat index of the cell its material went to (-1 elsewhere)."""
+    cell rule 1 leaves empty, the flat index of the cell its material went to (-1
+    elsewhere). ``rule1`` is the cells rule 1 fills."""
     interior = stage1 & ~surface
-    rule1 = stage1 & (coverage >= 0.5 - _HALF)
     low = surface & ~rule1
     kept, went = _keepers(coverage, sub, occupied, net, area, index, low, rule1, interior, crossed)
     filled = rule1 | kept
@@ -1273,8 +1371,9 @@ def _colours(
     dropped: np.ndarray,
     went: np.ndarray,
     default_colour: int,
-) -> np.ndarray:
-    """The colour of every body cell (EMPTY where not filled).
+) -> tuple[np.ndarray, np.ndarray]:
+    """The colour of every body cell (EMPTY where not filled), and the skin: the own colour
+    of every ``dropped`` cell (EMPTY elsewhere), the colour stage 1 showed there.
 
     Each surface cell has its own colour: the vote of the surface inside it, weighted by
     area in mm² (what stage 1 showed there). A filled cell that an emptied surface cell
@@ -1290,9 +1389,11 @@ def _colours(
     n_cells = int(np.prod(body))
     out = np.full(n_cells, EMPTY, dtype=np.int64)
     flat_filled = filled.ravel()
+    skin = np.full(n_cells, EMPTY, dtype=np.int64)
     if n_codes == 1:
         out[flat_filled] = codes[0]
-        return out.reshape(body)
+        skin[dropped.ravel()] = codes[0]
+        return out.reshape(body), skin.reshape(body)
     pair_cell, pair_code = pairs // n_codes, pairs % n_codes
     strides = np.array([body[1] * body[2], body[2], 1])
 
@@ -1397,7 +1498,9 @@ def _colours(
             target[fought], tcode[fought], area_of(source[fought], tcode[fought]), n_codes
         )
         out[win_cell] = codes[win_code]
-    return out.reshape(body)
+    skinned = np.flatnonzero(flat_dropped & (own_colour >= 0))
+    skin[skinned] = codes[own_colour[skinned]]
+    return out.reshape(body), skin.reshape(body)
 
 
 def _sub_index(index: np.ndarray, cell: np.ndarray, local: np.ndarray, s: int) -> np.ndarray:

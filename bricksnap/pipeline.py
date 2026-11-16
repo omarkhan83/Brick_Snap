@@ -75,13 +75,18 @@ def rebuild(project: Project, *, catalog: Catalog | None = None) -> Build:
 
 
 def rough_build(project: Project, *, catalog: Catalog | None = None) -> Build:
-    """The plain conversion: the untouched base Design laid out with no passes at all.
+    """The plain conversion, made to hold together: the untouched base Design through the
+    make-buildable pass and the layout, with no finishing and no edits, so bricks and
+    plates only.
 
     This is the "before" of every before-and-after picture. It is saved as build.rough.json
-    and reused for as long as the base Design is the one it was made from.
+    and reused for as long as the base Design is the one it was made from. ``Build.notes``
+    says what the make-buildable pass changed. (The conversion fills a cell only when the
+    model fills most of it, so on its own it can leave a thin feature loose; the rough
+    build is the plainest build that holds.)
     """
+    from bricksnap.buildable import make_buildable
     from bricksnap.checks import check
-    from bricksnap.layout import solve
 
     catalog = catalog or load_catalog()
     base = project.load_design(base=True)
@@ -92,7 +97,9 @@ def rough_build(project: Project, *, catalog: Catalog | None = None) -> Build:
                 return saved
         except (ValueError, KeyError, TypeError, OSError):
             pass  # unreadable: make it again
-    build = solve(base, catalog)
+    fixed = make_buildable(base, catalog)  # works on a copy and returns its own layout
+    build = fixed.build
+    build.notes = list(fixed.notes)
     build.design_id = base.fingerprint()
     build.report = check(build, catalog)
     build.save(project.rough_build_path)

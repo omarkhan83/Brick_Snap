@@ -109,6 +109,70 @@ def test_design_fingerprint_follows_what_a_build_depends_on():
     assert smooth.fingerprint() != design.fingerprint()
 
 
+def test_design_skin_starts_empty_and_round_trips(tmp_path):
+    colors = np.full((4, 3, 6), EMPTY, dtype=np.int16)
+    colors[1:3, :, :3] = 4
+    plain = Design(colors=colors)
+    assert plain.skin is not None
+    assert plain.skin.shape == plain.shape and plain.skin.dtype == np.int16
+    assert (plain.skin == EMPTY).all()
+    skin = np.full(colors.shape, EMPTY, dtype=np.int16)
+    skin[0, 1, 1] = 14
+    d = Design(colors=colors, skin=skin)
+    d.save(tmp_path / "d.npz", tmp_path / "d.json")
+    e = Design.load(tmp_path / "d.npz", tmp_path / "d.json")
+    assert e.skin is not None and np.array_equal(e.skin, skin)
+    c = d.copy()
+    assert c.skin is not None and d.skin is not None
+    c.skin[0, 1, 1] = EMPTY
+    assert d.skin[0, 1, 1] == 14
+    try:
+        Design(colors=colors, skin=np.full((2, 2, 2), EMPTY))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a skin of another shape must be refused")
+
+
+def test_a_design_saved_before_skin_existed_loads_with_an_empty_skin(tmp_path):
+    colors = np.full((3, 3, 3), EMPTY, dtype=np.int16)
+    colors[1, 1, :] = 4
+    np.savez_compressed(
+        tmp_path / "old.npz",
+        colors=colors,
+        finish=np.zeros(colors.shape, dtype=np.uint8),
+        seed_offset=np.asarray((0, 0, 0), dtype=np.int32),
+    )
+    old = Design.load(tmp_path / "old.npz")
+    assert old.skin is not None
+    assert old.skin.shape == (3, 3, 3) and (old.skin == EMPTY).all()
+
+
+def test_skin_counts_in_the_fingerprint_only_when_there_is_some():
+    colors = np.full((4, 4, 6), EMPTY, dtype=np.int16)
+    colors[1:3, 1:3, 0:3] = 4
+    design = Design(colors=colors)
+    # the fingerprint of a Design without skin is what it was before skin existed
+    import hashlib
+    import json
+
+    h = hashlib.sha256()
+    h.update(repr((design.shape, design.seed_offset)).encode())
+    h.update(np.ascontiguousarray(design.colors).tobytes())
+    assert design.finish is not None
+    h.update(np.ascontiguousarray(design.finish).tobytes())
+    h.update(json.dumps([], sort_keys=True).encode())
+    assert design.fingerprint() == h.hexdigest()[:16]
+    skinned = design.copy()
+    assert skinned.skin is not None
+    skinned.skin[0, 1, 1] = 4
+    assert skinned.fingerprint() != design.fingerprint()
+    other = design.copy()
+    assert other.skin is not None
+    other.skin[0, 1, 1] = 14
+    assert other.fingerprint() != skinned.fingerprint()
+
+
 def test_build_remembers_the_design_it_came_from(tmp_path, pawn_path):
     from bricksnap.pipeline import create_project, rebuild
 
@@ -238,7 +302,12 @@ def test_colour_difference_matches_published_values(monkeypatch):
         assert abs(got - want) < 1e-4, (a, b, got)
 
 
-def test_rough_build_is_the_plain_conversion_and_is_reused(tmp_path, pawn_path):
+def test_rough_build_is_the_plain_conversion_made_to_hold_and_is_reused(
+    tmp_path, pawn_path, catalog
+):
+    """The rough build is the base Design through the make-buildable pass and the layout:
+    no edits, no finishing, bricks and plates only, and it holds together."""
+    from bricksnap.buildable import make_buildable
     from bricksnap.pipeline import create_project, rebuild, rough_build
 
     project = create_project(pawn_path, studs=8, directory=tmp_path)
@@ -249,6 +318,9 @@ def test_rough_build_is_the_plain_conversion_and_is_reused(tmp_path, pawn_path):
     rebuild(project)
     rough = rough_build(project)
     assert rough.report is not None and rough.report.ok
+    assert {catalog.parts[p.part].kind for p in rough.parts} <= {"brick", "plate"}
+    fixed = make_buildable(project.load_design(base=True), catalog)
+    assert rough.parts == fixed.build.parts and rough.notes == fixed.notes
     assert {p.color for p in rough.parts} != {4}
     assert rough.design_id == project.load_design(base=True).fingerprint()
     stamp = project.rough_build_path.read_bytes()
