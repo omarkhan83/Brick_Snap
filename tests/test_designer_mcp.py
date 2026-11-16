@@ -20,6 +20,14 @@ from PIL import Image
 from bricksnap.designer.tools import TOOLS
 from bricksnap.pipeline import create_project, rebuild
 
+BRIEF = {
+    "object": "A chess pawn, standing upright.",
+    "features": ["a round head", "a wide base"],
+    "plan": "Keep the head round.",
+    "colours": [71, 4],
+    "finish": "Studs everywhere.",
+}
+
 
 @pytest.fixture(scope="module")
 def project_path(tmp_path_factory, pawn_path: Path, catalog) -> Path:
@@ -54,6 +62,8 @@ def test_server_lists_tools_and_answers_calls(project_path: Path):
             ("describe", {}),
             ("render", {"views": ["front", "top"]}),
             ("apply_ops", {"ops": [op]}),
+            ("brief", BRIEF),
+            ("apply_ops", {"ops": [op]}),
             ("explode", {}),
         ],
     )
@@ -64,7 +74,7 @@ def test_server_lists_tools_and_answers_calls(project_path: Path):
         assert listed.description == ours["description"]
         assert listed.input_schema == ours["input_schema"]
 
-    describe, render, apply, unknown = results
+    describe, render, refused, brief, apply, unknown = results
 
     assert not describe.is_error
     assert [c.type for c in describe.content] == ["text"]
@@ -77,6 +87,13 @@ def test_server_lists_tools_and_answers_calls(project_path: Path):
     img = Image.open(io.BytesIO(base64.b64decode(image.data)))
     assert img.width > 200
     assert "Top row" in render.content[1].text
+
+    # apply_ops refuses until there is a brief, and the refusal is a failed call
+    assert refused.is_error
+    assert refused.content[0].text.startswith("ERROR: write the brief first")
+
+    assert not brief.is_error
+    assert brief.content[0].text.startswith("Brief saved.")
 
     assert not apply.is_error
     assert "1 of 1 operations applied" in apply.content[0].text
@@ -117,6 +134,9 @@ def test_overlapping_calls_do_not_corrupt_each_other(project_path: Path, tmp_pat
 
     copy = tmp_path / "proj"
     shutil.copytree(project_path, copy)
+    project = Project(copy)
+    project.meta["brief"] = BRIEF
+    project.save_meta()
     before = len(Project(copy).load_design().log)
     n = 8
     params = StdioServerParameters(

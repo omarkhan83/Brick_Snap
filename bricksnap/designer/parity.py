@@ -8,9 +8,10 @@ server) and a system prompt containing a unique marker sentence. The user messag
 model to list every tool it can call and to quote the first sentence of its instructions.
 From the stream-json ``init`` event and the reply, report:
 
-- ``tools``: every tool the session announced. ``extra_tools``: any that are not our four
-  ``mcp__bricksnap__*`` tools (Claude Code's documentation says ``EndConversation`` may
-  remain when MCP tools are present; list whatever is actually there).
+- ``tools``: every tool the session announced. ``extra_tools``: any that are not our
+  ``mcp__bricksnap__*`` tools, one per entry of ``tools.TOOL_NAMES`` (Claude Code's
+  documentation says ``EndConversation`` may remain when MCP tools are present; list
+  whatever is actually there).
 - whether the model quoted the marker (so our prompt is the system prompt) and whether it
   mentioned any instruction, file, skill, memory or environment detail we did not supply.
 - the init event's other inventory fields where present (MCP servers, slash commands,
@@ -85,8 +86,9 @@ from pathlib import Path
 from typing import Any
 
 from bricksnap.designer.runner import DEFAULT_MODEL, TOOL_PREFIX, StreamParser, redact
+from bricksnap.designer.tools import TOOL_NAMES
 
-OUR_TOOLS = tuple(f"{TOOL_PREFIX}{n}" for n in ("describe", "render", "apply_ops", "rebuild"))
+OUR_TOOLS = tuple(f"{TOOL_PREFIX}{n}" for n in TOOL_NAMES)
 DOCUMENTED_EXTRA_TOOLS = ("EndConversation",)
 DOCUMENTED_BUILTIN_PLUGINS = (
     "cc-plugin-agents-md",
@@ -225,9 +227,13 @@ _REMARK_TEXT = """
     sections part parts note notes content contents instructions instruction files skills
     memories attached appended prepended provided given included quoted other else
     everything nothing none full complete only summarised summarized verbatim word words
-    one two three four first last rest remaining own additional extra following end start
-    beginning apply_ops describe rebuild render"""
-_REMARK_WORDS = frozenset(_REMARK_TEXT.split()) | frozenset(t.lower() for t in OUR_TOOLS)
+    one two three four five first last rest remaining own additional extra following end
+    start beginning"""
+_REMARK_WORDS = (
+    frozenset(_REMARK_TEXT.split())
+    | frozenset(t.lower() for t in OUR_TOOLS)
+    | frozenset(TOOL_NAMES)
+)
 _MAX_REMARK_WORDS = 30
 
 # Words that suggest something we switched off got through.

@@ -29,7 +29,7 @@ from bricksnap.project import Project
 
 # ---- invented stream-json lines (shapes as Claude Code 2.1 prints them) ----------------------
 
-OURS = [f"mcp__bricksnap__{n}" for n in ("describe", "render", "apply_ops", "rebuild")]
+OURS = [f"mcp__bricksnap__{n}" for n in ("describe", "render", "brief", "apply_ops", "rebuild")]
 
 INIT = {
     "type": "system",
@@ -213,6 +213,34 @@ def test_redact_leaves_ordinary_text():
     assert redact("x=3, y=4 @ z=5; parts@home", home="/home/pat") == "x=3, y=4 @ z=5; parts@home"
 
 
+def test_redact_hides_the_home_folder_as_python_escapes_it():
+    # Python error messages show file names with repr(), which doubles every backslash
+    home = "C:\\Users\\Pat Example"
+    message = str(PermissionError(13, "Permission denied", home + "\\projects\\cat\\renders"))
+    assert "Pat Example" in message
+    out = redact(message, home=home)
+    assert "Pat Example" not in out and "'~\\\\projects\\\\cat\\\\renders'" in out
+    assert redact(f"in {home}\\cat", home=home) == "in ~\\cat"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["z" * 200_000, "z" * 200_000 + "@", "a@" + "b." * 100_000, "@" * 200_000],
+    ids=["no-at", "at-at-end", "many-dots", "only-ats"],
+)
+def test_redact_is_quick_on_long_text(text: str):
+    import time
+
+    start = time.perf_counter()
+    redact(text, home="/home/pat")
+    assert time.perf_counter() - start < 1.0
+
+
+def test_redact_finds_addresses_inside_longer_words():
+    out = redact("mail:pat.example@mail.example.org; or (a.b-c@x.io)", home="/home/pat")
+    assert out == "mail:<account email>; or (<account email>)"
+
+
 # ---- stream parsing ----------------------------------------------------------------------------
 
 
@@ -221,7 +249,7 @@ def test_parser_collects_a_good_run():
     for line in lines_of(GOOD_RUN):
         p.feed(line)
     assert p.tools_announced == OURS
-    assert p.tools_called == [OURS[0], OURS[2], OURS[3]]
+    assert p.tools_called == [OURS[0], OURS[3], OURS[4]]
     assert p.tool_errors == ["mcp__bricksnap__apply_ops: ERROR: bad op"]
     assert p.turns == 7
     assert p.final_text == "It is a cat. I made the ears bigger."
@@ -736,18 +764,19 @@ def test_real_designer_run(tmp_path: Path, pawn_path: Path, catalog):
     run = run_designer(
         project,
         instruction=(
-            "This is a short test of your tools. Call describe once, then use apply_ops to "
+            "This is a short test of your tools. Call describe once, then call brief with a "
+            "one-line brief (palette: codes 4 and 71), then use apply_ops to "
             "paint the bottom brick of the model (z 0 to 2) red (code 4), then call rebuild "
             "once, then reply with one sentence. Do not call render."
         ),
         effort="low",
-        max_turns=8,
+        max_turns=10,
         timeout_s=600,
     )
     assert run.ok, run.error
     assert set(run.tools_announced) - {"EndConversation"} == set(OURS)
     called = {n.removeprefix("mcp__bricksnap__") for n in run.tools_called}
-    assert {"describe", "apply_ops", "rebuild"} <= called
+    assert {"describe", "brief", "apply_ops", "rebuild"} <= called
     design = Project(project.path).load_design()
     assert design.log, "the designer applied no edit"
     build = Project(project.path).load_build()
@@ -761,6 +790,7 @@ MARKER = "Parity marker 0123456789AB: this sentence is the BrickSnap prompt."
 
 CLEAN_REPLY = """TOOLS:
 mcp__bricksnap__apply_ops
+mcp__bricksnap__brief
 mcp__bricksnap__describe
 mcp__bricksnap__rebuild
 mcp__bricksnap__render
@@ -800,6 +830,7 @@ PLUGINS = [
 # machine's details replaced by invented ones.
 REAL_REPLY = """TOOLS:
 mcp__bricksnap__apply_ops
+mcp__bricksnap__brief
 mcp__bricksnap__describe
 mcp__bricksnap__rebuild
 mcp__bricksnap__render
@@ -817,8 +848,8 @@ System prompt text after the tool descriptions and the Parity marker paragraph:
 all of the independent calls in the same function_calls block, otherwise you MUST wait for \
 previous calls to finish first to determine the dependent values."
 
-Tool descriptions provided to me (summarised names only above; their full text is the four \
-tool specifications for apply_ops, describe, rebuild and render).
+Tool descriptions provided to me (summarised names only above; their full text is the five \
+tool specifications for apply_ops, brief, describe, rebuild and render).
 
 Context attached to the user's message (a system-reminder):
 
@@ -923,7 +954,7 @@ def test_parity_end_conversation_is_a_documented_leftover():
     ("init_change", "reply", "fragment"),
     [
         ({"tools": [*OURS, "Bash"]}, CLEAN_REPLY, "not documented leftovers: Bash"),
-        ({"tools": OURS[:3]}, CLEAN_REPLY, "missing from the session"),
+        ({"tools": OURS[:4]}, CLEAN_REPLY, "missing from the session"),
         ({"skills": ["pdf"]}, CLEAN_REPLY, "still had skills"),
         ({"plugins": [{"name": "x", "path": "/somewhere"}]}, CLEAN_REPLY, "Plugins besides"),
         ({"apiKeySource": "ANTHROPIC_API_KEY"}, CLEAN_REPLY, "API key may have been used"),
@@ -1158,3 +1189,11 @@ def test_parity_main_exit_code_when_not_clean(fake_claude, capsys):
         parity.main([])
     assert stop.value.code == 1
     assert "NOT CLEAN" in capsys.readouterr().out
+
+
+def test_parity_expects_every_tool_the_designer_has():
+    from bricksnap.designer.parity import OUR_TOOLS
+    from bricksnap.designer.tools import TOOL_NAMES
+
+    assert tuple(f"mcp__bricksnap__{n}" for n in TOOL_NAMES) == OUR_TOOLS
+    assert list(OUR_TOOLS) == OURS

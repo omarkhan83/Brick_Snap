@@ -69,6 +69,10 @@ Implementation notes
   "<account email>" and the home directory with "~". Everything the runner hands back for
   display (``final_text``, ``error``, ``tool_errors``) has been redacted. The raw transcript
   is not redacted; it stays inside the project folder, which git ignores.
+- ``redact`` also hides the home directory as Python's error messages print a file name
+  (``repr``, which doubles every backslash in a Windows path and escapes control
+  characters). Its e-mail pattern only starts a match where a run of address characters
+  starts, so a long text without an "@" takes linear time instead of seconds.
 - The MCP config also sets ``PYTHONPATH`` for the server to the folder that holds the
   ``bricksnap`` package, so the server starts from the empty temporary folder even when
   BrickSnap is not installed into the interpreter.
@@ -140,7 +144,12 @@ SET_ENV = {
     "MAX_MCP_OUTPUT_TOKENS": "200000",
 }
 
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
+# The look-behind makes a match start only where a run of address characters starts. Without
+# it a long run with no "@" is scanned again from every one of its characters, which takes
+# seconds on a 200,000-character text; it finds exactly the same addresses.
+_EMAIL = re.compile(
+    r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
+)
 
 
 @dataclass
@@ -162,12 +171,17 @@ class DesignerRun:
 
 
 def redact(text: str, home: str | None = None) -> str:
-    """Replace e-mail addresses with "<account email>" and the home directory with "~"."""
+    """Replace e-mail addresses with "<account email>" and the home directory with "~".
+
+    The home directory is also found as Python's error messages show a file name (repr()
+    doubles each backslash, so every Windows path, and escapes control characters).
+    """
     text = _EMAIL.sub("<account email>", text)
     home = str(Path.home()) if home is None else home
     home = home.rstrip("/\\")
     if len(home) > 1:
-        text = text.replace(home, "~")
+        for form in dict.fromkeys((repr(home)[1:-1], home)):
+            text = text.replace(form, "~")
     return text
 
 
