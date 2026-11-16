@@ -54,8 +54,6 @@ STAGE 2 ADDITIONS TO THE CONTRACT
   closing text.
 
 STAGE 3 ADDITION TO THE CONTRACT: a typed edit
-(Being built by the lead's agent; until this line is removed, what follows is not in the
-code yet.)
 - ``design PROJECT "add a red collar"``: the request may be given as a second argument
   (``--instruction`` stays and means the same; giving both is a mistake the command explains).
 - Before the run the command says which kind it is: a first design, or one change to a
@@ -145,6 +143,33 @@ Implementation notes
   one "- " line each; colour codes are shown by their catalogue names ("colour N" for a code
   not in the catalogue); missing or empty fields are skipped; a brief that is plain text is
   printed as it is.
+- Typed edit: the kind of run comes from ``runner.run_kind`` (an edit when the project has a
+  brief and a request was typed), decided before the run from the project as it is then. An
+  empty or blank request is a mistake (exit code 2), like giving it twice; both are checked
+  before the project is opened, and the designer never starts. A project with a brief and no
+  request gets "another full design pass", and the command says how to ask for one change.
+  A first design with a request quotes it back as the person's wish.
+- A request typed without quotes reaches argparse as several words. ``main`` parses with
+  ``parse_known_args``; when ``design`` is left with words that do not start with "--", it
+  says (exit code 2, before the project is opened) to put the whole request in quotes and
+  shows the command with the words in the order they were typed; a request that starts
+  with a dash is shown as ``--instruction="-smaller"``. Left-over "--words" (an option we
+  do not know), and left-over words on any other command, get argparse's own message.
+- An edit rebuilds the design before the run too (``pipeline.rebuild``, which saves
+  build.json and build.ldr): "Parts: N before" is that build's ``len(build.parts)``, so it
+  is never a saved build that is older than the design, damaged, missing, or made by an
+  older version of the code. "after" is the rebuild after the run.
+- After an edit, "What this change did:" comes after the verdict and its report, and before
+  the file list. The operations are the entries of design.json's log past the length it had
+  before the run, counted by their "op" in plain words ("4 painting, 1 adding cells").
+  It also says whether the brief in project.json is the same as before the run. With no
+  operation added, it prints the designer's closing text as its reason, or says that it gave
+  none; but when the run failed (``run.ok`` is false) the closing text is only the last
+  thing the model wrote, so it says the run stopped before the designer changed anything
+  and repeats ``run.error``. A failed run that did add operations says the change may be
+  only partly made.
+- "What to do next" offers ``design PROJECT "<a change>"`` (one more change) instead of a
+  full design pass once the project has a brief, after any kind of run.
 """
 
 from __future__ import annotations
@@ -395,6 +420,16 @@ def _print_next(project: Project, ok: bool) -> None:
     print("What to do next:")
     print(f"  {RUN} view {ref}")
     print("      look at it in 3D in your web browser")
+    if _read_brief(project):  # designed already: offer one more change, not a full pass
+        print(f'  {RUN} design {ref} "make the tail longer"')
+        print(
+            "      ask the AI designer for one more change, in your own words (this sends "
+            "pictures to the AI)"
+        )
+        if not ok:
+            print(f"  {RUN} ops {ref} edits.json --build")
+            print("      or change the design yourself with edit operations, then rebuild")
+        return
     if ok:
         print(f"  {RUN} design {ref}")
         print("      let the AI designer improve how it looks (this sends pictures to the AI)")
@@ -709,13 +744,168 @@ def _design_fingerprint(project: Project) -> bytes:
     return digest.digest()
 
 
-def cmd_design(args: argparse.Namespace) -> int:
-    from bricksnap.designer.runner import TOOL_PREFIX, run_designer
+def _unquoted_request(extras: list[str]) -> bool:
+    """True when the words left over by ``design`` look like a request typed without
+    quotes: plain words, or one starting with a single dash ("-smaller"). Anything
+    starting with "--" is an option we do not know, which argparse explains itself."""
+    return not any(word.startswith("--") for word in extras)
 
+
+def _quote_your_request(args: argparse.Namespace, argv: list[str], extras: list[str]) -> str:
+    """Explain that the request goes in quotes, with the command as it should have been."""
+    # The words of the request, in the order they were typed (argparse takes the first
+    # plain word as the request and leaves the rest, and any "-word", over).
+    pool = Counter(extras + [w for w in (args.request, args.instruction) if w is not None])
+    words: list[str] = []
+    rest = argv[argv.index("design") + 1 :] if "design" in argv else argv
+    if args.project in rest:
+        rest.remove(args.project)
+    for word in rest:
+        if pool[word] > 0:
+            words.append(word)
+            pool[word] -= 1
+    text = " ".join(words)
+    quoted = f'"{text}"' if not set(text) & set('"$`\\!') else shlex.quote(text)
+    dash = text.startswith("-")
+    example = f"{RUN} design {shlex.quote(args.project)} " + (
+        f"--instruction={quoted}" if dash else quoted
+    )
+    message = (
+        "Put the whole request in quotes after the project name, so that it reaches the "
+        f"designer as one piece. For example: {example}"
+    )
+    if dash:
+        message += (
+            " (A request that starts with a dash is given with --instruction=, or it would "
+            "be read as an option.)"
+        )
+    return message
+
+
+def _request(args: argparse.Namespace) -> str | None:
+    """The change the person typed (second argument or --instruction), or None."""
+    if args.request is not None and args.instruction is not None:
+        raise UserError(
+            "You gave a request twice: once after the project name and once with "
+            "--instruction. Give it only once, for example: "
+            f'{RUN} design {shlex.quote(args.project)} "add a red collar"'
+        )
+    request = args.request if args.request is not None else args.instruction
+    if request is not None and not request.strip():
+        raise UserError(
+            "The request is empty. Type the change you want in quotes after the project "
+            f'name, for example: {RUN} design {shlex.quote(args.project)} "add a red collar"'
+        )
+    return request
+
+
+def _read_brief(project: Project) -> Any:
+    """project.meta["brief"] read afresh from project.json (None when it cannot be read)."""
+    try:
+        meta = json.loads((project.path / "project.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return meta.get("brief") if isinstance(meta, dict) else None
+
+
+def _print_kind(project: Project, kind: str, request: str | None) -> None:
+    """Say before the run which kind it is: a first design, or one change (quoted back)."""
+    from bricksnap.designer.runner import EDIT, has_brief
+
+    if kind == EDIT:
+        print(
+            "This is one change to a model that is already designed. Your request, as the "
+            f'designer will get it: "{request.strip() if request else ""}". The designer is '
+            "asked to make that change and leave the rest of the model as it is."
+        )
+    elif has_brief(project):
+        print(
+            "This is another full design pass: the model already has a brief from an earlier "
+            "run, and the designer may change any part of it. To change one thing only, type "
+            f'it in quotes after the project name: {RUN} design {_ref(project)} "add a red '
+            'collar"'
+        )
+    elif request:
+        print(
+            "This is a first design of the model. Your wish for it, which the designer will "
+            f'include: "{request.strip()}".'
+        )
+    else:
+        print("This is a first design of the model.")
+
+
+# Edit operations in plain words, as "2 painting".
+_OP_WORDS = {
+    "add": "adding cells",
+    "remove": "removing cells",
+    "paint": "painting",
+    "set_finish": "changing the surface finish",
+    "place_detail": "placing a detail part",
+    "remove_detail": "removing a detail part",
+}
+
+
+def _print_edit_summary(
+    project: Project,
+    run: Any,
+    build: Build,
+    log_before: int,
+    parts_before: int,
+    brief_before: Any,
+) -> None:
+    """What this edit changed, read from the project itself."""
+    log = load_design(project).log
+    added = log[log_before:] if len(log) > log_before else []
+    print()
+    print("What this change did:")
+    if added:
+        kinds = Counter(str(op.get("op", "?")) if isinstance(op, dict) else "?" for op in added)
+        words = ", ".join(f"{n} {_OP_WORDS.get(k, k)}" for k, n in kinds.most_common())
+        print(
+            f"  The designer added {_plural(len(added), 'edit operation')} ({words}) to the design."
+        )
+        if not run.ok:
+            print("  The run stopped before it finished, so the change may be only partly made.")
+    elif not run.ok:
+        # The last thing a stopped run wrote is a progress remark, not a reason.
+        print("  The run stopped before the designer changed anything, so the design is as it was.")
+        print(f"  Why it stopped: {run.error or 'it did not say.'}")
+    elif run.final_text.strip():
+        print("  The designer made no change to the design. It said why:")
+        for line in run.final_text.strip().splitlines():
+            print(f"    {line}")
+    else:
+        print("  The designer made no change to the design, and it did not say why.")
+    print(f"  Parts: {parts_before:,} before, {len(build.parts):,} after.")
+    if build.report is not None and build.report.ok:
+        print("  The build is valid.")
+    else:
+        print("  The build is NOT valid; the check report above says what is wrong.")
+    if _read_brief(project) == brief_before:
+        print("  The brief was kept as it was.")
+    else:
+        print("  The designer updated the brief; the new one is shown above.")
+
+
+def cmd_design(args: argparse.Namespace) -> int:
+    from bricksnap.designer.runner import EDIT, TOOL_PREFIX, run_designer, run_kind
+
+    request = _request(args)
     project = open_project(args.project)
-    load_design(project)  # fail now, with a clear message, if there is nothing to design
+    design_before = load_design(project)  # fail now, clearly, if there is nothing to design
     before = _design_fingerprint(project)
+    kind = run_kind(project, request)
+    log_before = len(design_before.log)
+    parts_before = 0
+    if kind == EDIT:
+        # Build the design as it is now, with this version of BrickSnap, so "before" is not
+        # a saved build that is older than the design or was made by older code.
+        from bricksnap.pipeline import rebuild
+
+        parts_before = len(rebuild(project).parts)
+    brief_before = _read_brief(project)
     print(f'Starting the AI designer for "{project.name}".')
+    _print_kind(project, kind, request)
     print(
         "This step sends pictures of the model and a description of it (its size, colours "
         "and parts) to the AI provider, Anthropic, through Claude Code. Nothing else in "
@@ -725,8 +915,8 @@ def cmd_design(args: argparse.Namespace) -> int:
     print()
     sys.stdout.flush()
     options: dict[str, Any] = {}
-    if args.instruction is not None:
-        options["instruction"] = args.instruction
+    if request is not None:
+        options["instruction"] = request
     if args.model is not None:
         options["model"] = args.model
     if args.effort is not None:
@@ -762,6 +952,8 @@ def cmd_design(args: argparse.Namespace) -> int:
         build, picture = _build_and_render(project)
         _print_verdict(build, project)
         ok = bool(build.report and build.report.ok)
+        if kind == EDIT:
+            _print_edit_summary(project, run, build, log_before, parts_before, brief_before)
         _print_outputs(project, picture)
     elif project.has_build():
         build = load_build(project)
@@ -799,11 +991,7 @@ def _colour_names(codes: Any) -> str:
 
 def _print_brief(project: Project) -> None:
     """The brief the designer wrote (project.meta["brief"]), read afresh after the run."""
-    try:
-        meta = json.loads((project.path / "project.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return
-    brief = meta.get("brief") if isinstance(meta, dict) else None
+    brief = _read_brief(project)
     if not brief:
         return
     print()
@@ -1208,7 +1396,16 @@ def _parser() -> _Parser:
         ),
     )
     p.add_argument("project", metavar="PROJECT", help=project_help)
-    p.add_argument("--instruction", metavar="TEXT", help="what you want the designer to do")
+    p.add_argument(
+        "request",
+        metavar="REQUEST",
+        nargs="?",
+        help='one change you want, in quotes, such as "add a red collar" (on a model that is '
+        "not designed yet: a wish the first design includes)",
+    )
+    p.add_argument(
+        "--instruction", metavar="TEXT", help="the same as REQUEST (give only one of them)"
+    )
     p.add_argument("--model", metavar="ID", help="which AI model to use")
     p.add_argument("--effort", metavar="LEVEL", help="how hard the AI should think")
     p.set_defaults(func=cmd_design)
@@ -1228,8 +1425,16 @@ def _parser() -> _Parser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = parser.parse_args(argv)
+        args, extras = parser.parse_known_args(argv)
+        if extras:
+            if getattr(args, "func", None) is cmd_design and _unquoted_request(extras):
+                raise UserError(_quote_your_request(args, argv, extras))
+            parser.error(f"unrecognized arguments: {' '.join(extras)}")
+    except UserError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
     except _ArgumentError as e:
         print(f"Error: {e}", file=sys.stderr)
         print(f"For help, run: {RUN} --help", file=sys.stderr)
