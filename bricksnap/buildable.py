@@ -66,6 +66,54 @@ Repairs, in this order of preference (the cheapest that works is used for each l
 A piece that stands on the ground by itself and touches nothing (a second, separate object)
 is not bridged; it is reported.
 
+STAGE 3 ADDITION TO THE CONTRACT: the pass also cures the worst weak spots
+(Being built by the lead's agent; until this line is removed, what follows is not in the
+code yet.)
+One piece is not enough. With the thinner fill, a model can be one piece and still hang
+together by a thread: in the sample pineapple at 16 studs, 124 of 240 parts hang on a single
+stud, because the fill left one cell between the body and the crown where the model is
+three studs wide; the spaceship's engine pods and the hat's brim touch the rest only side by
+side. The layout solver cannot cure these, because it may not add cells. This pass can.
+
+- After the model is one piece (or as close as the pass can get), look at the build's lone
+  links (``bricksnap.connect.lone_links``: a part, or a single-stud joint, that is a
+  group's only connection, and the cells that hang on it). A lone link is *heavy* when the
+  cells hanging on it are at least 40, or at least a tenth of the model's filled cells,
+  whichever is smaller, and at least 12.
+- For each heavy lone link, heaviest first, try to give its group a second connection, in
+  this order, keeping a change only if the heaviest load in the whole build goes down (or
+  stays and the number of heavy lone links goes down), the model is still one piece, and
+  nothing that was attached comes loose:
+  1. fill partly covered cells (skin) around the link: the cells beside the part or joint
+     and beside the group's cells next to it, in their own colour, smallest set first;
+  2. recolour hidden cells there, as for loose pieces, so one part can span the seam where
+     two colours meet;
+  3. where the group touches the rest only side by side, add ONE cell (a clamp, as for loose
+     pieces) so a part of the body reaches across.
+  It never thickens or adds support columns for a weak spot: those change the look too much
+  for something that already holds.
+- Bounded: this phase may use at most ``max_sturdy_solves`` solves (default 8) beyond those
+  the pass already used, and stops early when no heavy lone link is left. A 16-stud model
+  still finishes in under 10 seconds.
+- The guarantees of the pass hold unchanged: nothing emptied, no visible cell recoloured,
+  every filled or added cell reported in the masks and in a note. The notes for this phase
+  say what was hanging and on what, and what was done, for example: "Filled 8 partly
+  covered cells at x=5 to 7, y=3 to 5, z=18 so that the top of the model (124 parts) no
+  longer hangs on a single stud."
+- A model with no heavy lone link comes back exactly as before this addition.
+- What is left is said plainly: a heavy lone link the phase could not cure gets a note
+  with its place, how much hangs on it, and why nothing helped (no partly covered cell
+  beside it, for instance: the model really is that thin there).
+
+Tests must include: a body and a crown joined through one cell where skin cells surround
+it (cured by filling skin, and the heaviest load drops); two blocks of different colours
+touching side by side with hidden cells at the seam (cured by recolouring); a pod beside a
+hull touching only side by side with no skin (cured by one clamp cell); a neck that really
+is one cell wide with no skin beside it (not cured, and the note says so); a model with no
+heavy lone link (unchanged, same fingerprint); the sample pineapple, spaceship and hat at
+16 studs (heaviest load lower than without this phase, still one piece, all guarantees
+hold); every sample at 12, 16 and 24 studs still builds with no loose parts.
+
 What must be true of the result
 - No filled cell is ever emptied, and the colour of a visible cell is never changed. The
   look changes only through added cells, and every added cell is reported. A cell added
