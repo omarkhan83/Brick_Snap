@@ -15,3 +15,7 @@ than two points below today's, and every model still builds with no loose parts.
 ## Notes
 Measure with `uv run bricksnap bench` before and after. The outline match and the part count are both in
 the table.
+
+2026-11-17, Alec-42's agent: filling cells by coverage (now on `main`) took the duck at 16 studs from
+622 parts to 503 and the eleven samples from 3,615 to 2,809. The target here is the duck under 450. The
+two ideas above are still untried.

@@ -72,6 +72,9 @@ projects/<name>/
 - `finish`: small-integer array, same shape. What the exposed top of a cell should be: 0 studs (default),
   1 smooth (tiles), 2 sloped. The conversion marks cells sloped where the seed's own surface is slanted;
   the designer marks more, or unmarks them. A mark only matters on a cell with nothing above it.
+- `skin`: integer array, same shape, empty except in the cells the seed's surface passes through but covers
+  less than half of, where it holds the colour the cell would have had. Edits never touch it; the
+  make-buildable pass may fill such a cell.
 - `details`: a list of small parts standing on free studs (part, colour, cell, rotation), such as round
   tiles for eyes. A detail occupies cells that are empty in `colors`, directly above filled ones.
 - `regions`: names for areas of the grid ("ear_left"), stored as the shape that defined them.
@@ -109,29 +112,38 @@ applied, and the same tool works unchanged when the AI later runs on the API.
 ## Deterministic steps
 
 **Voxelise (seed to Design).** Scale the mesh so its longest side is the requested number of studs, stand
-it on the ground, and centre it on the stud grid so that a symmetric model comes out symmetric. Mark every
-cell the surface passes through, then fill everything the outside cannot reach (this tolerates scans with
-small holes). Take colours from the mesh where it has them and snap each to the catalogue colour that looks
-closest (the CIEDE2000 colour difference, not distance in RGB); otherwise use one default colour. Mark a
-cell's finish as sloped where the seed's upward-facing surface in it is slanted between 20 and 70 degrees.
-Optionally hollow the inside, keeping a shell. A model with zero size on any axis is rejected with a clear
+it on the ground, and centre it on the stud grid so that a symmetric model comes out symmetric. A cell is
+filled when the model fills most of it, judged along each axis so that a box stays a box wherever it sits.
+A feature thinner than a cell (a whisker, a fin, a brim) keeps one cell of thickness and stays joined to
+the body it grows from. The cells the model's surface passes through but covers less than half of are
+remembered as the Design's *skin*, each with the colour it would have had; skin nobody can see (the
+inside of a hollow shape) is filled, because it thickens the wall and changes nothing visible. Colours
+come from the mesh where it has them, snapped to the catalogue colour that looks closest (the CIEDE2000
+colour difference, lightness counted half); otherwise one default colour. A cell's finish is marked
+sloped where the seed's upward-facing surface in it is slanted between 20 and 70 degrees. Optionally the
+deep inside is hollowed, keeping a shell. A model with zero size on any axis is rejected with a clear
 message.
 
 **Make buildable (Design to Design).** Parts only hold each other through studs, vertically, and each part
-has one colour. So some Designs have no layout in which everything is attached: a feature in its own
-colour stuck on the side of the body, a sheet one plate thin, something hanging in the air. This pass uses
-the layout solver as its judge: solve, look at what is loose, repair the Design near it, solve again. Its
-repairs, cheapest first:
+has one colour. So some Designs have no layout in which everything is attached, and others hold together
+by a thread. This pass uses the layout solver as its judge: solve, look at what is loose or what hangs on
+a single part, repair the Design near it, solve again. Its repairs, cheapest first:
 
-1. Recolour cells nobody can see (every neighbour filled, or facing only an enclosed hollow), so that the
-   loose feature's parts can reach into the body and be held from above and below. This changes nothing
+1. Recolour cells nobody can see (every neighbour filled, or facing only an enclosed hollow), so that a
+   feature's parts can reach into the body and be held from above and below. This changes nothing
    visible, and it is what makes a nose stay on a face.
-2. Thicken a thin sheet from beneath, so parts in two levels can overlap.
-3. Add a support column under something that hangs, hidden inside a hollow when possible.
+2. Fill skin cells next to the trouble, in their own colour. The model does pass through them, so the
+   outline moves by less than half a cell.
+3. Thicken a thin sheet (from beneath, or from above when it lies on the ground), so parts in two levels
+   can overlap.
+4. Clamp: one cell of the body's colour over the root of something that touches the body only at its
+   side, so a body part reaches across it.
+5. Add a support column under something that hangs, hidden inside a hollow when possible.
 
-It never empties a cell and never changes the colour of a visible one. It works on a copy inside every
-rebuild: the saved Design stays exactly what the designer or the person made, and what the pass did is
-written in the Build's notes.
+For a section that hangs on one part or one stud but is not loose, only repairs 1, 2 and 4 are used: a
+weak spot is not worth changing the look for. The pass never empties a cell and never changes the colour
+of a visible one. It works on a copy inside every rebuild: the saved Design stays exactly what the
+designer or the person made, and what the pass did is written in the Build's notes.
 
 **Layout (Design to Build).** The solver chooses parts.
 1. Split the height into courses of three plates. Where a cell is filled through a whole course it becomes
@@ -162,8 +174,8 @@ steps and pictures: a cover, the parts, then one page per step with the new part
 rest pale, turned round when the new parts are at the back, with a sentence and a close-up for any part
 the picture hides.
 
-**The rough build.** The untouched base Design laid out with no passes at all is kept as
-`build.rough.json`. It is the "before" in every before-and-after picture and in the scorecard.
+**The rough build.** The untouched base Design, made to hold together by the make-buildable pass and laid
+out in bricks and plates with no finishing and no edits, is kept as `build.rough.json`. It is the "before" in every before-and-after picture and in the scorecard.
 
 **The scorecard.** `bricksnap bench` builds every model in `samples/models/` and prints one row each:
 valid or not, loose parts, part count, how much of the upward surface is tiles, slopes, or details rather

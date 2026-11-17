@@ -42,8 +42,9 @@ part and colour pairs that exist.
 - Choose the showcase models. If a physical model is wanted, order its parts as soon as its design is
   good enough, because parts take time to arrive.
 - Closer and sturdier, measured on the scorecard (`uv run bricksnap bench`, compared with
-  `samples/scorecard.json`): fill cells by how much of them the model covers, tie big sections together
-  with more than one part, and use fewer small plates on curved models.
+  `samples/scorecard.json`). Done: cells are filled by how much of them the model covers, and big sections
+  are tied together with more than one part. Open: the weak spots that remain in thin models, and fewer
+  small plates on curved models.
 
 ### Stage 4: usable and presentable
 
