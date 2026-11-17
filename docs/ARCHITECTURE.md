@@ -58,6 +58,8 @@ projects/<name>/
   build.ldr          the LDraw file
   parts.csv          the parts list (written by `bricksnap export`)
   wanted_list.xml    the same list in BrickLink's upload format
+  instructions.pdf   the instruction booklet (written by `bricksnap instructions`), and .html
+  candidates/        the designs a best-of run made, with the judge's verdict
   renders/           pictures
   designer/          transcripts of AI design runs
 ```
@@ -155,7 +157,10 @@ section hanging on one stud, a long unsupported span) are listed in plain words 
 the AI or a person can act on them. Working out forces is a later stage.
 
 **Outputs.** `build.ldr` with steps (opens in BrickLink Studio, LeoCAD, LDView); a parts list; a BrickLink
-wanted-list file; pictures.
+wanted-list file; pictures; and an instruction booklet (`instructions.pdf` and `.html`) made from our own
+steps and pictures: a cover, the parts, then one page per step with the new parts in full colour and the
+rest pale, turned round when the new parts are at the back, with a sentence and a close-up for any part
+the picture hides.
 
 **The rough build.** The untouched base Design laid out with no passes at all is kept as
 `build.rough.json`. It is the "before" in every before-and-after picture and in the scorecard.
@@ -178,7 +183,17 @@ The designer is a language model with five tools and nothing else:
 | `rebuild` | Runs make-buildable, layout, finish, and checks; returns the notes and the report |
 
 It works in this order: look, write the brief, edit, rebuild, look again, for a bounded number of rounds.
-The same tools serve a person's chat edits.
+
+**A typed edit.** When the project already has a brief and the person gives a request ("add a red
+collar"), the designer is told the model is already designed and asked for that change and nothing else.
+It brings the brief up to date only where the request touches it.
+
+**Best of several.** `design --best-of N` designs the model N times on copies of the project, then starts
+a second clean-room session, the judge, with its own prompt and two tools: `look` (pictures of the
+candidates under letters, with a line of facts) and `choose` (a ranking with a reason for each). The judge
+does not know which candidate is which or how they were made. The one it ranks first replaces the project;
+the others stay in `candidates/` with the verdict. If the judge fails, the candidate whose outline matches
+the seed best is kept, and the result says so.
 
 Prompt and tool definitions live in `bricksnap/designer/` as plain files, defined once.
 
@@ -246,11 +261,13 @@ bricksnap/
   checks.py       Build to report
   ldraw.py        Build to LDraw text
   export.py       parts list and BrickLink wanted list
+  instructions.py the instruction booklet
   bench.py        the scorecard over the test models
   render.py       pictures of a mesh, a Design, or a Build (plain numpy, no GPU)
   project.py      read and write a project folder
   cli.py          the `bricksnap` command
-  designer/       prompt.md, tools.py, mcp_server.py, runner.py, parity.py
+  designer/       prompt.md, tools.py, mcp_server.py, runner.py, parity.py; the judge: judge.py,
+                  judge_prompt.md, judge_server.py
 viewer/           a build-free web page that shows a project folder in 3D
 tests/            unit tests and acceptance tests
 samples/          test models (with their licences) and example projects
@@ -267,7 +284,8 @@ Rules that keep parallel work from colliding:
 - Python 3.12 or newer, managed by `uv`. `uv sync` installs everything.
 - `uv run pytest` runs the tests, `uv run ruff check` and `uv run ruff format` lint and format,
   `uv run ty check` checks types.
-- `uv run bricksnap <command>`: `new`, `build`, `check`, `render`, `export`, `ops`, `design`, `view`, `bench`.
+- `uv run bricksnap <command>`: `new`, `build`, `check`, `render`, `export`, `instructions`, `ops`,
+  `design`, `view`, `bench`.
 - The viewer is plain JavaScript modules with three.js copied into `viewer/vendor/`; `bricksnap view`
   serves it with Python's built-in web server. It is tested with headless Chromium through Playwright.
 

@@ -1890,3 +1890,378 @@ def test_compare_sheet_of_5000_round_parts_is_fast(catalog):
     elapsed = time.perf_counter() - start
     assert sheet.width > 0
     assert elapsed < 5.0, elapsed
+
+
+# ---- stage 4: instruction pictures -----------------------------------------------------------
+
+
+def turned_round(build: Build, catalog) -> Build:
+    """The same Build turned half a turn about the vertical axis through the grid's centre."""
+    nx, ny, _ = build.shape
+    parts = []
+    for p in build.parts:
+        w, d, _ = catalog.footprint(p)
+        parts.append(
+            Placement(p.part, p.color, nx - p.x - w, ny - p.y - d, p.z, (p.rot + 180) % 360, p.step)
+        )
+    return Build(build.shape, parts)
+
+
+def lopsided_build() -> Build:
+    """Bricks and plates of three colours, lopsided in every direction, in three steps."""
+    return Build(
+        (7, 6, 9),
+        [
+            Placement("3001", RED, 0, 0, 0, 0, 1),
+            Placement("3003", BLUE, 4, 3, 0, 0, 1),
+            Placement("3010", YELLOW, 2, 1, 3, 90, 2),
+            Placement("3020", GREEN, 1, 3, 6, 0, 3),
+            Placement("3005", WHITE, 6, 5, 0, 0, 2),
+        ],
+    )
+
+
+def shaped_build() -> Build:
+    return Build(
+        (8, 6, 9),
+        [
+            Placement("3001", RED, 0, 0, 0, 0, 1),
+            Placement("3039", BLUE, 0, 0, 3, 90, 2),
+            Placement("3040b", YELLOW, 2, 0, 3, 180, 2),
+            Placement("6143", GREEN, 5, 2, 0, 0, 1),
+            Placement("4286", RED, 5, 2, 3, 270, 3),
+            Placement("59900", WHITE, 7, 5, 0, 0, 3),
+        ],
+    )
+
+
+def test_iso_back_is_a_known_view(catalog):
+    assert "iso_back" in R.ALL_VIEWS and "iso_back" not in R.VIEWS
+    assert R.VIEWS == ("front", "right", "back", "left", "top", "iso")
+    f = R.view_frame((5, 4, 6), "iso_back", px_per_stud=12)
+    assert not f.straight and not f.labels
+    assert R.view_frame((5, 4, 6), "iso", px_per_stud=12).straight is False
+    with pytest.raises(ValueError, match='Unknown view "back_iso".*iso_back'):
+        R.view_frame((5, 4, 6), "back_iso")
+
+
+def test_iso_back_frame_is_iso_from_the_other_side():
+    """The back-left view of a point is the front-right view of that point turned round."""
+    shape = (7, 5, 11)
+    iso = R.view_frame(shape, "iso", px_per_stud=16)
+    back = R.view_frame(shape, "iso_back", px_per_stud=16)
+    assert (back.width, back.height) == (iso.width, iso.height)
+    rng = np.random.default_rng(1)
+    pts = rng.uniform(0, 1, (50, 3)) * np.array(shape)
+    turned = np.column_stack([shape[0] - pts[:, 0], shape[1] - pts[:, 1], pts[:, 2]])
+    assert np.allclose(back.project(pts), iso.project(turned))
+    # the camera looks from the back left and above: -x, +y, up
+    towards = np.array(back.camera[2])
+    assert towards[0] < 0 and towards[1] > 0 and towards[2] > 0
+
+
+def test_iso_back_of_a_build_is_iso_of_the_build_turned_round(catalog):
+    b = lopsided_build()
+    back = arr(R.render_build(b, catalog, "iso_back"))
+    turned = arr(R.render_build(turned_round(b, catalog), catalog, "iso"))
+    assert back.shape == turned.shape
+    assert (back == turned).all()
+    # and it is not just the front view again
+    assert (back != arr(R.render_build(b, catalog, "iso"))).any(axis=2).sum() > 500
+
+
+def test_iso_back_of_shaped_parts_is_iso_turned_round(catalog):
+    b = shaped_build()
+    back = arr(R.render_build(b, catalog, "iso_back"))
+    turned = arr(R.render_build(turned_round(b, catalog), catalog, "iso"))
+    differ = (np.abs(back - turned).sum(axis=2) > 30).sum()
+    assert differ <= 0.003 * back.shape[0] * back.shape[1], differ
+
+
+@pytest.mark.parametrize("s", [5, 16])
+def test_seed_and_design_line_up_in_iso_back(catalog, s):
+    boxes = (((0, 0, 0), (5, 2, 3)), ((0, 0, 3), (2, 4, 9)))
+    offset = (2, 1, 1)
+    d = design_of((9, 7, 12), offset, *boxes)
+    si = arr(R.render_seed(seed_of(*boxes), "iso_back", d.shape, seed_offset=offset, px_per_stud=s))
+    di = arr(R.render_design(d, catalog, "iso_back", px_per_stud=s))
+    ms, md = drawn_mask(si), drawn_mask(di)
+    assert ms.sum() > 50
+    assert (ms != md).sum() == 0
+    assert (md != drawn_mask(arr(R.render_design(d, catalog, "iso", px_per_stud=s)))).sum() > 50
+
+
+def test_silhouette_in_iso_back(catalog):
+    b = lopsided_build()
+    sil = R.silhouette(b, catalog, "iso_back")
+    f = R.view_frame(b.shape, "iso_back", px_per_stud=8, labels=False)
+    assert sil.shape == (f.height, f.width) and sil.sum() > 100
+    assert (sil == R.silhouette(turned_round(b, catalog), catalog, "iso")).all()
+
+
+def test_highlight_defaults_change_no_picture(catalog):
+    """Without highlight_step, or highlighting step 1 when every part is in step 1, every
+    picture is exactly what it was before stage 4."""
+    b = lopsided_build()
+    same_step = Build(
+        b.shape, [Placement(p.part, p.color, p.x, p.y, p.z, p.rot, 1) for p in b.parts]
+    )
+    for view in R.VIEWS:
+        plain = R.render_build(b, catalog, view).tobytes()
+        assert R.render_build(b, catalog, view, highlight_step=None).tobytes() == plain
+        assert (
+            R.render_build(b, catalog, view, upto_step=None, highlight_step=None).tobytes() == plain
+        )
+        one = R.render_build(same_step, catalog, view).tobytes()
+        assert R.render_build(same_step, catalog, view, highlight_step=1).tobytes() == one
+
+
+def two_steps() -> Build:
+    return Build(
+        (4, 2, 6), [Placement("3001", RED, 0, 0, 0, 0, 1), Placement("3001", BLUE, 0, 0, 3, 0, 2)]
+    )
+
+
+def pale_mask(a: np.ndarray) -> np.ndarray:
+    """Pinkish pixels: red blended most of the way to the background."""
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return (r > 170) & (r > g + 20) & (g > 120) & (np.abs(g - b) < 30)
+
+
+@pytest.mark.parametrize("view", ["iso", "iso_back", "front", "right", "top"])
+def test_highlight_draws_earlier_steps_pale(catalog, view):
+    b = two_steps()
+    plain = arr(R.render_build(b, catalog, view, upto_step=2))
+    lit = arr(R.render_build(b, catalog, view, upto_step=2, highlight_step=2))
+    assert plain.shape == lit.shape
+    # this step's part as usual: every blue pixel of the plain picture away from its outline
+    blue = blue_mask(plain)
+    inner = blue.copy()
+    inner[1:, :] &= blue[:-1, :]
+    inner[:-1, :] &= blue[1:, :]
+    inner[:, 1:] &= blue[:, :-1]
+    inner[:, :-1] &= blue[:, 1:]
+    if view != "top":  # from above the red brick is hidden under the blue one
+        assert red_mask(plain).sum() > 50
+        assert red_mask(lit).sum() == 0, "the earlier step is not drawn in full colour"
+        assert pale_mask(lit).sum() > 0.6 * red_mask(plain).sum()
+    assert inner.sum() > 50
+    assert (lit[inner] == plain[inner]).all()
+
+
+def test_pale_parts_keep_their_outlines(catalog):
+    b = Build(
+        (6, 2, 3),
+        [
+            Placement("3001", RED, 0, 0, 0, 0, 1),
+            Placement("3004", RED, 4, 0, 0, 0, 1),
+            Placement("3005", BLUE, 0, 0, 3, 0, 2),
+        ],
+    )
+    b.shape = (6, 2, 6)
+    f = R.view_frame(b.shape, "front")
+    lit = R.render_build(b, catalog, "front", highlight_step=2)
+    a = arr(lit)
+    # along a row through both red bricks, the line between them is darker than their fill
+    _, row = f.cell_center(0, 0, 1)
+    line = a[int(row), :, :].sum(axis=1)
+    c_left, _ = f.cell_center(2, 0, 1)
+    c_right, _ = f.cell_center(4, 0, 1)
+    fill = line[int(c_left)]
+    between = line[int(c_left) : int(c_right) + 1].min()
+    assert fill > 500  # pale: full red (180, 0, 0) would sum to 180
+    assert between < fill - 120  # an outline
+
+
+def test_highlight_without_upto_step_still_draws_later_steps(catalog):
+    b = Build(
+        (4, 2, 9),
+        [
+            Placement("3001", RED, 0, 0, 0, 0, 1),
+            Placement("3001", BLUE, 0, 0, 3, 0, 2),
+            Placement("3001", YELLOW, 0, 0, 6, 0, 3),
+        ],
+    )
+    a = arr(R.render_build(b, catalog, "front", highlight_step=2))
+    assert red_mask(a).sum() == 0 and pale_mask(a).sum() > 50
+    assert blue_mask(a).sum() > 50 and yellow_mask(a).sum() > 50
+
+
+def test_highlight_works_for_shaped_parts(catalog):
+    b = shaped_build()
+    for view in ("iso", "iso_back", "front"):
+        lit = arr(R.render_build(b, catalog, view, highlight_step=3))
+        plain = arr(R.render_build(b, catalog, view))
+        # the step 1 red brick is pale; the step 3 red slope is still red
+        assert 0 < red_mask(lit).sum() < red_mask(plain).sum()
+
+
+def test_render_part_draws_one_part_in_its_colour(catalog):
+    im = R.render_part("3001", RED, catalog)
+    a = arr(im)
+    assert im.mode == "RGB"
+    for corner in (a[0, 0], a[0, -1], a[-1, 0], a[-1, -1]):
+        assert tuple(int(v) for v in corner) == R.BACKGROUND
+    assert red_mask(a).sum() > 0.25 * a.shape[0] * a.shape[1]
+    # nothing but the part: every drawn pixel is a shade of red (outlines are darker reds)
+    reddish = (a[..., 0] > a[..., 1] + 25) & (a[..., 0] > a[..., 2] + 25)
+    assert (reddish | ~drawn_mask(a)).all()
+    blue = arr(R.render_part("3001", BLUE, catalog))
+    assert blue_mask(blue).sum() > 0.25 * blue.shape[0] * blue.shape[1]
+
+
+def test_render_part_is_to_scale_and_three_quarter(catalog):
+    one = R.render_part("3005", RED, catalog)
+    long = R.render_part("3008", RED, catalog)
+    plate = R.render_part("3024", RED, catalog)
+    assert long.width > 2 * one.width
+    assert plate.height < one.height
+    big = R.render_part("3005", RED, catalog, px_per_stud=48)
+    assert 1.6 < big.width / one.width < 2.4
+    # three-quarter: the frame of the iso view of the part's own box
+    f = R.view_frame((1, 1, 3), "iso", px_per_stud=24, labels=False)
+    assert one.size == (f.width, f.height)
+
+
+def test_render_part_has_its_real_shape(catalog):
+    square = drawn_mask(arr(R.render_part("3024", RED, catalog)))
+    round_ = drawn_mask(arr(R.render_part("6141", RED, catalog)))
+    assert square.shape == round_.shape
+    assert round_.sum() < square.sum()
+    brick = drawn_mask(arr(R.render_part("3003", RED, catalog)))
+    slope = drawn_mask(arr(R.render_part("3039", RED, catalog)))
+    assert slope.sum() < brick.sum() - 100
+
+
+def test_render_part_errors_are_plain(catalog):
+    with pytest.raises(ValueError, match="no part"):
+        R.render_part("no-such-part", RED, catalog)
+    with pytest.raises(ValueError, match="pixels per stud"):
+        R.render_part("3001", RED, catalog, px_per_stud=1)
+
+
+def boxed_in() -> Build:
+    """A 1x1 brick in the middle of a ring of eight, capped by a plate in a later step."""
+    parts = [Placement("3005", BLUE, 1, 1, 0, 0, 1)]
+    parts += [
+        Placement("3005", RED, x, y, 0, 0, 1)
+        for x in range(3)
+        for y in range(3)
+        if (x, y) != (1, 1)
+    ]
+    parts.append(Placement("3024", YELLOW, 1, 1, 3, 0, 2))
+    return Build((3, 3, 4), parts)
+
+
+def test_visible_parts_leaves_out_enclosed_parts(catalog):
+    b = boxed_in()
+    for view in ("iso", "iso_back"):
+        seen = R.visible_parts(b, catalog, view)
+        assert seen == set(range(1, 10)), view
+        before_cap = R.visible_parts(b, catalog, view, upto_step=1)
+        assert before_cap == set(range(9)), view
+    assert 0 not in R.visible_parts(b, catalog, "top")
+    assert 0 not in R.visible_parts(b, catalog, "front")
+
+
+def test_visible_parts_indices_are_the_builds_own(catalog):
+    b = boxed_in()
+    parts = list(b.parts)
+    parts.insert(0, Placement("3005", GREEN, 0, 0, 4, 0, 3))  # out of the grid's top: later
+    b2 = Build((3, 3, 6), parts)
+    seen = R.visible_parts(b2, catalog, "iso", upto_step=2)
+    assert 0 not in seen  # step 3 is not drawn
+    assert seen == set(range(2, 11))
+
+
+def test_part_pixels_counts_what_shows(catalog):
+    b = boxed_in()
+    counts = R.part_pixels(b, catalog, "iso")
+    assert 0 not in counts
+    assert set(counts) == set(range(1, 10))
+    assert all(v > 0 for v in counts.values())
+    # the plate on top shows its whole top face and studs at 8 pixels a stud
+    assert counts[9] > 40
+    big = R.part_pixels(b, catalog, "iso", px_per_stud=16)
+    assert 3 * counts[9] < big[9] < 5 * counts[9]
+
+
+def walls_hide_a_corner() -> Build:
+    """A low brick at the back left, hidden from the front right by two tall walls."""
+    parts = [Placement("3005", BLUE, 0, 3, 0, 0, 2)]
+    for z in (0, 3, 6, 9):
+        parts.append(Placement("3010", RED, 0, 2, z, 0, 1))  # along x, in front of it
+        parts.append(Placement("3010", RED, 1, 3, z, 90, 1))  # along y, to its right
+    return Build((4, 7, 12), parts)
+
+
+def test_a_part_hidden_from_the_front_shows_from_the_back(catalog):
+    b = walls_hide_a_corner()
+    assert 0 not in R.visible_parts(b, catalog, "iso")
+    assert 0 in R.visible_parts(b, catalog, "iso_back")
+    a = arr(R.render_build(b, catalog, "iso_back"))
+    assert blue_mask(a).sum() > 100
+
+
+def test_visible_parts_needs_a_few_pixels(catalog):
+    b = boxed_in()
+    counts = R.part_pixels(b, catalog, "iso")
+    k = min(counts, key=lambda i: counts[i])
+    assert k in R.visible_parts(b, catalog, "iso", min_pixels=counts[k])
+    assert k not in R.visible_parts(b, catalog, "iso", min_pixels=counts[k] + 1)
+
+
+def test_instruction_pictures_are_deterministic(catalog):
+    b = shaped_build()
+    for view in ("iso", "iso_back"):
+        one = R.render_build(b, catalog, view, upto_step=2, highlight_step=2).tobytes()
+        assert one == R.render_build(b, catalog, view, upto_step=2, highlight_step=2).tobytes()
+    assert (
+        R.render_part("3039", RED, catalog).tobytes()
+        == R.render_part("3039", RED, catalog).tobytes()
+    )
+
+
+def test_part_map_says_which_part_each_pixel_shows(catalog):
+    b = lopsided_build()
+    for view in ("iso", "iso_back", "front", "top"):
+        m = R.part_map(b, catalog, view, upto_step=2, px_per_stud=12)
+        f = R.view_frame(b.shape, view, px_per_stud=12, labels=False)
+        assert m.shape == (f.height, f.width)
+        assert m.min() == -1 and set(np.unique(m).tolist()) <= {-1, 0, 1, 2, 4}
+        # it lines up with the picture: where the map says background, the picture is
+        a = arr(R.render_build(b, catalog, view, upto_step=2, px_per_stud=12, labels=False))
+        assert (drawn_mask(a)[m < 0]).mean() < 0.01
+        assert (drawn_mask(a)[(m >= 0) & (m != 4)]).all()  # 4 is white, near the background
+        # the yellow 1x4 (index 2) is where the yellow pixels are
+        yellow = yellow_mask(a)
+        if yellow.any():
+            assert (m[yellow] == 2).mean() > 0.95
+        counts = R.part_pixels(b, catalog, view, upto_step=2, px_per_stud=12)
+        assert counts == {int(i): int((m == i).sum()) for i in np.unique(m).tolist() if i >= 0}
+
+
+def test_render_build_map_is_the_picture_and_its_part_map_at_once(catalog):
+    b = shaped_build()
+    for view in ("iso", "iso_back", "front"):
+        for upto, lit in ((None, None), (2, 2), (3, 2)):
+            im, m = R.render_build_map(
+                b, catalog, view, px_per_stud=10, labels=False, upto_step=upto, highlight_step=lit
+            )
+            alone = R.render_build(
+                b, catalog, view, px_per_stud=10, labels=False, upto_step=upto, highlight_step=lit
+            )
+            assert im.tobytes() == alone.tobytes()
+            assert (m == R.part_map(b, catalog, view, upto, px_per_stud=10)).all()
+
+
+def test_part_pixels_of_several_views_from_one_scene(catalog):
+    b = shaped_build()
+    for upto in (None, 2):
+        views = ("iso", "iso_back", "front")
+        many = R.part_pixels_views(b, catalog, views, upto_step=upto)
+        assert list(many) == list(views)
+        for view in views:
+            assert many[view] == R.part_pixels(b, catalog, view, upto_step=upto), view
+    big = R.part_pixels_views(b, catalog, ("iso",), px_per_stud=12)
+    assert big["iso"] == R.part_pixels(b, catalog, "iso", px_per_stud=12)

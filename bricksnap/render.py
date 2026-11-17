@@ -82,6 +82,19 @@ Detail parts need nothing special: they are ordinary Placements in the Build.
   ``seed_offset`` are needed for a Seed (as in ``render_seed``) and ignored otherwise.
   Used by the scorecard to measure how closely a build's outline matches its seed.
 
+STAGE 4 ADDITIONS TO THE CONTRACT: instruction pictures
+
+For the instruction booklet (``bricksnap.instructions``):
+- ``render_build(..., upto_step=k, highlight_step=k)``: parts of step ``k`` as usual, parts
+  of earlier steps pale (blended most of the way to the background, outlines kept);
+- a second three-quarter view, "iso_back", from the back left and above, the mirror image
+  of "iso" about the model's centre;
+- ``render_part(part_id, colour, catalog, px_per_stud=24) -> Image``: one part alone on a
+  light background, three-quarter view, in its real shape;
+- ``visible_parts(build, catalog, view, upto_step=None) -> set[int]``: the indices of the
+  parts of which at least a few pixels show in that view.
+None of this changes any picture the renderer draws today.
+
 Implementation notes
 --------------------
 - Every view is an affine map from continuous grid coordinates (x and y in studs, z in
@@ -154,6 +167,39 @@ Implementation notes
   rows are sampled at pixel centres, so some one-plate parts would not be drawn at all.
 - ``label_texts`` lists every text in the label margins (with the tick it belongs to);
   the pictures draw exactly that list.
+
+Implementation notes for stage 4
+- ``VIEWS`` is unchanged (the six views every older caller and test walks through);
+  ``ALL_VIEWS`` adds "iso_back", and ``ISO_VIEWS`` names the two three-quarter views. Every
+  function that takes a view accepts "iso_back", seeds and Designs included.
+- "iso_back" is "iso" with the whole scene turned half a turn about the vertical line
+  through the grid's centre (cell (x, y, z) to (nx - 1 - x, ny - 1 - y, z), shaped parts'
+  triangles and normals likewise). Its picture is therefore exactly the "iso" picture of
+  the Build turned round, same size, same shading and the same light; ``view_frame`` gives
+  the matching map from the grid's own coordinates. A seed is drawn the same way.
+- Highlighting changes colours only after the picture is shaded and before outlines are
+  drawn: every pixel that belongs to a part of an earlier step is blended ``PALE`` (0.7)
+  of the way to the background. Its shading, depth fade and studs stay readable, and its
+  outlines are drawn from the pale colour, so they stay (fainter than those of the new
+  parts). Parts of the step itself, and later ones that ``upto_step`` lets in, are drawn
+  exactly as without highlighting. Without ``highlight_step`` the drawing code path is the
+  one used before stage 4, so no existing picture changes (tests compare bytes).
+- ``part_map(build, catalog, view, upto_step=None, px_per_stud=8, labels=False)`` gives,
+  for every pixel of the picture ``render_build`` draws with the same arguments, the index
+  into ``build.parts`` of the part it shows (-1 for background and margins), so a caller
+  can mark parts on the picture. ``part_pixels(build, catalog, view, upto_step=None,
+  px_per_stud=8) -> {index: pixels}`` counts those pixels per part (its studs and outline
+  included, labels off). ``render_build_map`` returns the picture and its part map from
+  one drawing, for callers that need both; ``part_pixels_views(build, catalog, views,
+  upto_step=None, px_per_stud=8)`` gives ``part_pixels`` for several views from one
+  scene (the booklet measures both three-quarter views of every step, and making the
+  scene is a third of that work). ``visible_parts`` is the parts with at least
+  ``min_pixels``
+  (default 4) of them: at 8 pixels a stud that is a sliver about a tenth of the top of a
+  1x1 plate. Indices are always those of ``build.parts``, also with ``upto_step``.
+- ``render_part`` draws the part at rot 0 in a grid exactly its own size, "iso", without
+  labels, so parts of different sizes come out at the same scale. An unknown part id is a
+  plain ``ValueError``; a colour not in the catalogue is drawn magenta, as everywhere.
 """
 
 from __future__ import annotations
@@ -181,6 +227,9 @@ from bricksnap.types import (
 
 VIEWS = ("front", "right", "back", "left", "top", "iso")
 STRAIGHT_VIEWS = VIEWS[:5]
+ISO_VIEWS = ("iso", "iso_back")
+ALL_VIEWS = VIEWS + ("iso_back",)
+PALE = 0.7  # how far parts of earlier steps are blended towards the background
 
 BACKGROUND = (246, 246, 243)
 GRID_LINE = (232, 232, 227)
@@ -247,7 +296,7 @@ class Frame:
 
     @property
     def straight(self) -> bool:
-        return self.view != "iso"
+        return self.view not in ISO_VIEWS
 
 
 def _vec3(v) -> tuple[float, float, float]:
@@ -259,8 +308,8 @@ def _mat3(m) -> tuple[tuple[float, float, float], ...]:
 
 
 def _check_view(view: str) -> None:
-    if view not in VIEWS:
-        raise ValueError(f'Unknown view "{view}". Choose one of: {", ".join(VIEWS)}.')
+    if view not in ALL_VIEWS:
+        raise ValueError(f'Unknown view "{view}". Choose one of: {", ".join(ALL_VIEWS)}.')
 
 
 def _check_scale(px_per_stud: int) -> None:
@@ -383,7 +432,7 @@ def view_frame(
     s = int(px_per_stud)
     n = (nx, ny, nz)
     pad = _pad(s)
-    if view == "iso":
+    if view in ISO_VIEWS:
         right, up, towards = _iso_camera()
         k = s / STUD_MM
         cell = np.asarray(CELL_MM)
@@ -400,6 +449,12 @@ def view_frame(
         left = top = pad
         matrix = np.stack([k * right * cell, -k * up * cell, -towards * cell])
         offset = np.array([left - cols.min(), top - rows.min(), -depth.min()])
+        if view == "iso_back":
+            # the iso picture of the grid turned half a turn: (x, y, z) -> (nx - x, ny - y, z)
+            turn = np.diag([-1.0, -1.0, 1.0])
+            offset = matrix @ np.array([nx, ny, 0.0]) + offset
+            matrix = matrix @ turn
+            right, up, towards = (turn @ v for v in (right, up, towards))
         return Frame(
             view=view,
             grid_shape=n,
@@ -1461,11 +1516,65 @@ def _finish(color: np.ndarray, group: np.ndarray, frame: Frame) -> Image.Image:
 
 
 def _render_scene(scene: _Scene, frame: Frame) -> Image.Image:
-    if frame.straight:
-        color, group = _render_scene_straight(scene, frame)
-    else:
-        color, group = _render_scene_iso(scene, frame)
+    color, group = _scene_pixels(scene, frame)
     return _finish(color, group, frame)
+
+
+def _scene_pixels(scene: _Scene, frame: Frame) -> tuple[np.ndarray, np.ndarray]:
+    """Colour (H, W, 3) and group (H, W) arrays of a scene in any view, before outlines."""
+    if frame.straight:
+        return _render_scene_straight(scene, frame)
+    if frame.view == "iso_back":
+        return _render_scene_iso(_turned_scene(scene), _iso_twin(frame))
+    return _render_scene_iso(scene, frame)
+
+
+def _iso_twin(frame: Frame) -> Frame:
+    """The "iso" frame that draws a turned-round scene for an "iso_back" frame."""
+    return view_frame(frame.grid_shape, "iso", px_per_stud=frame.px_per_stud, labels=False)
+
+
+def _turned_scene(scene: _Scene) -> _Scene:
+    """The scene turned half a turn about the vertical line through the grid's centre."""
+    nx, ny, _ = scene.cells.shape
+    tris = scene.shape_tris.copy()
+    tris[..., 0] = nx - tris[..., 0]
+    tris[..., 1] = ny - tris[..., 1]
+    normal = scene.shape_normal * np.array([-1.0, -1.0, 1.0])
+    pos = scene.inst_pos.copy()
+    if len(pos):
+        pos[:, 0] = nx - pos[:, 0] - scene.inst_size[:, 0]
+        pos[:, 1] = ny - pos[:, 1] - scene.inst_size[:, 1]
+    return _Scene(
+        cells=np.ascontiguousarray(scene.cells[::-1, ::-1, :]),
+        studs=np.ascontiguousarray(scene.studs[::-1, ::-1, :]),
+        rgb=scene.rgb,
+        shape_tris=tris,
+        shape_group=scene.shape_group,
+        shape_face=scene.shape_face,
+        shape_normal=normal,
+        shape_round=scene.shape_round,
+        shape_inst=scene.shape_inst,
+        inst_key=scene.inst_key,
+        inst_pos=pos,
+        inst_size=scene.inst_size,
+    )
+
+
+def _pixel_owner(scene: _Scene, group: np.ndarray, frame: Frame) -> np.ndarray:
+    """(H, W) index into the scene's groups (a Build's kept parts) of the part that each
+    pixel shows, or -1 for the background. Decodes the group numbers the drawing uses:
+    shaped faces are numbered after the parts, and "iso" numbers box faces 4 to a part."""
+    n = len(scene.rgb)
+    face_part = np.full(int(scene.shape_face.max()) + 1 if len(scene.shape_face) else 0, -1)
+    face_part[scene.shape_face] = scene.shape_group
+    per_part = 1 if frame.straight else 4
+    owner = np.full(group.shape, -1, dtype=np.int64)
+    boxes = (group >= 0) & (group < per_part * n)
+    owner[boxes] = group[boxes] // per_part
+    faces = group >= per_part * n
+    owner[faces] = face_part[group[faces] - per_part * n]
+    return owner
 
 
 # ---- public API ----------------------------------------------------------------------------
@@ -1479,10 +1588,133 @@ def render_build(
     px_per_stud: int = 16,
     labels: bool = True,
     upto_step: int | None = None,
+    highlight_step: int | None = None,
 ) -> Image.Image:
-    """A picture of a Build from one view (see the module docstring)."""
+    """A picture of a Build from one view (see the module docstring).
+
+    With ``highlight_step`` the parts of earlier steps are drawn pale."""
+    if highlight_step is None:
+        frame = view_frame(build.shape, view, px_per_stud=px_per_stud, labels=labels)
+        return _render_scene(_build_scene(build, catalog, upto_step), frame)
+    return render_build_map(
+        build,
+        catalog,
+        view,
+        px_per_stud=px_per_stud,
+        labels=labels,
+        upto_step=upto_step,
+        highlight_step=highlight_step,
+    )[0]
+
+
+def render_build_map(
+    build: Build,
+    catalog: Catalog,
+    view: str,
+    *,
+    px_per_stud: int = 16,
+    labels: bool = True,
+    upto_step: int | None = None,
+    highlight_step: int | None = None,
+) -> tuple[Image.Image, np.ndarray]:
+    """``render_build`` and ``part_map`` of the same picture, drawn once."""
     frame = view_frame(build.shape, view, px_per_stud=px_per_stud, labels=labels)
-    return _render_scene(_build_scene(build, catalog, upto_step), frame)
+    scene = _build_scene(build, catalog, upto_step)
+    color, group = _scene_pixels(scene, frame)
+    owner = _pixel_owner(scene, group, frame)
+    idx, kept = _kept(build, upto_step)
+    if highlight_step is not None:
+        steps = np.array([p.step for p in kept], dtype=np.int64)
+        pale = owner >= 0
+        pale[pale] = steps[owner[pale]] < highlight_step
+        bg = np.asarray(BACKGROUND, dtype=np.float64)
+        color[pale] = color[pale] + (bg - color[pale]) * PALE
+    return _finish(color, group, frame), np.asarray(idx + [-1], dtype=np.int64)[owner]
+
+
+def _kept(build: Build, upto_step: int | None) -> tuple[list[int], list[Placement]]:
+    """The indices and parts ``_build_scene`` draws, in its order."""
+    idx = [i for i, p in enumerate(build.parts) if upto_step is None or p.step <= upto_step]
+    return idx, [build.parts[i] for i in idx]
+
+
+def part_map(
+    build: Build,
+    catalog: Catalog,
+    view: str,
+    upto_step: int | None = None,
+    *,
+    px_per_stud: int = 8,
+    labels: bool = False,
+) -> np.ndarray:
+    """(H, W) array the size of ``render_build`` with the same arguments: the index into
+    ``build.parts`` of the part each pixel shows (its studs included), or -1."""
+    frame = view_frame(build.shape, view, px_per_stud=px_per_stud, labels=labels)
+    scene = _build_scene(build, catalog, upto_step)
+    _, group = _scene_pixels(scene, frame)
+    owner = _pixel_owner(scene, group, frame)
+    idx = np.asarray(_kept(build, upto_step)[0] + [-1], dtype=np.int64)
+    return idx[owner]  # owner -1 picks the -1 at the end
+
+
+def part_pixels(
+    build: Build,
+    catalog: Catalog,
+    view: str,
+    upto_step: int | None = None,
+    *,
+    px_per_stud: int = 8,
+) -> dict[int, int]:
+    """How many pixels of the picture (no labels) each part covers, by index into
+    ``build.parts``; parts that do not show at all are left out."""
+    m = part_map(build, catalog, view, upto_step, px_per_stud=px_per_stud)
+    counts = np.bincount(m[m >= 0], minlength=len(build.parts))
+    return {i: int(c) for i, c in enumerate(counts.tolist()) if c > 0}
+
+
+def part_pixels_views(
+    build: Build,
+    catalog: Catalog,
+    views: Sequence[str],
+    upto_step: int | None = None,
+    *,
+    px_per_stud: int = 8,
+) -> dict[str, dict[int, int]]:
+    """``part_pixels`` for each of ``views``, in that order, with the scene made once."""
+    scene = _build_scene(build, catalog, upto_step)
+    idx = np.asarray(_kept(build, upto_step)[0] + [-1], dtype=np.int64)
+    out: dict[str, dict[int, int]] = {}
+    for view in views:
+        frame = view_frame(build.shape, view, px_per_stud=px_per_stud, labels=False)
+        _, group = _scene_pixels(scene, frame)
+        m = idx[_pixel_owner(scene, group, frame)]
+        counts = np.bincount(m[m >= 0], minlength=len(build.parts))
+        out[view] = {i: int(c) for i, c in enumerate(counts.tolist()) if c > 0}
+    return out
+
+
+def visible_parts(
+    build: Build,
+    catalog: Catalog,
+    view: str,
+    upto_step: int | None = None,
+    *,
+    px_per_stud: int = 8,
+    min_pixels: int = 4,
+) -> set[int]:
+    """Indices into ``build.parts`` of the parts of which at least ``min_pixels`` show."""
+    counts = part_pixels(build, catalog, view, upto_step, px_per_stud=px_per_stud)
+    return {i for i, c in counts.items() if c >= min_pixels}
+
+
+def render_part(part_id: str, colour: int, catalog: Catalog, px_per_stud: int = 24) -> Image.Image:
+    """One part alone on a light background, three-quarter view, in its real shape."""
+    part = catalog.parts.get(part_id)
+    if part is None:
+        raise ValueError(f'There is no part "{part_id}" in the parts table.')
+    _check_scale(px_per_stud)
+    one = Build((part.sx, part.sz, part.h), [Placement(part_id, colour, 0, 0, 0, 0, 1)])
+    return render_build(one, catalog, "iso", px_per_stud=px_per_stud, labels=False)
 
 
 def render_design(
@@ -1517,6 +1749,11 @@ def _seed_pixels(
         raise ValueError("The model's faces refer to corners that do not exist.")
     off = np.asarray(seed_offset, dtype=np.float64).reshape(3)
     grid = vertices / np.asarray(CELL_MM) + off
+    if frame.view == "iso_back":  # the iso picture of the seed turned round, as for scenes
+        nx, ny, _ = frame.grid_shape
+        grid = np.column_stack([nx - grid[:, 0], ny - grid[:, 1], grid[:, 2]])
+        vertices = vertices * np.array([-1.0, -1.0, 1.0])
+        frame = _iso_twin(frame)
     tri_grid = grid[faces]  # (m, 3, 3)
     tri_mm = vertices[faces]
     normal = np.cross(tri_mm[:, 1] - tri_mm[:, 0], tri_mm[:, 2] - tri_mm[:, 0])
@@ -1571,10 +1808,7 @@ def silhouette(
         raise ValueError("An outline can be made of a seed, a Design or a Build only.")
     frame = view_frame(shape, view, px_per_stud=px_per_stud, labels=False)
     scene.studs[...] = -1
-    if frame.straight:
-        _, group = _render_scene_straight(scene, frame)
-    else:
-        _, group = _render_scene_iso(scene, frame)
+    _, group = _scene_pixels(scene, frame)
     return group >= 0
 
 

@@ -1340,3 +1340,85 @@ def test_parity_expects_every_tool_the_designer_has():
 
     assert tuple(f"mcp__bricksnap__{n}" for n in TOOL_NAMES) == OUR_TOOLS
     assert list(OUR_TOOLS) == OURS
+
+
+# ---- the shared clean-room session (the judge uses it too) -------------------------------------
+
+
+def judge_session(tmp_path: Path, **options):
+    prompt = tmp_path / "judge-prompt.md"
+    prompt.write_text("You are a judge.\n", encoding="utf-8")
+    folder = tmp_path / "candidates"
+    folder.mkdir(exist_ok=True)
+    settings: dict = {"model": "claude-x", "effort": "low", "max_turns": 5, "timeout_s": 30}
+    settings.update(options)
+    run = runner.run_session(
+        prompt_file=prompt,
+        mcp=runner.mcp_config(folder, module="bricksnap.designer.judge_server"),
+        message="Judge these builds.",
+        transcript=tmp_path / "candidates" / "judging" / "t.jsonl",
+        role=runner.JUDGE,
+        **settings,
+    )
+    return run, folder
+
+
+def test_mcp_config_can_serve_another_tool_module(tmp_path: Path):
+    cfg = runner.mcp_config(tmp_path, module="bricksnap.designer.judge_server")
+    server = cfg["mcpServers"]["bricksnap"]
+    assert server["args"] == ["-m", "bricksnap.designer.judge_server", str(tmp_path.resolve())]
+    # the default is still the designer's server
+    assert runner.mcp_config(tmp_path)["mcpServers"]["bricksnap"]["args"][1] == (
+        "bricksnap.designer.mcp_server"
+    )
+
+
+def test_run_session_uses_the_same_flags_environment_and_folder(fake_claude, tmp_path: Path):
+    record_file = fake_claude(GOOD_RUN)
+    run, folder = judge_session(tmp_path)
+    assert run.ok, run.error
+    record = json.loads(record_file.read_text())
+    argv = record["argv"]
+    assert (
+        argv
+        == build_command(Path(argv[2]), Path(argv[6]), model="claude-x", effort="low", max_turns=5)[
+            1:
+        ]
+    )
+    assert Path(argv[2]) == (tmp_path / "judge-prompt.md").resolve()
+    assert record["stdin"] == "Judge these builds."
+    assert record["cwd_listing"] == []
+    assert "ANTHROPIC_API_KEY" not in record["env_names"]
+    assert "CLAUDECODE" not in record["env_names"]
+    assert record["env_values"]["MAX_MCP_OUTPUT_TOKENS"] == "200000"
+    server = record["mcp"]["mcpServers"]["bricksnap"]
+    assert server["args"] == ["-m", "bricksnap.designer.judge_server", str(folder.resolve())]
+    # the transcript goes where it was asked to, its folder made if need be
+    assert (tmp_path / "candidates" / "judging" / "t.jsonl").read_text().splitlines() == (
+        lines_of(GOOD_RUN)
+    )
+
+
+def test_run_session_refuses_like_the_designer(fake_claude, tmp_path: Path):
+    fake_claude([{**INIT, "apiKeySource": "ANTHROPIC_API_KEY"}, RESULT_OK], mode="hang")
+    run, _ = judge_session(tmp_path)
+    assert not run.ok and "API key" in run.error
+    fake_claude([{**INIT, "mcp_servers": [{"name": "bricksnap", "status": "failed"}]}], mode="hang")
+    run, _ = judge_session(tmp_path)
+    assert not run.ok and "judging tools could not be started" in run.error
+    fake_claude(FALLBACK_RUN)
+    run, _ = judge_session(tmp_path)
+    assert not run.ok and "switched" in run.error
+
+
+def test_run_session_speaks_of_the_judge_not_of_edits(fake_claude, tmp_path: Path):
+    fake_claude([INIT], mode="hang")
+    run, _ = judge_session(tmp_path, timeout_s=2)
+    assert "The judge did not finish within 2 seconds" in run.error
+    assert "edits" not in run.error
+    fake_claude([INIT, {"type": "result", "subtype": "error_max_turns", "is_error": True}])
+    run, _ = judge_session(tmp_path)
+    assert "The judge used all its turns (5)" in run.error and "edits" not in run.error
+    fake_claude(FALLBACK_RUN)
+    run, _ = judge_session(tmp_path)
+    assert "edits" not in run.error

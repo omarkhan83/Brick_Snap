@@ -1947,3 +1947,264 @@ def test_a_first_design_has_no_change_summary(capsys, pawn_copy, monkeypatch):
     code, out, _ = run(capsys, "design", str(pawn_copy), "make it red")
     assert code == 0
     assert "What this change did:" not in out
+
+
+# ---- stage 3: design PROJECT --best-of N ---------------------------------------------------
+
+
+class FakeCandidates:
+    """Designs candidate N with ``plans[N]`` (operations, or "fail"), like the AI would."""
+
+    def __init__(self, capsys, plans: dict[int, object]) -> None:
+        self.capsys = capsys
+        self.plans = plans
+        self.calls: list[tuple[Path, dict]] = []
+        self.said_before_start = ""
+
+    def __call__(self, project: Project, **options) -> DesignerRun:
+        from bricksnap.design import apply_ops
+
+        if not self.calls:
+            self.said_before_start = self.capsys.readouterr().out
+        self.calls.append((project.path, options))
+        plan = self.plans.get(int(project.path.name), PAINT)
+        if plan == "fail":
+            return DesignerRun(ok=False, error="Claude Code is not installed here.")
+        assert isinstance(plan, list)
+        project.meta["brief"] = {**BRIEF, "object": f"Design {project.path.name}."}
+        project.save_meta()
+        design = project.load_design()
+        apply_ops(design, plan, load_catalog())
+        project.save_design(design)
+        return DesignerRun(ok=True, turns=4)
+
+
+class FakeJudgeRun:
+    """A judge that looks at every candidate through the real tools and ranks the letters
+    in reverse order (or in order)."""
+
+    def __init__(self, prefer_last: bool = True, ok: bool = True) -> None:
+        self.prefer_last = prefer_last
+        self.ok = ok
+        self.calls: list[dict] = []
+
+    def __call__(self, folder: Path, letters: list[str], **options) -> DesignerRun:
+        from bricksnap.designer.judge_server import Judging
+
+        self.calls.append({"letters": list(letters), **options})
+        tools = Judging(folder)
+        for letter in letters:
+            tools.call("look", {"candidate": letter})
+        order = list(reversed(letters)) if self.prefer_last else list(letters)
+        tools.call(
+            "choose",
+            {
+                "ranking": order,
+                "reasons": {x: f"Candidate {x} has the clearest head." for x in order},
+                "summary": "It was close between the first two.",
+            },
+        )
+        error = "" if self.ok else "The judge did not finish within 20 minutes."
+        return DesignerRun(ok=self.ok, error=error)
+
+
+def fake_judge(prefer_last: bool = True, ok: bool = True) -> FakeJudgeRun:
+    return FakeJudgeRun(prefer_last, ok)
+
+
+RED, BLUE, YELLOW = PAINT, [{**PAINT[0], "color": 1}], [{**PAINT[0], "color": 14}]
+
+
+def test_best_of_says_how_many_runs_first_then_reports_the_ranking(capsys, pawn_copy, monkeypatch):
+    designer = FakeCandidates(capsys, {1: RED, 2: BLUE, 3: YELLOW})
+    judge = fake_judge()
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", judge)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--best-of", "3", "--effort", "low")
+    assert code == 0, out
+    before = designer.said_before_start
+    assert "4 AI runs" in before and "3 designs" in before and "one judging run" in before
+    assert "sends pictures" in before and "AI provider" in before
+    assert "minutes" in before
+    assert [p.name for p, _ in designer.calls] == ["1", "2", "3"]
+    assert all(o["effort"] == "low" for _, o in designer.calls)
+    assert judge.calls[0]["effort"] == "low"
+
+    saved = json.loads((pawn_copy / "candidates" / "result.json").read_text())
+    winner = saved["winner"]
+    rows = {c["number"]: c for c in saved["candidates"]}
+    assert rows[winner]["rank"] == 1
+    assert "chosen by the judge" in out.lower()
+    assert f"Kept design {winner}" in out
+    for n in (1, 2, 3):
+        assert f"Design {n} (shown to the judge as {rows[n]['letter']})" in out
+        assert f"Candidate {rows[n]['letter']} has the clearest head." in out
+    assert "It was close between the first two." in out
+    assert "candidates" in out and "result.json" in out
+    assert "The build is valid afterwards" in out
+    assert Project(pawn_copy).meta["brief"]["object"] == f"Design {winner}."
+
+
+def test_best_of_1_is_the_same_as_leaving_it_out(capsys, pawn_copy, monkeypatch):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True, turns=1))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--best-of", "1")
+    assert code == 0
+    assert len(fake.calls) == 1 and fake.calls[0][0].path == pawn_copy
+    assert fake.calls[0][1] == {}
+    assert not (pawn_copy / "candidates").exists()
+    assert "judge" not in out.lower()
+
+
+@pytest.mark.parametrize("value", ["0", "6", "-2", "three"])
+def test_best_of_out_of_range_is_a_mistake(capsys, pawn_copy, monkeypatch, value):
+    fake = FakeDesigner(capsys, DesignerRun(ok=True))
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", fake)
+    code, out, err = run(capsys, "design", str(pawn_copy), "--best-of", value)
+    assert code == 2 and fake.calls == []
+    assert "sends pictures" not in out
+    assert "1 to 5" in err
+
+
+def test_best_of_falls_back_to_measurement_and_says_so(capsys, pawn_copy, monkeypatch):
+    designer = FakeCandidates(capsys, {1: RED, 2: BLUE})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge(ok=False))
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--best-of", "2")
+    assert code == 0
+    assert "chosen by measurement" in out
+    assert "did not finish within 20 minutes" in out
+    assert "outline" in out
+
+
+def test_best_of_with_a_failed_design_lists_it(capsys, pawn_copy, monkeypatch):
+    designer = FakeCandidates(capsys, {1: "fail", 2: BLUE, 3: YELLOW})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge())
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--best-of", "3")
+    assert code == 0
+    assert "Design 1 could not be used" in out and "not installed" in out
+
+
+def test_best_of_with_no_usable_design_returns_1_and_keeps_the_project(
+    capsys, pawn_copy, monkeypatch
+):
+    before = (pawn_copy / "design.npz").read_bytes()
+    designer = FakeCandidates(capsys, {1: "fail", 2: SPLIT})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge())
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--best-of", "2")
+    assert code == 1
+    assert "None of the 2 designs" in out
+    assert (pawn_copy / "design.npz").read_bytes() == before
+
+
+def test_judge_again_is_hidden_and_judges_the_candidates_on_disk(capsys, pawn_copy, monkeypatch):
+    designer = FakeCandidates(capsys, {1: RED, 2: BLUE})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge(prefer_last=True))
+    assert run(capsys, "design", str(pawn_copy), "--best-of", "2")[0] == 0
+    first = json.loads((pawn_copy / "candidates" / "result.json").read_text())["winner"]
+    designer.calls.clear()
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge(prefer_last=False))
+    code, out, _ = run(capsys, "design", str(pawn_copy), "--judge-again")
+    assert code == 0 and designer.calls == []
+    assert "one AI run" in out
+    second = json.loads((pawn_copy / "candidates" / "result.json").read_text())["winner"]
+    assert {first, second} == {1, 2}
+    assert f"Kept design {second}" in out
+    assert "--judge-again" not in run(capsys, "design", "--help")[1]
+
+
+def test_best_of_with_a_typed_change_on_a_designed_model(capsys, pawn_copy, monkeypatch):
+    project = Project(pawn_copy)
+    project.meta["brief"] = BRIEF
+    project.save_meta()
+    log_before = log_length(pawn_copy)
+    designer = FakeCandidates(capsys, {1: RED, 2: BLUE})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge())
+    code, out, _ = run(capsys, "design", str(pawn_copy), "make the base red", "--best-of", "2")
+    assert code == 0, out
+    before = designer.said_before_start
+    assert "This is one change" in before and '"make the base red"' in before
+    assert "3 AI runs" in before
+    assert [o.get("instruction") for _, o in designer.calls] == ["make the base red"] * 2
+    assert log_length(pawn_copy) == log_before + 1  # the kept design is one change further on
+    assert Project(pawn_copy).build_is_current()
+
+
+def test_judge_again_without_designs_starts_nothing(capsys, pawn_copy, monkeypatch):
+    judge = fake_judge()
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", judge)
+    code, out, err = run(capsys, "design", str(pawn_copy), "--judge-again")
+    assert code == 1 and judge.calls == []
+    assert "no designs to judge" in out + err
+    assert "AI run" not in out and "to look at" not in out
+
+
+DIE_AT_MOVE = """
+import os, sys
+from pathlib import Path
+from bricksnap.designer import judge
+from bricksnap.project import Project
+
+project, k = Path(sys.argv[1]), int(sys.argv[2])
+real, count = judge._move, [0]
+
+def dying(src, dst):
+    count[0] += 1
+    if count[0] == k:
+        os._exit(9)
+    real(src, dst)
+
+judge._move = dying
+judge._keep(Project(project), project / "candidates" / "2")
+"""
+
+
+def test_opening_a_project_puts_back_a_best_of_that_died_half_way(capsys, pawn_copy, monkeypatch):
+    designer = FakeCandidates(capsys, {1: RED, 2: BLUE})
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    monkeypatch.setattr("bricksnap.designer.judge.run_judge", fake_judge(prefer_last=False))
+    assert run(capsys, "design", str(pawn_copy), "--best-of", "2")[0] == 0
+    saved = json.loads((pawn_copy / "candidates" / "result.json").read_text())
+    assert saved["winner"] == 1
+
+    def files() -> dict[str, bytes]:
+        return {
+            str(f.relative_to(pawn_copy)): f.read_bytes()
+            for f in sorted(pawn_copy.rglob("*"))
+            if f.is_file() and "candidates" not in f.relative_to(pawn_copy).parts
+        }
+
+    before = files()
+    proc = subprocess.run(
+        [sys.executable, "-c", DIE_AT_MOVE, str(pawn_copy), "3"], capture_output=True, timeout=120
+    )
+    assert proc.returncode == 9  # the process died with design 2 half put in place
+    assert files() != before
+    code, out, err = run(capsys, "check", str(pawn_copy))
+    assert "put back as it was" in err  # a note, kept apart from the command's own output
+    assert files() == before
+
+
+def test_instructions_writes_the_booklet_and_says_where(capsys, pawn_copy):
+    code, out, err = run(capsys, "instructions", str(pawn_copy))
+    assert code == 0, err
+    assert (pawn_copy / "instructions.pdf").stat().st_size > 10_000
+    html = (pawn_copy / "instructions.html").read_text(encoding="utf-8")
+    assert "<script" not in html.lower()
+    steps = len({p.step for p in Project(pawn_copy).load_build().parts})
+    assert f"{steps} steps" in out
+    assert "instructions.pdf" in out and "instructions.html" in out
+    assert "Traceback" not in out + err
+
+
+def test_instructions_before_any_build(capsys, tmp_path, pawn_path):
+    project = create_project(pawn_path, studs=int(STUDS), directory=tmp_path)
+    code, out, err = run(capsys, "instructions", str(project.path))
+    assert code == 2
+    assert "bricksnap build" in err
+    assert not (project.path / "instructions.pdf").exists()
+    assert "Traceback" not in out + err

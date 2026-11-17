@@ -322,15 +322,16 @@ def designer_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def mcp_config(project_path: Path) -> dict[str, Any]:
-    """The MCP config: one stdio server serving the designer's tools for this project."""
+def mcp_config(project_path: Path, module: str = "bricksnap.designer.mcp_server") -> dict[str, Any]:
+    """The MCP config: one stdio server, "bricksnap", serving the tools of ``module`` (the
+    designer's by default) for one folder."""
     package_root = Path(__file__).resolve().parent.parent.parent
     return {
         "mcpServers": {
             SERVER_NAME: {
                 "type": "stdio",
                 "command": sys.executable,
-                "args": ["-m", "bricksnap.designer.mcp_server", str(project_path.resolve())],
+                "args": ["-m", module, str(project_path.resolve())],
                 "env": {"PYTHONPATH": str(package_root)},
             }
         }
@@ -554,6 +555,34 @@ def _timestamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+@dataclass(frozen=True)
+class Role:
+    """Who a clean-room session is, for the words of its errors."""
+
+    tools: str  # "design tools"
+    stopped_kept: str  # added after "...so the run was stopped." when the output was unreadable
+    timeout: str  # "The designer did not finish within {duration} and was stopped. ..."
+    max_turns: str | None  # "... ({max_turns}) ..."; None: the parser's own (designer) words
+    switched_kept: str  # added after the note that the model switched
+
+
+DESIGNER = Role(
+    tools="design tools",
+    stopped_kept=" The edits made so far are saved.",
+    timeout="The designer did not finish within {duration} and was stopped. The edits it made "
+    "so far are saved.",
+    max_turns=None,
+    switched_kept=" The edits it made are saved.",
+)
+JUDGE = Role(
+    tools="judging tools",
+    stopped_kept="",
+    timeout="The judge did not finish within {duration} and was stopped.",
+    max_turns="The judge used all its turns ({max_turns}) before it gave its verdict.",
+    switched_kept="",
+)
+
+
 def run_designer(
     project: Project,
     *,
@@ -571,22 +600,62 @@ def run_designer(
     ``on_event`` is called with each stream-json event as it arrives (for progress output).
     ``prompt_file`` replaces the system prompt (the parity check uses it); default prompt.md.
     """
-    started = time.monotonic()
     project_path = project.path.resolve()
-    transcript = project.designer_dir / f"{_timestamp()}.jsonl"
-    run = DesignerRun(ok=False, transcript=transcript, kind=run_kind(project, instruction))
-    parser = StreamParser()
+    kind = run_kind(project, instruction)  # decided from the project as it is before the run
     if prompt_file is None:
         message = designer_message(project, instruction)
     else:  # another prompt (the parity probe) brings its own message, sent as it is
         message = instruction if instruction and instruction.strip() else DEFAULT_INSTRUCTION
+    run = run_session(
+        prompt_file=prompt_file or PROMPT_FILE,
+        mcp=mcp_config(project_path),
+        message=message,
+        transcript=project.designer_dir / f"{_timestamp()}.jsonl",
+        model=model,
+        effort=effort,
+        max_turns=max_turns,
+        timeout_s=timeout_s,
+        on_event=on_event,
+        role=DESIGNER,
+    )
+    run.kind = kind
+    return run
+
+
+def run_session(
+    *,
+    prompt_file: Path,
+    mcp: dict[str, Any],
+    message: str,
+    transcript: Path,
+    model: str,
+    effort: str,
+    max_turns: int,
+    timeout_s: int,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+    role: Role = DESIGNER,
+) -> DesignerRun:
+    """Start one clean-room session and watch it (shared by the designer and the judge).
+
+    The command is ``build_command``, the environment ``designer_env()``, the working folder
+    a new empty one; ``mcp`` is written there as the tool config and ``message`` goes to the
+    model on standard input. Every output line is appended to ``transcript`` (its folder is
+    made if need be). The session is stopped at once if Claude Code would use an API key or
+    the tool server did not start, and fails if another model answered. Never raises for the
+    usual failures; they come back as ``ok=False`` with ``error`` in plain words.
+    """
+    started = time.monotonic()
+    run = DesignerRun(ok=False, transcript=transcript)
+    parser = StreamParser()
+    with contextlib.suppress(OSError):  # an unwritable folder is reported by the reader
+        transcript.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="bricksnap-designer-") as tmp:
         work = Path(tmp)
         config_file = work / "mcp.json"
-        config_file.write_text(json.dumps(mcp_config(project_path), indent=1), encoding="utf-8")
+        config_file.write_text(json.dumps(mcp, indent=1), encoding="utf-8")
         cmd = build_command(
-            (prompt_file or PROMPT_FILE).resolve(),
+            prompt_file.resolve(),
             config_file,
             model=model,
             effort=effort,
@@ -710,7 +779,7 @@ def run_designer(
 
     if server_failed.is_set():
         run.error = (
-            "The design tools could not be started inside Claude Code (the bricksnap tool "
+            f"The {role.tools} could not be started inside Claude Code (the bricksnap tool "
             f"server reported '{parser.server_status()}'), so the run was stopped."
         )
     elif api_key_used.is_set():
@@ -724,24 +793,23 @@ def run_designer(
         run.error = _short(
             redact(
                 f"BrickSnap could not read Claude Code's output ({reader_problem[0]}), so the "
-                "run was stopped. The edits made so far are saved."
+                "run was stopped." + role.stopped_kept
             ),
             500,
         )
     elif timed_out:
-        run.error = (
-            f"The designer did not finish within {_duration_words(timeout_s)} and was stopped. "
-            "The edits it made so far are saved."
-        )
+        run.error = role.timeout.format(duration=_duration_words(timeout_s))
     elif parser.result is not None and parser.result_error(max_turns):
         run.error = parser.result_error(max_turns)
+        if role.max_turns and parser.result.get("subtype") == "error_max_turns":
+            run.error = role.max_turns.format(max_turns=max_turns)
     elif proc.returncode != 0:
         tail = _short(redact(" ".join(stderr_tail[-5:]))) if stderr_tail else "no details given"
         run.error = f"Claude Code stopped with an error (exit code {proc.returncode}): {tail}"
     elif parser.result is None:
         run.error = "Claude Code ended without reporting a result, so the run may be incomplete."
     elif switched:
-        run.error = switched + " The edits it made are saved."
+        run.error = switched + role.switched_kept
     else:
         run.ok = True
     return run

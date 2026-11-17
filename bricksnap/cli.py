@@ -20,6 +20,11 @@ there are no tracebacks for mistakes a user can make.
         Write the comparison picture (default renders/compare.png) and print its path.
     bricksnap export PROJECT
         Write build.ldr from the saved build and print its path.
+    bricksnap instructions PROJECT
+        Write the instruction booklet (instructions.html and instructions.pdf) from the saved
+        build through ``bricksnap.instructions.make_instructions`` and say where they are and
+        how many steps they hold. 0 when written; 2 when there is no build or the build does
+        not pass its checks (the message says which).
     bricksnap ops PROJECT OPS_JSON [--build]
         Apply edit operations (a JSON list in a file, or "-" for standard input) to the
         design, save it, and print one line per operation saying what happened. With
@@ -62,6 +67,17 @@ STAGE 3 ADDITION TO THE CONTRACT: a typed edit
   this run added to the design's log and of which kinds, how many parts before and after,
   and whether the build is valid. If the run added no operation, it says the designer made
   no change and why it said so.
+
+STAGE 3 ADDITION TO THE CONTRACT: the best of several designs
+- ``design PROJECT [REQUEST] --best-of N`` (N from 1 to 5) designs the model N times and
+  keeps the one a blind judge ranks first (``bricksnap.designer.judge.design_best_of``).
+  ``--best-of 1`` is the same as leaving it out.
+- Before starting it says plainly how many AI runs it will start (N designs and one
+  judging), that each sends pictures and a description of the model to the AI provider,
+  and roughly how long it takes (a few minutes per run). Afterwards it prints the ranking
+  with the judge's reason for each design, which design was kept, where the others are, and
+  whether the result was chosen by the judge or by measurement. Exit codes as for
+  ``design``.
 
 Implementation notes
 --------------------
@@ -170,6 +186,23 @@ Implementation notes
   only partly made.
 - "What to do next" offers ``design PROJECT "<a change>"`` (one more change) instead of a
   full design pass once the project has a brief, after any kind of run.
+- Best of several: ``--best-of`` is checked (a whole number from 1 to 5) before the project
+  is opened, like the request; a mistake is exit code 2 and nothing starts. The time given
+  is 3 to 6 minutes per run. Progress is one line per design and one for the judging, from
+  ``design_best_of``'s events. The ranking lists each design as "Design N (shown to the
+  judge as B)" with its reason; designs that could not be used are listed with why. Then
+  the judge's summary, or why the judge gave no verdict, the brief, the final build's
+  verdict and report (the kept build is the winner's, made from its design; it is not
+  rebuilt again), the files and what to do next. Exit code 0 when a design was kept and its
+  build is valid, 1 when no design could be used or the kept build is not valid (a judge
+  that failed is not an error by itself: the winner is then chosen by measurement and the
+  output says so). An edit request (a project with a brief) is sent to every design as the
+  same edit, and the project is rebuilt first, as for one run.
+- ``--judge-again`` (hidden from the help) judges the designs already in ``candidates/``
+  again with ``judge.judge_candidates`` and keeps the new winner: one AI run, no designs.
+  With no designs there, it says so and starts nothing (exit code 1).
+- Opening a project (any command) first puts back a best-of run that died while it was
+  putting its winner in place (``judge.recover``), and says so on standard error.
 """
 
 from __future__ import annotations
@@ -246,6 +279,29 @@ def _is_dir(path: Path) -> bool:
 _DAMAGED = (ValueError, KeyError, TypeError, AttributeError, IndexError, EOFError, BadZipFile)
 
 
+def _recover_best_of(folder: Path) -> None:
+    """Put back a best-of run that died while it was putting its winner in place."""
+    from bricksnap.designer import judge
+
+    if not any(_is_dir(folder / name) for name in (judge.STAGING_DIR, judge.BACKUP_DIR)):
+        return
+    try:
+        put_back = judge.recover(folder)
+    except OSError as e:
+        raise ProjectError(
+            "An earlier best-of run was stopped while it was putting the chosen design in "
+            f"place, and the project could not be put back as it was ({e.strerror or e}). Its "
+            f"earlier files are still in {_show(folder / judge.BACKUP_DIR)}; try again once "
+            "the problem is fixed."
+        ) from e
+    if put_back:
+        print(
+            "Note: an earlier best-of run was stopped while it was putting the chosen design in "
+            "place, so the project has been put back as it was before that run.",
+            file=sys.stderr,
+        )
+
+
 def open_project(ref: str) -> Project:
     """Open PROJECT: a path to a project folder, or a bare name looked up under ./projects."""
     given = Path(ref)
@@ -254,6 +310,7 @@ def open_project(ref: str) -> Project:
         candidates += [Path("projects") / ref, Path("projects") / slug(ref)]
     for candidate in candidates:
         if _is_file(candidate / "project.json"):
+            _recover_best_of(candidate)
             damaged = ProjectError(
                 f"The project file {_show(candidate / 'project.json')} is damaged and cannot "
                 f"be read. Make the project again with '{RUN} new'."
@@ -638,6 +695,30 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0 if text is not None else 1
 
 
+def cmd_instructions(args: argparse.Namespace) -> int:
+    from bricksnap.instructions import make_instructions
+
+    project = open_project(args.project)
+    build = load_build(project)
+    print(f'Making the instruction booklet for "{project.name}"...')
+    sys.stdout.flush()
+    files = make_instructions(project)
+    steps = len({p.step for p in build.parts})
+    print()
+    print(f"Wrote the booklet: {_plural(len(build.parts), 'part')} in {_plural(steps, 'step')}.")
+    print(f"  {_show(files['pdf'])}")
+    print("      to print, or to read on a screen: one step on each page")
+    print(f"  {_show(files['html'])}")
+    print("      the same booklet as one web page: open it in your browser")
+    if project.has_design() and not project.build_is_current(load_design(project), build):
+        print()
+        print(
+            "Note: the design has been edited since these bricks were built, so the booklet "
+            f"is for the earlier version. To rebuild first: {RUN} build {_ref(project)}"
+        )
+    return 0
+
+
 def _describe_line(line: Any) -> str:
     """One line of the parts list for a person: '2 x Red Brick 1 x 1 (part 3005)'. A colour
     that is not in the parts table is shown by its LDraw colour code."""
@@ -891,6 +972,9 @@ def cmd_design(args: argparse.Namespace) -> int:
     from bricksnap.designer.runner import EDIT, TOOL_PREFIX, run_designer, run_kind
 
     request = _request(args)
+    best_of = _best_of(args)
+    if best_of > 1 or args.judge_again:
+        return _design_best_of(args, request, best_of)
     project = open_project(args.project)
     design_before = load_design(project)  # fail now, clearly, if there is nothing to design
     before = _design_fingerprint(project)
@@ -964,6 +1048,168 @@ def cmd_design(args: argparse.Namespace) -> int:
         print(f"A full record of the run is in {_show(run.transcript)}")
     _print_next(project, ok)
     return 0 if run.ok and ok else 1
+
+
+MAX_BEST_OF = 5
+MINUTES_PER_RUN = (3, 6)
+"""Roughly how long one AI run takes, said before a best-of run starts."""
+
+
+def _best_of(args: argparse.Namespace) -> int:
+    """How many designs ``--best-of`` asks for (1 when it is not given)."""
+    value = args.best_of
+    if value is None:
+        return 1
+    try:
+        number = int(value)
+    except ValueError:
+        number = 0
+    if not 1 <= number <= MAX_BEST_OF:
+        raise UserError(
+            f"--best-of takes how many designs to make, a whole number from 1 to {MAX_BEST_OF}, "
+            f"not {value!r}. For example: {RUN} design {shlex.quote(args.project)} --best-of 3"
+        )
+    return number
+
+
+def _best_of_progress(event: dict[str, Any]) -> None:
+    kind = event.get("event")
+    if kind == "designing":
+        print(f"Designing {event['candidate']} of {event['of']}...", flush=True)
+    elif kind == "designed":
+        if event.get("valid"):
+            print(f"  Design {event['candidate']} is ready.", flush=True)
+        else:
+            print(f"  Design {event['candidate']} cannot be used: {event.get('why')}", flush=True)
+    elif kind == "judging":
+        print(f"Judging {event['candidates']} designs...", flush=True)
+    elif kind == "judged":
+        if event.get("ok"):
+            print("  The judge has finished.", flush=True)
+        else:
+            print(f"  The judge did not finish: {event.get('error')}", flush=True)
+
+
+def _design_best_of(args: argparse.Namespace, request: str | None, n: int) -> int:
+    """``design --best-of N`` (N of 2 to 5) and ``design --judge-again``."""
+    from bricksnap.designer import judge
+    from bricksnap.designer.runner import EDIT, run_kind
+
+    project = open_project(args.project)
+    load_design(project)  # fail now, clearly, if there is nothing to design
+    options: dict[str, Any] = {}
+    if args.model is not None:
+        options["model"] = args.model
+    if args.effort is not None:
+        options["effort"] = args.effort
+    folder = _show(judge.candidates_dir(project))
+    sends = (
+        "Each run sends pictures of the model and a description of it (its size, colours and "
+        "parts) to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap "
+        "sends anything off your computer."
+    )
+    if args.judge_again:
+        if request is not None:
+            raise UserError("--judge-again judges the designs already made; it takes no request.")
+        if not any(
+            _is_file(p / "project.json")
+            for p in (judge.candidates_dir(project).glob("[0-9]*"))
+            if p.name.isdigit()
+        ):
+            print(
+                f"This project has no designs to judge in {folder}. Make them with: {RUN} design "
+                f"{_ref(project)} --best-of 3"
+            )
+            return 1
+        low, high = MINUTES_PER_RUN
+        print(f'Judging the designs of "{project.name}" in {folder} again.')
+        print(
+            "This starts one AI run: a judge that compares the designs and picks the best. "
+            + sends.replace("Each run sends", "It sends")
+        )
+        print(f"It usually takes {low} to {high} minutes. Press Ctrl+C to stop it.")
+        print()
+        sys.stdout.flush()
+        result = judge.judge_candidates(project, on_event=_best_of_progress, **options)
+    else:
+        kind = run_kind(project, request)
+        if kind == EDIT:  # the designs start from a build made from the design as it is now
+            from bricksnap.pipeline import rebuild
+
+            rebuild(project)
+        low, high = (m * (n + 1) for m in MINUTES_PER_RUN)
+        print(f'Starting the AI designer for "{project.name}" {n} times, then a judge.')
+        _print_kind(project, kind, request)
+        print(
+            f"This starts {n + 1} AI runs, one after another: {n} designs of the model, each "
+            "on its own copy of the project, and then one judging run that compares them "
+            "without knowing which is which and picks the best. " + sends
+        )
+        print(
+            f"Each run usually takes a few minutes, so expect about {low} to {high} minutes in "
+            "all. Press Ctrl+C to stop; your project is only changed at the very end."
+        )
+        print()
+        sys.stdout.flush()
+        if request is not None:
+            options["instruction"] = request
+        result = judge.design_best_of(project, n, on_event=_best_of_progress, **options)
+
+    print()
+    if result.winner is None:
+        print(result.error or "No design could be kept.")
+        print(f"The designs are in {folder}, to look at.")
+        return 1
+    _print_ranking(project, result, folder)
+    _print_brief(project)
+    print()
+    build = load_build(project)
+    _print_verdict(build, project)
+    ok = bool(build.report and build.report.ok)
+    _print_outputs(project, project.renders_dir / "compare.png")
+    _print_next(project, ok)
+    return 0 if ok else 1
+
+
+def _print_ranking(project: Project, result: Any, folder: str) -> None:
+    """The ranking with each design's reason, what was kept, and where the others are."""
+    from bricksnap.designer import judge
+
+    record_file = judge.candidates_dir(project) / judge.RESULT_FILE
+    try:
+        saved = json.loads(record_file.read_text(encoding="utf-8"))
+        rows = {int(c["number"]): c for c in saved.get("candidates", [])}
+        note = str(saved.get("note") or "")
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        rows, note = {}, ""
+    how = "chosen by measurement" if result.by_measurement else "chosen by the judge"
+    if result.judge is None:
+        how = "the only design that could be used"
+    print(f"The ranking, best first ({how}):")
+    for rank, number in enumerate(result.ranking, start=1):
+        letter = (rows.get(number) or {}).get("letter")
+        shown = f" (shown to the judge as {letter})" if letter else ""
+        print(f"  {rank}. Design {number}{shown}: {result.reasons.get(number, '')}")
+    unusable = [r for n, r in sorted(rows.items()) if not r.get("valid")]
+    for row in unusable:
+        print(f"  Design {row['number']} could not be used: {row.get('why_not_valid', '')}")
+    if result.by_measurement:
+        print()
+        print(note)
+    elif result.summary:
+        print()
+        print("The judge's summary:")
+        for line in result.summary.splitlines():
+            print(f"  {line}")
+    print()
+    print(
+        f"Kept design {result.winner}: its design, brief, build and pictures are now the "
+        "project's own."
+    )
+    print(
+        f"All the designs are in {folder} (one folder each, by number), and the ranking and "
+        f"reasons are saved in {_show(record_file)}."
+    )
 
 
 _BRIEF_FIELDS = (
@@ -1341,6 +1587,18 @@ def _parser() -> _Parser:
     p.set_defaults(func=cmd_export)
 
     p = sub.add_parser(
+        "instructions",
+        help="make the instruction booklet: one page for each building step",
+        description=(
+            "Write instructions.pdf and instructions.html from the saved build: a cover, the "
+            "parts you need, then one page for each building step with the new parts standing "
+            "out. Nothing is sent anywhere."
+        ),
+    )
+    p.add_argument("project", metavar="PROJECT", help=project_help)
+    p.set_defaults(func=cmd_instructions)
+
+    p = sub.add_parser(
         "bench",
         help="build every test model and measure the results (the scorecard)",
         description=(
@@ -1408,6 +1666,13 @@ def _parser() -> _Parser:
     )
     p.add_argument("--model", metavar="ID", help="which AI model to use")
     p.add_argument("--effort", metavar="LEVEL", help="how hard the AI should think")
+    p.add_argument(
+        "--best-of",
+        metavar="N",
+        help="design it N times (2 to 5) and keep the one a judge ranks best; this starts N + 1 "
+        "AI runs",
+    )
+    p.add_argument("--judge-again", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_design)
 
     p = sub.add_parser("view", help="look at the project in 3D in your web browser")
