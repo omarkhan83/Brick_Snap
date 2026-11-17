@@ -1,7 +1,7 @@
 # Curved models use too many small plates
 - status: open
 - owner: nobody
-- stage: 3
+- stage: 4
 
 The grid is one plate tall per cell, so a rounded surface becomes rings of 1 x 1 and 1 x 2 plates: the
 duck is about 550 parts at 16 studs before finishing and 700 after, and more than half of a sphere's parts

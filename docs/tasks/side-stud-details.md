@@ -1,7 +1,7 @@
 # Details on the side of a model: eyes, lights, badges
 - status: open
 - owner: nobody
-- stage: 3
+- stage: 4
 
 Detail parts can only stand on top of the model today, so eyes on the front of a head are painted cells.
 A brick with a stud on its side (87087, or 4733 with studs on four sides, both already in the parts table)

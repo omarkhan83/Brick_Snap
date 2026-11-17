@@ -1,7 +1,7 @@
 # Thin models still have too many weak spots, mostly at larger sizes
 - status: open
 - owner: nobody
-- stage: 3
+- stage: 4
 
 Since the conversion fills cells by coverage, shapes are truer and thinner. At 16 studs no large section
 hangs on one part any more, but small weak spots are more numerous than with the old fat conversion (232

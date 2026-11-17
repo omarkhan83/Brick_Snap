@@ -1,0 +1,25 @@
+{
+ "name": "duck",
+ "seed": "seed.glb",
+ "seed_original_name": "duck.glb",
+ "studs": 16,
+ "up": null,
+ "hollow": false,
+ "brief": {
+  "object": "A classic yellow rubber duck facing the front (-y), round head on top of a rounded body, beak forward and tail up at the back.",
+  "features": [
+   "Bold flat orange beak sticking forward from the face",
+   "Big black eyes on the front/sides of the head, two studs wide",
+   "Upturned pointed tail at the back of the body",
+   "Round head and body with sloped, sleek shoulders; a little blue bow tie at the neck under the beak"
+  ],
+  "plan": "Keep the converted head and body volumes (they carry the round proportions). Rebuild the beak as a clean, solid orange block anchored two studs into the face, with a tiled top. Replace the tiny one-cell eyes on the top surface with 2x4 black patches on the face where the seed has them. Add a raised tail at the back so the side silhouette reads as a duck. Make the surface sleek with slopes at steps and a tiled crown. A small blue bow tie is painted into the front of the neck below the beak: taller wings at the ends, a narrower knot in the middle.",
+  "colours": [
+   14,
+   25,
+   0,
+   1
+  ],
+  "finish": "Sloped everywhere the round head and body step in, tiles on the flat crown and beak, since a rubber duck is smooth and glossy."
+ }
+}

@@ -1,0 +1,26 @@
+{
+ "name": "cat",
+ "seed": "seed.glb",
+ "seed_original_name": "cat.glb",
+ "studs": 16,
+ "up": null,
+ "hollow": false,
+ "brief": {
+  "object": "A blocky, Minecraft-style grey cat standing on four legs, facing the front (-y), with its tail straight up at the back.",
+  "features": [
+   "Boxy head wider at the front with two square ears on top",
+   "Light grey muzzle sticking out with a pink nose, tall black eyes either side",
+   "Whiskers poking out sideways from the cheeks",
+   "Long thin tail standing straight up behind the body"
+  ],
+  "plan": "The cat is made of simple boxes, so I rebuild everything above the legs as clean boxes in the seed's proportions: body x4-9 y8-16 z9-19, head x4-9 y4-7 z9-20, ears 2x2 one brick tall on the front corners of the head, muzzle 4 wide two bricks tall with a 2x2 pink nose on top, black eyes two studs wide and five plates tall, two whiskers per side as thin light grey plates anchored deep in the head, tail 2x1 rising from z14 to z33. Light grey is carried into hidden cells behind the muzzle so it holds. The conversion noise (stray whisker blobs, ragged slopes on the head and tail) is dropped. A red collar is a one-stud band all the way round the neck at y=8, where the head meets the body.",
+  "colours": [
+   72,
+   71,
+   0,
+   29,
+   4
+  ],
+  "finish": "Smooth tiles on the body back, head top, nose and tail tip for a sleek, deliberate look, with studs left on the ears and paws as contrast."
+ }
+}

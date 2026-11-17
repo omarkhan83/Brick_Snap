@@ -3,7 +3,7 @@
 The order of work. There are no dates here on purpose: what matters is the sequence. Only the lead
 (Alec-42, through his agent) edits this file. Everyone else proposes changes through `docs/decisions/`.
 
-**Current stage: 3**
+**Current stage: 4**
 
 Pick tasks from the current stage first. A task's `stage:` line says where it belongs.
 
@@ -42,14 +42,18 @@ part and colour pairs that exist.
 - Choose the showcase models. If a physical model is wanted, order its parts as soon as its design is
   good enough, because parts take time to arrive.
 - Closer and sturdier, measured on the scorecard (`uv run bricksnap bench`, compared with
-  `samples/scorecard.json`). Done: cells are filled by how much of them the model covers, and big sections
-  are tied together with more than one part. Open: the weak spots that remain in thin models, and fewer
-  small plates on curved models.
+  `samples/scorecard.json`): cells are filled by how much of them the model covers, and big sections are
+  tied together with more than one part.
+
+**Done.** What was shown, with pictures: `docs/stages/stage-3.md`. Carried into stage 4: side-stud
+details, the weak spots that remain in thin models, and fewer small plates on curved models.
 
 ### Stage 4: usable and presentable
 
 - A web app on a server that runs on your own computer: choose a model, see the plain conversion next to
   the designed build, start the designer, type a change, download the files (`docs/tasks/web-app.md`).
+- Carried over from stage 3: details on the side of a model (round eyes on a face), the weak spots that
+  remain in thin models, fewer small plates on curved models, and a test suite that runs in a few minutes.
 - An instruction booklet made from our own steps and pictures (`docs/tasks/instruction-booklet.md`).
 - The same models through BrickLink Studio's sculpture import, pictured next to ours.
 - Saved example projects in `samples/projects/` so nothing depends on a live run.

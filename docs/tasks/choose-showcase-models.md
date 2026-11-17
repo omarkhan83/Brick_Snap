@@ -1,7 +1,7 @@
 # Choose three showcase models and order parts for one
 - status: open
 - owner: nobody
-- stage: 3
+- stage: 4
 
 Pick the three models the two-minute walkthrough will use (see `docs/ROADMAP.md`, stage 4). They should
 show different strengths: something blocky with a face (the cat), something rounded (the duck), and

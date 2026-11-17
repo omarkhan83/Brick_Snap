@@ -1,0 +1,263 @@
+{
+ "details": [],
+ "regions": {},
+ "log": [
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     4,
+     4,
+     18
+    ],
+    "max": [
+     13,
+     6,
+     32
+    ]
+   },
+   "color": 14
+  },
+  {
+   "op": "remove",
+   "shape": {
+    "type": "box",
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     17,
+     3,
+     42
+    ]
+   }
+  },
+  {
+   "op": "add",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     2,
+     21
+    ],
+    "max": [
+     11,
+     3,
+     23
+    ]
+   },
+   "color": 25
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     4,
+     21
+    ],
+    "max": [
+     11,
+     5,
+     23
+    ]
+   },
+   "color": 25
+  },
+  {
+   "op": "remove",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     2,
+     21
+    ],
+    "max": [
+     6,
+     2,
+     23
+    ]
+   },
+   "mirror": true
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     5,
+     4,
+     26
+    ],
+    "max": [
+     6,
+     5,
+     29
+    ]
+   },
+   "color": 0,
+   "mirror": true
+  },
+  {
+   "op": "add",
+   "shape": {
+    "type": "box",
+    "min": [
+     7,
+     14,
+     18
+    ],
+    "max": [
+     10,
+     17,
+     20
+    ]
+   },
+   "color": 14
+  },
+  {
+   "op": "add",
+   "shape": {
+    "type": "box",
+    "min": [
+     7,
+     16,
+     21
+    ],
+    "max": [
+     10,
+     17,
+     23
+    ]
+   },
+   "color": 14
+  },
+  {
+   "op": "set_finish",
+   "shape": {
+    "type": "box",
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     17,
+     19,
+     42
+    ]
+   },
+   "finish": "sloped"
+  },
+  {
+   "op": "set_finish",
+   "shape": {
+    "type": "box",
+    "min": [
+     0,
+     0,
+     35
+    ],
+    "max": [
+     17,
+     19,
+     35
+    ]
+   },
+   "finish": "smooth"
+  },
+  {
+   "op": "set_finish",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     2,
+     21
+    ],
+    "max": [
+     11,
+     5,
+     23
+    ]
+   },
+   "finish": "smooth"
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     4,
+     17
+    ],
+    "max": [
+     6,
+     6,
+     20
+    ]
+   },
+   "color": 1,
+   "mirror": true
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     7,
+     4,
+     18
+    ],
+    "max": [
+     10,
+     6,
+     19
+    ]
+   },
+   "color": 1
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     7,
+     4,
+     18
+    ],
+    "max": [
+     10,
+     9,
+     18
+    ]
+   },
+   "color": 1
+  },
+  {
+   "op": "paint",
+   "shape": {
+    "type": "box",
+    "min": [
+     6,
+     4,
+     17
+    ],
+    "max": [
+     6,
+     9,
+     17
+    ]
+   },
+   "color": 1,
+   "mirror": true
+  }
+ ]
+}

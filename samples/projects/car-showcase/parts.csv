@@ -1,0 +1,59 @@
+Part,BrickLink ID,Name,Colour,LDraw colour,BrickLink colour ID,Quantity
+2456,2456,Brick 2 x 6,Red,4,5,2
+2456,2456,Brick 2 x 6,Dark Bluish Grey,72,85,4
+3001,3001,Brick 2 x 4,Red,4,5,1
+3001,3001,Brick 2 x 4,Dark Bluish Grey,72,85,3
+3003,3003,Brick 2 x 2,Red,4,5,1
+3003,3003,Brick 2 x 2,Dark Bluish Grey,72,85,2
+3004,3004,Brick 1 x 2,Red,4,5,1
+3005,3005,Brick 1 x 1,Black,0,11,8
+3005,3005,Brick 1 x 1,Red,4,5,3
+3007,3007,Brick 2 x 8,Red,4,5,2
+3007,3007,Brick 2 x 8,Dark Bluish Grey,72,85,7
+3008,3008,Brick 1 x 8,Dark Bluish Grey,72,85,1
+3009,3009,Brick 1 x 6,Red,4,5,2
+3010,3010,Brick 1 x 4,Red,4,5,5
+3010,3010,Brick 1 x 4,Dark Bluish Grey,72,85,1
+3622,3622,Brick 1 x 3,Red,4,5,1
+3622,3622,Brick 1 x 3,Trans Light Blue,43,15,2
+3021,3021,Plate 2 x 3,White,15,1,1
+3021,3021,Plate 2 x 3,Dark Bluish Grey,72,85,1
+3022,3022,Plate 2 x 2,Dark Bluish Grey,72,85,1
+3023b,3023,Plate 1 x 2,Black,0,11,24
+3023b,3023,Plate 1 x 2,Red,4,5,16
+3023b,3023,Plate 1 x 2,Yellow,14,3,2
+3023b,3023,Plate 1 x 2,Trans Red,36,17,4
+3023b,3023,Plate 1 x 2,Trans Light Blue,43,15,7
+3023b,3023,Plate 1 x 2,Dark Bluish Grey,72,85,6
+3024,3024,Plate 1 x 1,Black,0,11,20
+3024,3024,Plate 1 x 1,Red,4,5,16
+3024,3024,Plate 1 x 1,Trans Light Blue,43,15,4
+3024,3024,Plate 1 x 1,Light Bluish Grey,71,86,8
+3034,3034,Plate 2 x 8,Red,4,5,6
+3034,3034,Plate 2 x 8,Dark Bluish Grey,72,85,2
+3460,3460,Plate 1 x 8,Dark Bluish Grey,72,85,2
+3623,3623,Plate 1 x 3,Black,0,11,4
+3623,3623,Plate 1 x 3,Red,4,5,10
+3666,3666,Plate 1 x 6,Dark Bluish Grey,72,85,1
+3710,3710,Plate 1 x 4,Red,4,5,3
+3710,3710,Plate 1 x 4,Trans Light Blue,43,15,3
+3710,3710,Plate 1 x 4,Light Bluish Grey,71,86,2
+3710,3710,Plate 1 x 4,Dark Bluish Grey,72,85,1
+3795,3795,Plate 2 x 6,Red,4,5,3
+3795,3795,Plate 2 x 6,Dark Bluish Grey,72,85,1
+2431,2431,Tile 1 x 4 with Groove,Red,4,5,1
+26603,26603,Tile 2 x 3,Red,4,5,4
+26603,26603,Tile 2 x 3,White,15,1,1
+3068b,3068,Tile 2 x 2 with Groove,White,15,1,1
+3069b,3069,Tile 1 x 2 with Groove,Red,4,5,4
+3069b,3069,Tile 1 x 2 with Groove,White,15,1,2
+3070b,3070,Tile 1 x 1 with Groove,Red,4,5,8
+4162,4162,Tile 1 x 8,Red,4,5,2
+63864,63864,Tile 1 x 3,Red,4,5,4
+87079,87079,Tile 2 x 4,Red,4,5,1
+87079,87079,Tile 2 x 4,White,15,1,1
+3040b,3040,Slope Brick 45 2 x 1,Red,4,5,4
+54200,54200,Slope Brick 31 1 x 1 x 0.667,Red,4,5,2
+54200,54200,Slope Brick 31 1 x 1 x 0.667,Trans Light Blue,43,15,13
+85984,85984,Slope Brick 31 1 x 2 x 0.667,White,15,1,2
+Total,,,,,,244

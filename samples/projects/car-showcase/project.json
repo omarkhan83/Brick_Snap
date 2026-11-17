@@ -1,0 +1,27 @@
+{
+ "name": "car",
+ "seed": "seed.glb",
+ "seed_original_name": "car.glb",
+ "studs": 16,
+ "up": null,
+ "hollow": false,
+ "brief": {
+  "object": "A small red three-box sedan (hatch-like coupe) with a dark grey lower body, facing the front (y = 0).",
+  "features": [
+   "Four black wheels clearly separated from the body, with ground clearance between them",
+   "Red cabin set back from the hood with a raked light-blue windshield and side windows",
+   "Two-tone body: dark grey lower sills/bumpers, red upper body with a two-stud white racing stripe down the middle of the bonnet, roof and boot",
+   "Yellow headlights, red tail lights and side mirrors"
+  ],
+  "plan": "The conversion is a noisy mix of sand-blue plates with fragile single-stud joints, so rebuild it from clean blocky forms using the seed's proportions: 8-stud-wide body from y 2 to 17, wheels 2x3 studs at y 4-6 and 12-14 with rounded corners and grey hubs, grey chassis z 3-8, a one-brick red belt z 9-11, and a red cabin x 4-9, y 7-14 rising to z 19. Exaggerate the windshield rake with a 45-degree staircase and give the cabin a sloped rear. Mirrors one stud out at y 7. Drop the tiny bumpers; keep a light grey plate on the front. A white racing stripe (x 6-7) runs over the top of the bonnet, roof and boot, interrupted by the glass.",
+  "colours": [
+   4,
+   72,
+   0,
+   43,
+   14,
+   15
+  ],
+  "finish": "Hood, trunk and roof smooth (tiles) because a car body is sleek; windshield and rear window sloped; wheels and chassis left as built."
+ }
+}

@@ -1,7 +1,7 @@
 # A judge that picks the best of several designs
 - status: in-progress
 - owner: Alec-42 (since 2026-11-16)
-- stage: 3
+- stage: 4
 
 Two runs of the designer on the same model give different results, and some are clearly better. Run the
 designer several times on copies of a project, then have a separate clean-context judge (a second model

@@ -1,0 +1,1145 @@
+{
+ "shape": [
+  14,
+  20,
+  41
+ ],
+ "design_id": "1afb4f23ecbd3597",
+ "notes": [
+  "Filled 1 partly covered cell at x=3, y=5, z=17 Light Bluish Grey next to the Light Bluish Grey part at x=2 to 3, y=4, z=16 to 17, so that it is held: the model passes through that cell, so the outline moves by less than half a cell.",
+  "Filled 1 partly covered cell at x=10, y=5, z=17 Light Bluish Grey next to the Light Bluish Grey part at x=10 to 11, y=4, z=16 to 17, so that it is held: the model passes through that cell, so the outline moves by less than half a cell."
+ ],
+ "parts": [
+  {
+   "part": "3003",
+   "color": 71,
+   "x": 4,
+   "y": 8,
+   "z": 0,
+   "rot": 0,
+   "step": 1
+  },
+  {
+   "part": "3003",
+   "color": 71,
+   "x": 8,
+   "y": 8,
+   "z": 0,
+   "rot": 0,
+   "step": 1
+  },
+  {
+   "part": "3003",
+   "color": 71,
+   "x": 4,
+   "y": 15,
+   "z": 0,
+   "rot": 0,
+   "step": 1
+  },
+  {
+   "part": "3003",
+   "color": 71,
+   "x": 8,
+   "y": 15,
+   "z": 0,
+   "rot": 0,
+   "step": 1
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 4,
+   "y": 8,
+   "z": 3,
+   "rot": 0,
+   "step": 2
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 8,
+   "y": 8,
+   "z": 3,
+   "rot": 0,
+   "step": 2
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 4,
+   "y": 15,
+   "z": 3,
+   "rot": 0,
+   "step": 2
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 8,
+   "y": 15,
+   "z": 3,
+   "rot": 0,
+   "step": 2
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 4,
+   "y": 8,
+   "z": 6,
+   "rot": 0,
+   "step": 3
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 8,
+   "y": 8,
+   "z": 6,
+   "rot": 0,
+   "step": 3
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 4,
+   "y": 15,
+   "z": 6,
+   "rot": 0,
+   "step": 3
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 8,
+   "y": 15,
+   "z": 6,
+   "rot": 0,
+   "step": 3
+  },
+  {
+   "part": "3710",
+   "color": 72,
+   "x": 5,
+   "y": 4,
+   "z": 9,
+   "rot": 0,
+   "step": 4
+  },
+  {
+   "part": "3666",
+   "color": 72,
+   "x": 4,
+   "y": 5,
+   "z": 9,
+   "rot": 0,
+   "step": 4
+  },
+  {
+   "part": "3005",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 9,
+   "rot": 0,
+   "step": 5
+  },
+  {
+   "part": "3005",
+   "color": 72,
+   "x": 9,
+   "y": 4,
+   "z": 9,
+   "rot": 0,
+   "step": 5
+  },
+  {
+   "part": "3009",
+   "color": 72,
+   "x": 4,
+   "y": 6,
+   "z": 9,
+   "rot": 0,
+   "step": 5
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 7,
+   "z": 9,
+   "rot": 0,
+   "step": 5
+  },
+  {
+   "part": "3007",
+   "color": 72,
+   "x": 4,
+   "y": 9,
+   "z": 9,
+   "rot": 90,
+   "step": 5
+  },
+  {
+   "part": "3007",
+   "color": 72,
+   "x": 6,
+   "y": 9,
+   "z": 9,
+   "rot": 90,
+   "step": 5
+  },
+  {
+   "part": "3007",
+   "color": 72,
+   "x": 8,
+   "y": 9,
+   "z": 9,
+   "rot": 90,
+   "step": 5
+  },
+  {
+   "part": "3020",
+   "color": 71,
+   "x": 5,
+   "y": 2,
+   "z": 10,
+   "rot": 0,
+   "step": 6
+  },
+  {
+   "part": "3020",
+   "color": 71,
+   "x": 5,
+   "y": 4,
+   "z": 10,
+   "rot": 0,
+   "step": 6
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 4,
+   "y": 5,
+   "z": 10,
+   "rot": 0,
+   "step": 6
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 9,
+   "y": 5,
+   "z": 10,
+   "rot": 0,
+   "step": 6
+  },
+  {
+   "part": "3623",
+   "color": 71,
+   "x": 5,
+   "y": 2,
+   "z": 11,
+   "rot": 90,
+   "step": 7
+  },
+  {
+   "part": "3623",
+   "color": 71,
+   "x": 6,
+   "y": 2,
+   "z": 11,
+   "rot": 0,
+   "step": 7
+  },
+  {
+   "part": "3022",
+   "color": 72,
+   "x": 6,
+   "y": 3,
+   "z": 11,
+   "rot": 0,
+   "step": 7
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 8,
+   "y": 3,
+   "z": 11,
+   "rot": 90,
+   "step": 7
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 2,
+   "y": 4,
+   "z": 11,
+   "rot": 0,
+   "step": 7
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 10,
+   "y": 4,
+   "z": 11,
+   "rot": 0,
+   "step": 7
+  },
+  {
+   "part": "3460",
+   "color": 71,
+   "x": 3,
+   "y": 5,
+   "z": 11,
+   "rot": 0,
+   "step": 7
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 6,
+   "y": 2,
+   "z": 12,
+   "rot": 0,
+   "step": 8
+  },
+  {
+   "part": "3022",
+   "color": 71,
+   "x": 3,
+   "y": 4,
+   "z": 12,
+   "rot": 0,
+   "step": 8
+  },
+  {
+   "part": "3022",
+   "color": 71,
+   "x": 9,
+   "y": 4,
+   "z": 12,
+   "rot": 0,
+   "step": 8
+  },
+  {
+   "part": "3010",
+   "color": 71,
+   "x": 5,
+   "y": 2,
+   "z": 12,
+   "rot": 90,
+   "step": 9
+  },
+  {
+   "part": "3010",
+   "color": 71,
+   "x": 8,
+   "y": 2,
+   "z": 12,
+   "rot": 90,
+   "step": 9
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 6,
+   "y": 3,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "3004",
+   "color": 71,
+   "x": 6,
+   "y": 5,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 6,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 8,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 10,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 12,
+   "z": 12,
+   "rot": 0,
+   "step": 9
+  },
+  {
+   "part": "2456",
+   "color": 72,
+   "x": 4,
+   "y": 14,
+   "z": 12,
+   "rot": 0,
+   "step": 10
+  },
+  {
+   "part": "3009",
+   "color": 72,
+   "x": 4,
+   "y": 16,
+   "z": 12,
+   "rot": 0,
+   "step": 10
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 6,
+   "y": 2,
+   "z": 13,
+   "rot": 0,
+   "step": 11
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 13,
+   "rot": 90,
+   "step": 11
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 9,
+   "y": 4,
+   "z": 13,
+   "rot": 90,
+   "step": 11
+  },
+  {
+   "part": "3023b",
+   "color": 29,
+   "x": 6,
+   "y": 2,
+   "z": 14,
+   "rot": 0,
+   "step": 12
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 14,
+   "rot": 90,
+   "step": 12
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 9,
+   "y": 4,
+   "z": 14,
+   "rot": 90,
+   "step": 12
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 14,
+   "rot": 0,
+   "step": 12
+  },
+  {
+   "part": "3024",
+   "color": 71,
+   "x": 5,
+   "y": 2,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3023b",
+   "color": 29,
+   "x": 6,
+   "y": 2,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3024",
+   "color": 71,
+   "x": 8,
+   "y": 2,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3710",
+   "color": 71,
+   "x": 5,
+   "y": 3,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 4,
+   "y": 4,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 6,
+   "y": 4,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 8,
+   "y": 4,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 4,
+   "y": 5,
+   "z": 15,
+   "rot": 0,
+   "step": 13
+  },
+  {
+   "part": "3710",
+   "color": 71,
+   "x": 5,
+   "y": 5,
+   "z": 15,
+   "rot": 0,
+   "step": 14
+  },
+  {
+   "part": "3460",
+   "color": 72,
+   "x": 9,
+   "y": 5,
+   "z": 15,
+   "rot": 90,
+   "step": 14
+  },
+  {
+   "part": "3460",
+   "color": 72,
+   "x": 8,
+   "y": 6,
+   "z": 15,
+   "rot": 90,
+   "step": 14
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 9,
+   "y": 13,
+   "z": 15,
+   "rot": 0,
+   "step": 14
+  },
+  {
+   "part": "3007",
+   "color": 72,
+   "x": 4,
+   "y": 6,
+   "z": 15,
+   "rot": 90,
+   "step": 15
+  },
+  {
+   "part": "3001",
+   "color": 72,
+   "x": 6,
+   "y": 6,
+   "z": 15,
+   "rot": 90,
+   "step": 15
+  },
+  {
+   "part": "3007",
+   "color": 72,
+   "x": 6,
+   "y": 10,
+   "z": 15,
+   "rot": 90,
+   "step": 15
+  },
+  {
+   "part": "3002",
+   "color": 72,
+   "x": 4,
+   "y": 14,
+   "z": 15,
+   "rot": 90,
+   "step": 15
+  },
+  {
+   "part": "3002",
+   "color": 72,
+   "x": 8,
+   "y": 14,
+   "z": 15,
+   "rot": 90,
+   "step": 15
+  },
+  {
+   "part": "3023b",
+   "color": 29,
+   "x": 6,
+   "y": 2,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 3,
+   "y": 4,
+   "z": 16,
+   "rot": 90,
+   "step": 16
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 4,
+   "y": 4,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3710",
+   "color": 71,
+   "x": 5,
+   "y": 4,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 9,
+   "y": 4,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 10,
+   "y": 4,
+   "z": 16,
+   "rot": 90,
+   "step": 16
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 4,
+   "y": 5,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3710",
+   "color": 71,
+   "x": 6,
+   "y": 5,
+   "z": 16,
+   "rot": 0,
+   "step": 16
+  },
+  {
+   "part": "3034",
+   "color": 72,
+   "x": 8,
+   "y": 6,
+   "z": 16,
+   "rot": 90,
+   "step": 17
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 2,
+   "y": 4,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 0,
+   "x": 4,
+   "y": 4,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 6,
+   "y": 4,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 7,
+   "y": 4,
+   "z": 17,
+   "rot": 90,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 0,
+   "x": 8,
+   "y": 4,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 3,
+   "y": 5,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 5,
+   "y": 5,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 8,
+   "y": 5,
+   "z": 17,
+   "rot": 0,
+   "step": 18
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 10,
+   "y": 4,
+   "z": 17,
+   "rot": 0,
+   "step": 19
+  },
+  {
+   "part": "3023b",
+   "color": 71,
+   "x": 9,
+   "y": 5,
+   "z": 17,
+   "rot": 0,
+   "step": 19
+  },
+  {
+   "part": "3034",
+   "color": 72,
+   "x": 8,
+   "y": 6,
+   "z": 17,
+   "rot": 90,
+   "step": 19
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 5,
+   "y": 4,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 8,
+   "y": 4,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 4,
+   "y": 8,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 4,
+   "y": 10,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3666",
+   "color": 72,
+   "x": 4,
+   "y": 12,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 4,
+   "y": 13,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 4,
+   "y": 15,
+   "z": 18,
+   "rot": 0,
+   "step": 20
+  },
+  {
+   "part": "3010",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 18,
+   "rot": 90,
+   "step": 21
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 4,
+   "z": 18,
+   "rot": 0,
+   "step": 21
+  },
+  {
+   "part": "3010",
+   "color": 72,
+   "x": 9,
+   "y": 4,
+   "z": 18,
+   "rot": 90,
+   "step": 21
+  },
+  {
+   "part": "3001",
+   "color": 72,
+   "x": 5,
+   "y": 5,
+   "z": 18,
+   "rot": 0,
+   "step": 21
+  },
+  {
+   "part": "3010",
+   "color": 72,
+   "x": 5,
+   "y": 7,
+   "z": 18,
+   "rot": 0,
+   "step": 21
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 18,
+   "rot": 0,
+   "step": 21
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 5,
+   "y": 4,
+   "z": 19,
+   "rot": 0,
+   "step": 22
+  },
+  {
+   "part": "3024",
+   "color": 0,
+   "x": 8,
+   "y": 4,
+   "z": 19,
+   "rot": 0,
+   "step": 22
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 5,
+   "y": 9,
+   "z": 19,
+   "rot": 90,
+   "step": 22
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 7,
+   "y": 9,
+   "z": 19,
+   "rot": 90,
+   "step": 22
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 5,
+   "y": 15,
+   "z": 19,
+   "rot": 0,
+   "step": 22
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 7,
+   "y": 15,
+   "z": 19,
+   "rot": 0,
+   "step": 22
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 5,
+   "y": 4,
+   "z": 20,
+   "rot": 0,
+   "step": 23
+  },
+  {
+   "part": "3024",
+   "color": 72,
+   "x": 8,
+   "y": 4,
+   "z": 20,
+   "rot": 0,
+   "step": 23
+  },
+  {
+   "part": "3022",
+   "color": 72,
+   "x": 6,
+   "y": 4,
+   "z": 21,
+   "rot": 0,
+   "step": 24
+  },
+  {
+   "part": "3795",
+   "color": 72,
+   "x": 4,
+   "y": 6,
+   "z": 21,
+   "rot": 0,
+   "step": 24
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 21,
+   "rot": 0,
+   "step": 25
+  },
+  {
+   "part": "3003",
+   "color": 72,
+   "x": 8,
+   "y": 4,
+   "z": 21,
+   "rot": 0,
+   "step": 25
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 21,
+   "rot": 0,
+   "step": 25
+  },
+  {
+   "part": "3022",
+   "color": 72,
+   "x": 4,
+   "y": 4,
+   "z": 24,
+   "rot": 0,
+   "step": 26
+  },
+  {
+   "part": "3022",
+   "color": 72,
+   "x": 8,
+   "y": 4,
+   "z": 24,
+   "rot": 0,
+   "step": 26
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 24,
+   "rot": 0,
+   "step": 27
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 4,
+   "y": 5,
+   "z": 25,
+   "rot": 0,
+   "step": 28
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 8,
+   "y": 5,
+   "z": 25,
+   "rot": 0,
+   "step": 28
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 27,
+   "rot": 0,
+   "step": 29
+  },
+  {
+   "part": "3004",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 30,
+   "rot": 0,
+   "step": 30
+  },
+  {
+   "part": "3023b",
+   "color": 72,
+   "x": 6,
+   "y": 17,
+   "z": 33,
+   "rot": 0,
+   "step": 31
+  }
+ ],
+ "report": {
+  "ok": true,
+  "part_count": 123,
+  "collisions": [],
+  "out_of_bounds": [],
+  "unknown_parts": [],
+  "components": 1,
+  "loose": [],
+  "grounded": true,
+  "stands": true,
+  "centre_of_mass": [
+   7.0,
+   10.207401032702238,
+   13.909638554216867
+  ],
+  "weak_spots": [
+   "7 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=6, y=10, z=15: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=17, z=14 to 33). Give them a second connection that does not pass through this part.",
+   "5 parts depend on the Light Bluish Grey Plate 1 x 3 (3623) at x=6, y=2, z=11: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=2, z=12 to 16). It is the first of 3 parts in a row that each carry everything beyond them alone, ending at the Light Bluish Grey Plate 1 x 2 (3023b) at x=6, y=2, z=13. Give them a second connection that does not pass through these parts.",
+   "5 parts depend on the Dark Bluish Grey Brick 1 x 2 (3004) at x=6, y=17, z=18: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=17, z=21 to 33). It is the first of 3 parts in a row that each carry everything beyond them alone, ending at the Dark Bluish Grey Brick 1 x 2 (3004) at x=6, y=17, z=24. Give them a second connection that does not pass through these parts.",
+   "3 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=4, y=9, z=9 to stay joined to the rest (the group spans x=4 to 5, y=15 to 16, z=0 to 8). They stand on the ground themselves, so the model holds while it stands, but they come away when it is lifted. Give them a second connection that does not pass through this part.",
+   "3 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=8, y=9, z=9 to stay joined to the rest (the group spans x=8 to 9, y=15 to 16, z=0 to 8). They stand on the ground themselves, so the model holds while it stands, but they come away when it is lifted. Give them a second connection that does not pass through this part."
+  ],
+  "text": "OK: 123 parts in one connected piece; it stands.\n5 weak spots to strengthen (they do not fail the checks on their own):\n- 7 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=6, y=10, z=15: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=17, z=14 to 33). Give them a second connection that does not pass through this part.\n- 5 parts depend on the Light Bluish Grey Plate 1 x 3 (3623) at x=6, y=2, z=11: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=2, z=12 to 16). It is the first of 3 parts in a row that each carry everything beyond them alone, ending at the Light Bluish Grey Plate 1 x 2 (3023b) at x=6, y=2, z=13. Give them a second connection that does not pass through these parts.\n- 5 parts depend on the Dark Bluish Grey Brick 1 x 2 (3004) at x=6, y=17, z=18: it is their only link to the ground, so they come away with it (the group spans x=6 to 7, y=17, z=21 to 33). It is the first of 3 parts in a row that each carry everything beyond them alone, ending at the Dark Bluish Grey Brick 1 x 2 (3004) at x=6, y=17, z=24. Give them a second connection that does not pass through these parts.\n- 3 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=4, y=9, z=9 to stay joined to the rest (the group spans x=4 to 5, y=15 to 16, z=0 to 8). They stand on the ground themselves, so the model holds while it stands, but they come away when it is lifted. Give them a second connection that does not pass through this part.\n- 3 parts depend on the Dark Bluish Grey Brick 2 x 8 (3007) at x=8, y=9, z=9 to stay joined to the rest (the group spans x=8 to 9, y=15 to 16, z=0 to 8). They stand on the ground themselves, so the model holds while it stands, but they come away when it is lifted. Give them a second connection that does not pass through this part."
+ }
+}
