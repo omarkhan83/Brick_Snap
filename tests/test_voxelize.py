@@ -72,6 +72,41 @@ def surface_cells_reference(tris_cells: np.ndarray, shape, density: int = 40) ->
     return found
 
 
+def fill_share(inside, shape, n: int = 6) -> np.ndarray:
+    """The share of each cell that ``inside`` (points in mm -> bool) says is inside, from
+    n x n x n points spread evenly through every cell."""
+    k = (np.arange(n) + 0.5) / n
+    offsets = np.stack(np.meshgrid(k, k, k, indexing="ij"), axis=-1).reshape(-1, 3)
+    corner = np.indices(shape, dtype=np.float64).transpose(1, 2, 3, 0)
+    points = (corner[..., None, :] + offsets[None, None, None]) * CELL
+    return inside(points).mean(axis=-1)
+
+
+def one_piece(filled: np.ndarray) -> bool:
+    """Whether the filled cells are joined into one piece through their faces."""
+    from scipy import ndimage
+
+    return ndimage.label(filled, structure=ndimage.generate_binary_structure(3, 1))[1] == 1
+
+
+def cells_box(lo, hi) -> trimesh.Trimesh:
+    """A box between two corners given in cells (studs across, plates up)."""
+    return trimesh.creation.box(bounds=[np.asarray(lo, float) * CELL, np.asarray(hi, float) * CELL])
+
+
+def placed(*meshes: trimesh.Trimesh) -> Seed:
+    """A seed exactly where the meshes are, with a speck in the corner cell (0, 0, 0) so that
+    the grid starts at the origin and nothing is moved."""
+    joined = concat(cells_box((0.0, 0.0, 0.0), (0.02, 0.02, 0.02)), *meshes)
+    return Seed(vertices=np.asarray(joined.vertices, float), faces=np.asarray(joined.faces))
+
+
+def without_speck(design: Design) -> np.ndarray:
+    filled = design.filled.copy()
+    filled[0, 0, 0] = False
+    return filled
+
+
 # ---- grid -----------------------------------------------------------------------------------
 
 
@@ -96,9 +131,14 @@ def test_rounding_noise_does_not_gain_a_cell(catalog):
 
 
 def test_partial_cells_round_up(catalog):
+    """The grid holds every bit of the model; a cell the model fills less than half of is
+    left empty (stage 1 filled it)."""
     design = voxelize(seed_from(box_seed((64.5, 41.0, 33.0))), catalog)
-    assert body(design).shape == (9, 6, 11)
-    assert body(design).all()
+    assert body(design).shape == (9, 6, 11)  # 8.06 x 5.13 x 10.31 cells
+    assert body(design)[:8, :5, :10].all()
+    assert body(design).sum() == 8 * 5 * 10
+    design = voxelize(seed_from(box_seed((68.8, 40.0, 32.0))), catalog)  # 8.6 x 5 x 10
+    assert body(design).shape == (9, 5, 10) and body(design).all()
 
 
 def test_cells_are_not_cubes(catalog):
@@ -166,15 +206,33 @@ def test_solid_shapes_are_filled_inside(catalog):
     assert np.array_equal(ndimage.binary_fill_holes(f), f)
 
 
-def test_every_cell_the_surface_passes_through_is_marked(catalog):
-    for mesh in (trimesh.creation.icosphere(3, radius=50.0), trimesh.creation.torus(40.0, 12.0)):
+def test_cells_follow_how_much_of_them_the_model_fills(catalog):
+    """Against a sphere and a torus measured independently (dense points tested against the
+    exact shape): a cell more than 60% inside is filled, one less than 40% inside is not
+    (except in the bottom layer, where the model keeps the cells it rests on), and nothing
+    is filled that is neither touched by the surface nor inside."""
+    for mesh, inside in (
+        (
+            trimesh.creation.icosphere(4, radius=50.0),
+            lambda p: np.linalg.norm(p - 50.0, axis=-1) < 50.0,
+        ),
+        (
+            trimesh.creation.torus(40.0, 12.0, major_sections=128, minor_sections=64),
+            lambda p: (
+                (np.hypot(p[..., 0] - 52.0, p[..., 1] - 52.0) - 40.0) ** 2 + (p[..., 2] - 12.0) ** 2
+                < 144.0
+            ),
+        ),
+    ):
         seed = seed_from(mesh)
-        design = voxelize(seed, catalog)
-        filled = body(design)
+        filled = body(voxelize(seed, catalog))
+        share = fill_share(inside, filled.shape)
+        assert filled[share > 0.6].all()
+        assert not filled[:, :, 1:][share[:, :, 1:] < 0.4].any()
         tris = seed.vertices[seed.faces] / CELL
-        reference = surface_cells_reference(tris, filled.shape)
-        missed = [c for c in reference if not filled[c]]
-        assert missed == []
+        touched = np.zeros(filled.shape, dtype=bool)
+        touched[tuple(np.array(sorted(surface_cells_reference(tris, filled.shape))).T)] = True
+        assert not (filled & ~touched & (share < 1.0)).any()
 
 
 def test_cell_clipped_only_at_its_corner_is_marked(catalog):
@@ -321,13 +379,20 @@ def test_thin_closed_shell_is_filled_solid(catalog):
 
 
 def test_feature_thinner_than_a_cell_keeps_its_cells(catalog):
-    """A 0.5 mm thin fin sticking out of a block does not vanish."""
+    """A 0.5 mm thin fin sticking out of a block does not vanish: it is one cell thick and
+    joined to the block. A 0.5 mm plate lying flat on the block's side is only its skin."""
     block = box_seed((32.0, 32.0, 32.0))
-    fin = box_seed((0.5, 20.0, 20.0), origin=(32.0, 6.0, 6.0))
+    fin = box_seed((20.8, 0.5, 20.0), origin=(32.0, 13.0, 6.0))  # sticks out in x, thin in y
     filled = body(voxelize(seed_from(concat(block, fin)), catalog))
+    assert filled.shape == (7, 4, 10)
+    assert filled[:4].all()
+    assert filled[4:, 1, 2:8].all()  # the fin: 2.6 studs out, one row thick
+    assert filled[4:].sum() == filled[4:, 1].sum()
+    assert one_piece(filled)
+    skin = box_seed((0.5, 20.0, 20.0), origin=(32.0, 6.0, 6.0))
+    filled = body(voxelize(seed_from(concat(block, skin)), catalog))
     assert filled.shape == (5, 4, 10)
-    assert filled[4].sum() > 0  # the fin column
-    assert filled[4, 1:3, 2:8].all()
+    assert filled[:4].all() and not filled[4].any()
 
 
 def test_small_hole_in_the_surface_is_tolerated(catalog):
@@ -367,6 +432,587 @@ def test_flood_is_six_connected(catalog):
     assert filled.shape == (4, 4, 3)
     assert filled[0:2, 0:2].all() and filled[2:4, 2:4].all()
     assert not filled[2:4, 0:2].any() and not filled[0:2, 2:4].any()
+
+
+# ---- a cell is filled when the model fills most of it --------------------------------------
+
+OFFSETS = np.arange(20) / 20 + 0.013  # where a box starts within a cell (never on a half)
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("width", [1.6, 2.4, 3.0, 4.5, 9.71])
+def test_box_is_as_wide_as_the_cells_it_mostly_fills(catalog, axis, width):
+    """A box ``width`` cells wide (studs in x and y, plates in z), wherever it sits: the
+    cells it covers at least half of, so floor(width) or ceil(width) of them, never more,
+    and width on average over where it sits. (Stage 1 gave ceil(width) or one more.)"""
+    counts = []
+    for start in OFFSETS:
+        lo = np.array([2.0, 2.0, 3.0])
+        hi = lo + 3.0
+        lo[axis] += start
+        hi[axis] = lo[axis] + width
+        filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
+        assert one_piece(filled)
+        middle = [3, 3, 4]
+        middle[axis] = slice(None)
+        line = filled[tuple(middle)]
+        n = int(line.sum())
+        assert line[np.flatnonzero(line)[0] : np.flatnonzero(line)[-1] + 1].all()
+        mostly = int(np.floor(hi[axis] - 0.5) - np.ceil(lo[axis] - 0.5) + 1)
+        assert n == mostly, (start, n, mostly)
+        assert n in (np.floor(width), np.ceil(width))
+        counts.append(n)
+    assert abs(np.mean(counts) - width) < 0.1
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("gap", [1.0, 1.2, 1.5, 1.9])
+def test_boxes_a_cell_or_more_apart_stay_apart(catalog, axis, gap):
+    """Stage 1 joined two boxes up to two cells apart (each poked into the cell between)."""
+    for start in OFFSETS[::2]:
+        lo = np.array([2.0, 2.0, 3.0])
+        hi = lo + 3.0
+        lo[axis] += start
+        hi[axis] = lo[axis] + 2.3
+        lo2, hi2 = lo.copy(), hi.copy()
+        lo2[axis] = hi[axis] + gap
+        hi2[axis] = lo2[axis] + 2.3
+        filled = without_speck(
+            voxelize(placed(cells_box(lo, hi), cells_box(lo2, hi2)), catalog, margin_studs=0)
+        )
+        from scipy import ndimage
+
+        assert ndimage.label(filled, structure=ndimage.generate_binary_structure(3, 1))[1] == 2
+
+
+@pytest.mark.parametrize("studs", [8, 10, 12, 16])
+def test_round_solids_keep_their_volume(catalog, studs):
+    """Spheres and cylinders (upright and lying) 8 studs or more across: the filled volume is
+    within 5% of the real one. (Stage 1 was 25 to 45% over.)"""
+    r = studs * 4.0
+    upright = trimesh.creation.cylinder(radius=r, height=41.6, sections=128)
+    lying = upright.copy()
+    lying.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+    for mesh in (trimesh.creation.icosphere(4, radius=r), upright, lying):
+        filled = voxelize(seed_from(mesh), catalog).filled.sum()
+        real = mesh.volume / np.prod(CELL)
+        assert abs(filled / real - 1) < 0.05, (filled, real)
+
+
+def test_round_solids_across_sizes(catalog):
+    """Diameters from 8 to 16 studs in quarter steps. Spheres stay within 5% of their volume
+    at every size. Upright cylinders do not: at 9 studs the cells at least half covered by
+    the circle are 69 per layer against an area of 63.6 (8.5% over), and rule 1 also keeps
+    cells the circle crosses near a corner whose lines across are more than half inside
+    on both axes. That is rule 1 itself, so what is checked is that each layer is exactly
+    those cells (cells within 0.05 of half covered may go either way, and within 0.08 of
+    half on their lines: three rays per axis measure a line average that coarsely), and
+    the volume within 9%."""
+    k = (np.arange(40) + 0.5) / 40
+    for studs in np.arange(8.0, 16.01, 0.25):
+        r = studs * 4.0
+        sphere = trimesh.creation.icosphere(4, radius=r)
+        filled = voxelize(seed_from(sphere), catalog).filled.sum()
+        assert abs(filled / (sphere.volume / np.prod(CELL)) - 1) < 0.05, studs
+
+        upright = trimesh.creation.cylinder(radius=r, height=41.6, sections=128)
+        f = voxelize(seed_from(upright), catalog, margin_studs=0).filled
+        assert (f == f[:, :, :1]).all()
+        points = np.arange(f.shape[0])[:, None] + k[None, :]
+        centre = studs / 2
+        d2 = (points[:, None, :, None] - centre) ** 2 + (points[None, :, None, :] - centre) ** 2
+        share = (d2 < centre**2).mean(axis=(2, 3))
+        # along x, the line through each cell at each y: how much of it is inside the circle
+        n = f.shape[0]
+        half = np.sqrt(np.maximum(centre**2 - (points - centre) ** 2, 0.0))  # [j, sample]
+        cell = np.arange(n)[:, None, None]
+        chord = np.clip(
+            np.minimum(cell + 1, centre + half[None]) - np.maximum(cell, centre - half[None]), 0, 1
+        )  # [i, j, sample]: the line at y = points[j, sample] through cell (i, j)
+        meets = chord > 0
+        along_x = (chord * meets).sum(axis=2) / np.maximum(meets.sum(axis=2), 1)
+        lines = np.minimum(along_x, along_x.T)  # the circle is the same both ways
+        sure = (share > 0.55) | (lines > 0.58)
+        never = (share < 0.45) & (lines < 0.42)
+        assert f[:, :, 0][sure].all() and not f[:, :, 0][never].any(), studs
+        assert abs(f.sum() / (upright.volume / np.prod(CELL)) - 1) < 0.09, studs
+
+
+ROD = 0.3 * 8.0  # mm: 0.3 studs, which is 0.3 cells across and 0.75 plates up
+
+
+@pytest.mark.parametrize("along", [0, 1, 2])
+@pytest.mark.parametrize("where", ["inside a row", "on a boundary", "on an edge"])
+def test_thin_rod_stays_whole_and_one_cell_thick(catalog, along, where):
+    """A rod 0.3 studs thick is there from end to end, joined through faces, one cell thick;
+    two where it sits exactly on a boundary between cells (so it stays symmetric)."""
+    p, q = (d for d in range(3) if d != along)
+    centre = np.array([4.5, 4.5, 6.5])  # in cells: the middle of a cell
+    if where != "inside a row":
+        centre[p] = 5.0
+    if where == "on an edge":
+        centre[q] = 5.0
+    half = ROD / 2 / CELL
+    lo, hi = centre - half, centre + half
+    lo[along], hi[along] = 1.0, 9.0 if along < 2 else 12.0
+    filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
+    assert one_piece(filled)
+    wide = {"inside a row": (1, 1), "on a boundary": (2, 1), "on an edge": (2, 2)}[where]
+    span = np.moveaxis(filled, (along, p, q), (0, 1, 2))
+    for k in range(1, int(hi[along])):
+        across = span[k]
+        assert across.any(axis=1).sum() == wide[0] and across.any(axis=0).sum() == wide[1]
+        assert across.sum() == wide[0] * wide[1], (k, across.astype(int))
+    assert span.sum() == (int(hi[along]) - 1) * wide[0] * wide[1]
+
+
+@pytest.mark.parametrize("normal", [0, 2])
+@pytest.mark.parametrize("on_boundary", [False, True])
+def test_thin_sheet_has_no_holes_and_is_one_cell_thick(catalog, normal, on_boundary):
+    """A sheet 0.2 studs thick, upright (thin in x) or level (thin in z): no holes, one cell
+    thick, two where it sits exactly on a boundary."""
+    thick = 0.2 * 8.0 / CELL[normal]
+    centre = 5.0 if on_boundary else 5.5
+    lo, hi = np.array([1.0, 1.0, 2.0]), np.array([7.0, 6.0, 12.0])
+    lo[normal], hi[normal] = centre - thick / 2, centre + thick / 2
+    filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
+    assert one_piece(filled)
+    layers = np.moveaxis(filled, normal, 0)
+    rect = np.zeros(layers.shape[1:], dtype=bool)
+    rect[tuple(slice(int(lo[d]), int(hi[d])) for d in range(3) if d != normal)] = True
+    expect = [4, 5] if on_boundary else [5]
+    assert np.flatnonzero(layers.any(axis=(1, 2))).tolist() == expect
+    for k in expect:
+        assert np.array_equal(layers[k], rect), k
+
+
+def test_diagonal_rod_and_sheet_stay_joined(catalog):
+    """A thin rod and a thin sheet running diagonally across the grid stay one piece joined
+    through cell faces from end to end (rules 1 and 2 leave them in steps that only meet at
+    edges; rule 3 closes those)."""
+    rod = trimesh.creation.cylinder(radius=1.2, segment=[[10.0, 12.0, 7.0], [75.0, 60.0, 90.0]])
+    filled = without_speck(voxelize(placed(rod), catalog, margin_studs=0))
+    assert one_piece(filled)
+    ends = np.array([[10.0, 12.0, 7.0], [75.0, 60.0, 90.0]]) / CELL
+    where = np.argwhere(filled) + 0.5
+    assert np.linalg.norm(where - ends[0], axis=1).min() < 1.5  # reaches both ends
+    assert np.linalg.norm(where - ends[1], axis=1).min() < 1.5
+
+    sheet = trimesh.creation.box(extents=(60.0, 40.0, 1.6))
+    turn = trimesh.transformations.euler_matrix(np.radians(25), np.radians(35), np.radians(20))
+    sheet.apply_transform(turn)
+    sheet.apply_translation(-sheet.bounds[0] + 9.0)
+    filled = without_speck(voxelize(placed(sheet), catalog, margin_studs=0))
+    assert one_piece(filled)
+    assert filled.sum() > 30
+
+
+def test_thin_feature_stays_joined_to_its_body(catalog):
+    """A whisker 2 mm thick sticking out of a block at a slant is kept to its tip and joined
+    to the block through cell faces."""
+    block = box_seed((32.0, 32.0, 38.4), origin=(24.0, 0.0, 0.0))
+    tip = np.array([1.0, 17.0, 30.0])
+    whisker = trimesh.creation.cylinder(radius=1.0, segment=[[30.0, 15.0, 20.0], tip])
+    filled = body(voxelize(seed_from(concat(block, whisker)), catalog))
+    assert filled.shape[0] == 7
+    assert one_piece(filled)
+    assert filled[0].any() and filled[1].any() and filled[2].any()  # out to its tip
+    assert filled[:3].sum() <= 8  # and thin
+
+
+def stage1_fill(seed: Seed) -> np.ndarray:
+    """Stage 1's fill of the body: every cell the surface passes through, and the inside."""
+    from bricksnap.voxelize import _fill_inside, _place, _prepare, _surface_pass
+
+    tris, size = _place(np.asarray(seed.vertices, float)[np.asarray(seed.faces)])
+    _, nudged, estimate, axes = _prepare(tris)
+    surface, _, _ = _surface_pass(nudged, estimate, axes, size, np.zeros(len(nudged), int), 1)
+    return _fill_inside(surface)
+
+
+MODELS = sorted(p for p in (Path(__file__).resolve().parent.parent / "samples" / "models").iterdir()
+                if p.suffix in {".glb", ".stl"})  # fmt: skip
+
+
+# ---- the skin: cells the model only partly covers ---------------------------------------------
+
+
+@pytest.mark.parametrize("studs", [12, 16, 24])
+def test_skin_is_what_stage_1_filled_and_the_new_fill_left_empty(catalog, studs):
+    """Every sample model: the skin holds a colour exactly in the cells of stage 1's fill
+    that are left empty, and is EMPTY everywhere else (filled cells and the padding)."""
+    for path in MODELS:
+        seed = load_seed(path, studs=studs)
+        design = voxelize(seed, catalog, margin_studs=0)
+        assert design.skin is not None
+        old = stage1_fill(seed)
+        has_skin = design.skin != EMPTY
+        assert np.array_equal(has_skin, old & ~design.filled), path.name
+        assert has_skin.any(), path.name
+        for code in np.unique(design.skin[has_skin]):
+            assert int(code) in catalog.colours, (path.name, code)
+
+
+def test_skin_is_padded_like_the_colours(catalog):
+    design = voxelize(placed(cells_box((0.3, 0.3, 0.0), (2.4, 2.4, 2.5))), catalog)
+    assert design.skin is not None and design.skin.shape == design.shape
+    m = 2
+    assert (design.skin[:m] == EMPTY).all() and (design.skin[:, :m] == EMPTY).all()
+    assert (design.skin[design.filled] == EMPTY).all()
+    assert (design.skin != EMPTY).any()
+
+
+def test_skin_takes_the_colour_its_cell_would_have_had(catalog):
+    """A red box 2.4 studs wide on a wider blue base: the partly covered cells at the red
+    box's sides are red, as stage 1 showed them."""
+    base = box_seed((48.0, 48.0, 9.6))
+    top = box_seed((19.2, 19.2, 9.6), origin=(14.4, 14.4, 9.6))
+    mesh = concat(base, top)
+    colours = np.zeros((len(mesh.faces), 3), dtype=np.uint8)
+    colours[: len(base.faces)] = catalog.colours[1].rgb
+    colours[len(base.faces) :] = catalog.colours[4].rgb
+    design = voxelize(seed_from(mesh, colours), catalog, margin_studs=0)
+    assert design.skin is not None
+    up = design.skin[:, :, 3:]
+    assert (up != EMPTY).any()
+    assert set(np.unique(up[up != EMPTY]).tolist()) == {4}
+
+
+def test_hollowing_leaves_the_skin_alone(catalog):
+    seed = load_seed(SAMPLES / "pawn.stl", studs=16)
+    solid = voxelize(seed, catalog)
+    hollow = voxelize(seed, catalog, hollow=True)
+    assert solid.skin is not None and hollow.skin is not None
+    assert np.array_equal(solid.skin, hollow.skin)
+
+
+@pytest.mark.parametrize("studs", [12, 16, 24])
+def test_sample_models_keep_their_pieces_and_never_grow(catalog, studs):
+    """Every sample model: as many face-connected pieces as stage 1's fill, and no cell that
+    stage 1 left empty."""
+    from scipy import ndimage
+
+    six = ndimage.generate_binary_structure(3, 1)
+    for path in MODELS:
+        seed = load_seed(path, studs=studs)
+        filled = voxelize(seed, catalog, margin_studs=0).filled
+        old = stage1_fill(seed)
+        assert filled.shape == old.shape
+        assert not (filled & ~old).any(), path.name
+        assert ndimage.label(filled, six)[1] == ndimage.label(old, six)[1], path.name
+        assert filled.sum() < old.sum(), path.name
+
+
+def test_cat_legs_stay_apart(catalog):
+    """The sample cat's legs are 1.6 to 1.8 studs wide with a clear gap between them. Stage 1
+    made each 3 studs wide and merged them into one block 6 studs wide."""
+    filled = voxelize(load_seed(CAT, studs=16), catalog, margin_studs=0).filled
+    for y in range(filled.shape[1]):
+        row = filled[:, y, 2]
+        if not row.any():
+            continue
+        runs = np.diff(np.r_[0, row.astype(int), 0])
+        starts, ends = np.flatnonzero(runs == 1), np.flatnonzero(runs == -1)
+        assert len(starts) == 2, row.astype(int)  # two legs side by side
+        assert (ends - starts <= 2).all()
+        assert starts[1] - ends[0] >= 2  # at least two empty cells between them
+
+
+def test_model_keeps_standing_on_what_it_rests_on(catalog):
+    """A ball touches the ground in a small patch: the bottom cells around it hold far less
+    than half, but the model stands on them, so they are kept (under filled cells only)."""
+    filled = body(voxelize(seed_from(trimesh.creation.icosphere(4, radius=32.0)), catalog))
+    assert filled[:, :, 0].sum() == 4  # the 2 x 2 cells around the touching point
+    assert filled[3:5, 3:5, 0].all() and filled[3:5, 3:5, 1].all()
+    box = box_seed((24.0, 24.0, 9.6), origin=(0.0, 0.0, 2.0))  # 2 mm up (0.6 plates)
+    stand = box_seed((2.0, 2.0, 2.0), origin=(11.0, 11.0, 0.0))  # on a small stand
+    filled = body(voxelize(seed_from(concat(box, stand)), catalog))
+    assert filled[:, :, 0].sum() == 1  # only where the model reaches the ground
+
+
+def test_top_cells_keep_the_colour_of_an_emptied_skin(catalog):
+    """A 3 x 3 stud box 3.3 plates tall and 3.3 studs wide: its top and its right side each
+    reach 0.3 into a row of cells that is left empty. The cells under the top take the top's
+    colour (red), those beside the right side take that side's (green; on the corners, where
+    a blue side is in the cell too, either), the far side stays blue."""
+    mesh = box_seed((26.4, 24.0, 10.56))
+    normals = np.round(mesh.face_normals).astype(int)
+    colours = np.tile(catalog.colours[1].rgb, (len(mesh.faces), 1)).astype(np.uint8)
+    colours[normals[:, 2] > 0] = catalog.colours[4].rgb
+    colours[normals[:, 0] > 0] = catalog.colours[2].rgb
+    design = voxelize(seed_from(mesh, colours), catalog, margin_studs=0)
+    c = design.colors
+    assert c.shape == (4, 3, 4)
+    assert not design.filled[3].any() and not design.filled[:, :, 3].any()
+    assert (c[:3, :, 2] == 4).all()  # the top layer, under the emptied skin
+    assert c[2, 1, 1] == 2  # beside the emptied right-hand side (below it is the bottom)
+    assert (c[0, :, :2] == 1).all()
+
+
+def test_a_side_skin_never_outvotes_the_top_above(catalog):
+    """A block 3.3 studs wide and 3 plates tall, its right side green and reaching 0.3 into a
+    fourth column, with a step 3 studs wide and 0.3 plates tall on top, whose top is red.
+    The top cells x=2 receive the red top's skin from above and the green side's skin from
+    the right. One against one used to be a tie that went to the lower code (green), so the
+    top showed a green stripe along its edge."""
+    profile = [(0.0, 0.0), (26.4, 0.0), (26.4, 9.6), (24.0, 9.6), (24.0, 10.56), (0.0, 10.56)]
+    mesh = prism_xz(profile, 24.0)
+    normals, centres = np.asarray(mesh.face_normals), np.asarray(mesh.triangles_center)
+    colours = np.tile(catalog.colours[1].rgb, (len(mesh.faces), 1)).astype(np.uint8)
+    colours[(normals[:, 2] > 0.99) & (centres[:, 2] > 10.0)] = catalog.colours[4].rgb
+    colours[(normals[:, 0] > 0.99) & (centres[:, 0] > 26.0)] = catalog.colours[2].rgb
+    design = voxelize(seed_from(mesh, colours), catalog, margin_studs=0)
+    assert design.shape == (4, 3, 4)
+    assert not design.filled[3].any() and not design.filled[:, :, 3].any()
+    assert (design.colors[:3, :, 2] == 4).all(), design.colors[:, :, 2].T
+    assert design.colors[2, 1, 1] == 2  # beside the side, below the top: green
+
+
+def test_spaceship_top_keeps_its_colour(catalog):
+    """The sample spaceship at 24 studs: seen from above, columns (8, 10) and (14, 10) are
+    colour 78 all over. Their skin was emptied onto the top cell, and so was a white side
+    skin; the top cell must show 78, not white."""
+    design = voxelize(load_seed(SAMPLES / "spaceship.glb", studs=24), catalog, margin_studs=0)
+    assert design.colors[8, 10, 10] == 78 and design.colors[14, 10, 10] == 78
+    assert not design.filled[8, 10, 11] and not design.filled[14, 10, 11]
+
+
+def test_slope_hint_counts_every_emptied_skin_above_a_top(catalog, pawn_path):
+    """The sample pawn at 16 studs: column (1, 5) is slanted all the way up (n_z about 0.83),
+    but the top cell's first emptied skin holds a wall facing downhill and the slope goes on
+    in the emptied cells above that. All of them count (their walls do not), so the top is
+    sloped, as are the same columns on the other three sides."""
+    design = voxelize(load_seed(pawn_path, studs=16), catalog, margin_studs=0)
+    f = design.filled
+    top = (f * np.arange(f.shape[2])).argmax(axis=2)
+    assert design.finish is not None
+    for x, y in ((1, 5), (5, 1), (10, 5), (5, 10)):
+        assert top[x, y] == 5
+        assert design.finish[x, y, top[x, y]] == FINISH_SLOPED, (x, y)
+
+
+def true_box_coverage(lo, hi, shape) -> np.ndarray:
+    """The share of each cell inside the box between lo and hi (cells), exactly."""
+    cov = np.ones(shape)
+    for a in range(3):
+        k = np.arange(shape[a])
+        part = np.clip(np.minimum(k + 1, hi[a]) - np.maximum(k, lo[a]), 0, 1)
+        cov = cov * part.reshape([-1 if d == a else 1 for d in range(3)])
+    return cov
+
+
+def test_box_off_the_grid_on_every_axis_gains_no_stray_cells(catalog):
+    """A block 3 x 3 studs and 3.09 plates on a base plate, 0.03 of a stud off the grid in x
+    and y: the top layer holds 9% of a cell, so the block is exactly 3 x 3 x 3 cells. The
+    cells at its corner that the model reaches only a hair into (no ray finds anything in
+    them) used to stay, and were then joined on: three extra cells on top, one of them
+    holding 0.008% of a cell."""
+    base = trimesh.creation.box(bounds=[[0, 0, 0], [48, 48, 3.2]])
+    block = trimesh.creation.box(bounds=[[16.24, 16.24, 3.2], [40.24, 40.24, 13.1]])
+    joined = concat(base, block)
+    seed = Seed(vertices=np.asarray(joined.vertices, float), faces=np.asarray(joined.faces))
+    filled = voxelize(seed, catalog, margin_studs=0).filled
+    assert filled.shape == (6, 6, 5)
+    assert filled[:, :, 0].all()
+    assert filled[2:5, 2:5, 1:4].all()
+    assert filled[:, :, 1:].sum() == 27  # nothing more
+
+
+def box_cells(lo, hi, shape) -> np.ndarray | None:
+    """The cells a box between lo and hi (cells) should fill: on each axis, the rows it
+    covers at least half of, and all their combinations, so a box. None when the box
+    covers a row within 0.02 of half (either answer is right there), or covers no row half
+    on some axis (rule 2 keeps it then, and need not keep it a box)."""
+    rows = []
+    for a in range(3):
+        k = np.arange(shape[a])
+        part = np.clip(np.minimum(k + 1, hi[a]) - np.maximum(k, lo[a]), 0, 1)
+        if (np.abs(part - 0.5) < 0.02).any() or not (part >= 0.5).any():
+            return None
+        rows.append(part >= 0.5)
+    return rows[0][:, None, None] & rows[1][None, :, None] & rows[2][None, None, :]
+
+
+def test_a_box_stays_a_box_wherever_it_sits(catalog):
+    """Boxes of random size (from 0.55 cells, so some under a cell thick) placed at random
+    on all three axes at once: wherever a box covers at least half of some row on each
+    axis, the filled cells are exactly a box, the rows the box covers at least half of on
+    each axis. Its corner and edge cells are kept although they can hold well under half
+    (0.6 x 0.6 of a cell is 0.36, a corner 0.6 x 0.6 x 0.6 is 0.22): judged by volume they
+    were dropped, and 1,688 boxes in 3,000 did not come out as boxes."""
+    rng = np.random.default_rng(3)
+    checked = thin = 0
+    for _ in range(400):
+        width = rng.uniform(0.55, 5.0, 3)
+        lo = np.array([2.0, 2.0, 3.0]) + rng.uniform(0, 1, 3)
+        hi = lo + width
+        filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
+        want = box_cells(lo, hi, filled.shape)
+        if want is None:
+            continue
+        checked += 1
+        thin += bool((width < 1).any())
+        assert np.array_equal(filled, want), (lo, hi, np.argwhere(filled != want))
+    assert checked > 280 and thin > 50
+
+
+def test_corner_of_a_box_is_kept(catalog):
+    """A box reaching 0.62, 0.59 and 0.53 of the way into its corner cell, which so holds
+    19%: more than half along each axis, so the cell is the box's corner and is filled (a
+    box stays a box), and nothing beyond it is."""
+    lo, hi = np.array([2.617, 2.414, 3.528]), np.array([5.616, 6.896, 5.531])
+    filled = without_speck(voxelize(placed(cells_box(lo, hi)), catalog, margin_studs=0))
+    want = box_cells(lo, hi, filled.shape)
+    assert want is not None and want[5, 2, 5]
+    assert np.array_equal(filled, want)
+
+
+def test_a_cell_cut_diagonally_through_its_middle_is_judged_as_before(catalog):
+    """A prism whose sloping face, x + z = d (in cells), runs diagonally through the
+    middle of a row of cells when d = 4, and a little either side of it. The cells it cuts
+    hold 50%, 58% and 42%: filled, filled and not, as when cells were judged by volume."""
+    for d, kept in ((4.0, True), (4.08, True), (3.92, False)):
+        triangle = np.array([[0.0, 0.0], [d, 0.0], [0.0, d]]) * [CELL[0], CELL[2]]
+        mesh = prism_xz(triangle, 3 * CELL[1])
+        mesh.apply_translation([2 * CELL[0], 2 * CELL[1], 3 * CELL[2]])
+        filled = without_speck(voxelize(placed(mesh), catalog, margin_studs=0))
+        # the cells around (1.5, 2.5) and (2.5, 1.5) of the triangle, in the middle row in y
+        assert filled[3, 3, 5] == kept and filled[4, 3, 4] == kept, d
+        assert filled[2, 3, 3] and filled[3, 3, 4] and not filled[4, 3, 6]
+
+
+def test_thin_rods_at_random_positions(catalog):
+    """Rods 0.3 studs thick along every axis, at random positions and lengths: each is one
+    piece, inside stage 1's fill, with a cell in every cross-section it covers at least half
+    of lengthwise, never more than one cell beyond that at either end, and never more than
+    two cells across in either direction. (Where the rays across a rod miss it, two cells
+    the rod straddles unequally can measure alike and both be kept.)"""
+    rng = np.random.default_rng(7)
+    for _ in range(300):
+        along = int(rng.integers(3))
+        p, q = (d for d in range(3) if d != along)
+        half = ROD / 2 / CELL
+        centre = np.array([4.5, 4.5, 6.5]) + rng.uniform(-0.5, 0.5, 3)
+        lo, hi = centre - half, centre + half
+        lo[along] = 1.0 + rng.uniform(0, 1)
+        hi[along] = (8.0 if along < 2 else 11.0) + rng.uniform(0, 1)
+        seed = placed(cells_box(lo, hi))
+        filled = without_speck(voxelize(seed, catalog, margin_studs=0))
+        old = stage1_fill(seed)
+        old[0, 0, 0] = False
+        assert one_piece(filled) and not (filled & ~old).any()
+        span = np.moveaxis(filled, (along, p, q), (0, 1, 2))
+        k0 = int(np.ceil(lo[along] - 0.5))
+        k1 = int(np.floor(hi[along] - 0.5))
+        count = span.sum(axis=(1, 2))
+        assert (count[k0 : k1 + 1] > 0).all(), (lo, hi, count)
+        assert count[:k0].sum() <= 2 and count[k1 + 1 :].sum() <= 2, (lo, hi, count)
+        assert (span.any(axis=2).sum(axis=1) <= 2).all() and (
+            span.any(axis=1).sum(axis=1) <= 2
+        ).all()
+
+
+SAMPLES = Path(__file__).resolve().parent.parent / "samples" / "models"
+SYMMETRIC = {  # sample models that are mirror images of themselves, and across which axes
+    "bottle.glb": (0, 1),
+    "car.glb": (0,),
+    "cat.glb": (0,),
+    "hat.glb": (0, 1),
+    "pawn.stl": (0, 1),
+    "spaceship.glb": (0,),
+    "star.glb": (0, 1),
+}
+
+
+@pytest.mark.parametrize("studs", [4, 8, 12, 16, 24])
+def test_symmetric_sample_models_come_out_symmetric(catalog, studs):
+    """Each sample model that is a mirror image of itself (to within a micrometre or so: the
+    files store single precision) gives a Design whose cells, colours and slope hints are
+    too. Mirror cells measure up to 2e-6 apart; that must not decide anything, nor may the
+    order in which two equally cheap joins (each the mirror image of the other) are found."""
+    for name, axes in SYMMETRIC.items():
+        design = voxelize(load_seed(SAMPLES / name, studs=studs), catalog, margin_studs=0)
+        for axis in axes:
+            assert np.array_equal(design.filled, np.flip(design.filled, axis)), (name, axis)
+            assert mirrored(design, axis), (name, axis)
+
+
+def test_a_model_symmetric_to_a_tenth_of_a_millimetre_comes_out_symmetric(catalog):
+    """The sample duck is mirror-symmetric left to right only to within 0.08 mm (the tip of
+    its bill is 0.04 mm off the middle). A ray that only grazed the model used to count in
+    full and drag a line average down by up to 0.07, so one of two mirror cells on the bill
+    was filled and the other not; now such a ray counts in part, and line averages of
+    mirror cells within 0.02 of each other are made equal. (The skin is not always
+    symmetric here: the model really does reach a hair into a cell on one side only.)"""
+    for studs in (8, 12, 16, 24):
+        filled = voxelize(load_seed(SAMPLES / "duck.glb", studs=studs), catalog).filled
+        assert np.array_equal(filled, np.flip(filled, 0)), studs
+
+
+@pytest.mark.parametrize("fmt", ["glb", "stl", "ply"])
+def test_thin_fin_on_the_mirror_plane_stays_symmetric(tmp_path, catalog, fmt):
+    """A slab with a fin thinner than a cell standing on its middle line, written to a file
+    (single precision) and read back as any model is."""
+    for width in (6.0, 7.0, 6.4, 9.71):
+        for fin in (0.3, 0.25, 0.5):
+            for scale in (1.0, 0.731, 3.3337):
+                slab = trimesh.creation.box(bounds=[[-width / 2, 0, 0], [width / 2, 10.0, 2.0]])
+                part = trimesh.creation.box(bounds=[[-fin / 2, 2.3, 2.0], [fin / 2, 7.1, 4.4]])
+                mesh = concat(slab, part)
+                mesh.apply_scale(scale)
+                path = tmp_path / f"fin.{fmt}"
+                mesh.export(str(path))
+                filled = voxelize(load_seed(path, studs=10, up="z"), catalog).filled
+                assert np.array_equal(filled, filled[::-1]), (width, fin, scale)
+
+
+def test_both_of_two_mirror_image_joins_are_made(catalog):
+    """A base plate with two thin rods rising from its middle line, each the exact mirror
+    image of the other. Rules 1 and 2 leave each rod in pieces, joined again through cells
+    of equal cost on both sides; a minimum spanning tree kept only one of a mirror pair of
+    joins, so a cell or two were filled on one side only."""
+
+    def mirror(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+        vertices = np.asarray(mesh.vertices).copy()
+        vertices[:, 0] = -vertices[:, 0]
+        return trimesh.Trimesh(vertices, np.asarray(mesh.faces)[:, ::-1], process=False)
+
+    for a, b in [([0, 12, 3], [18, 50, 45]), ([0, 20, 3], [22, 31, 40]), ([0, 30, 3], [27, 9, 37])]:
+        base = trimesh.creation.box(bounds=[[-32.0, 0, 0], [32.0, 64, 3.2]])
+        rod = trimesh.creation.cylinder(radius=1.2, segment=[a, b], sections=12)
+        mesh = concat(base, rod, mirror(rod))
+        vertices = np.asarray(mesh.vertices, float) + [32.0, 0.0, 0.0]
+        seed = Seed(vertices=vertices, faces=np.asarray(mesh.faces))
+        filled = voxelize(seed, catalog, margin_studs=0).filled
+        assert np.array_equal(filled, filled[::-1]), (a, b, np.argwhere(filled & ~filled[::-1]))
+        assert one_piece(filled)
+
+
+def leans_out_and_stands(filled: np.ndarray) -> bool:
+    """Whether the centre of mass of the filled cells is over the hull of the ground cells."""
+    from scipy.spatial import ConvexHull
+
+    centre = (np.argwhere(filled) + 0.5).mean(axis=0)[:2]
+    base = np.argwhere(filled[:, :, 0]).astype(float)
+    corners = np.concatenate([base + d for d in ((0, 0), (1, 0), (0, 1), (1, 1))])
+    hull = ConvexHull(corners)
+    return bool((hull.equations[:, :2] @ centre + hull.equations[:, 2] <= 1e-9).all())
+
+
+@pytest.mark.parametrize("studs", [12, 16, 24])
+def test_model_that_leans_out_is_given_the_ground_it_needs(catalog, studs):
+    """The sample spaceship rests on a small part of itself and leans out: its centre of mass
+    is beyond what touches the ground (stage 1's wider bottom layer hid that). The bottom
+    cells of stage 1's fill under the model nearest the centre of mass are kept, as few as
+    make it stand, mirror images together."""
+    seed = load_seed(SAMPLES / "spaceship.glb", studs=studs)
+    filled = voxelize(seed, catalog, margin_studs=0).filled
+    assert leans_out_and_stands(filled)
+    assert np.array_equal(filled, filled[::-1])
+    assert not (filled & ~stage1_fill(seed)).any()
+    # a model that stands needs nothing: the ball keeps just the four cells it rests on
+    ball = body(voxelize(seed_from(trimesh.creation.icosphere(4, radius=32.0)), catalog))
+    assert ball[:, :, 0].sum() == 4
 
 
 # ---- colour -------------------------------------------------------------------------------------
@@ -694,14 +1340,15 @@ def test_long_thin_triangles_are_fast(catalog, sections, studs):
     f = design.filled
     assert f.shape == (across, across, studs * 5 // 2)
     assert (f == f[:, :, :1]).all()  # every layer is the same disc
-    # the disc: cells clearly inside the circle are filled, cells clearly outside are not
-    centre, radius = across / 2, across / 2
-    i = np.arange(across)
-    near_x = np.clip(centre, i, i + 1) - centre  # nearest point of each column to the centre
-    distance = np.hypot(near_x[:, None], near_x[None, :])
+    # the disc: columns mostly inside the circle are filled, columns mostly outside are not
+    centre = across / 2
+    k = (np.arange(40) + 0.5) / 40
+    points = np.arange(across)[:, None] + k[None, :]  # 40 sample lines per column
+    d2 = (points[:, None, :, None] - centre) ** 2 + (points[None, :, None, :] - centre) ** 2
+    share = (d2 < centre**2).mean(axis=(2, 3))
     layer = f[:, :, 0]
-    assert layer[distance < radius - 0.01].all()
-    assert not layer[distance > radius + 0.01].any()
+    assert layer[share > 0.55].all()
+    assert not layer[share < 0.45].any()
 
 
 def test_big_triangles_at_96_studs(catalog):
@@ -788,9 +1435,12 @@ def test_ramps_at_real_angles(catalog, angle, expect_sloped):
     assert design.shape[:2] == (run, 3)
     assert not (sloped & ~open_top).any()
     if expect_sloped:
-        # every column along the ramp; the last one also holds the back wall
+        # every column along the ramp that is filled (the first holds less than half a
+        # cell at the shallowest angles); the last one also holds the back wall
         columns = sloped.any(axis=2)
-        assert columns[: run - 1].all(), columns.astype(int).T
+        filled = design.filled.any(axis=2)
+        assert columns[1 : run - 1].all(), columns.astype(int).T
+        assert (columns | ~filled)[: run - 1].all(), columns.astype(int).T
     else:
         assert not sloped.any()
 
@@ -837,20 +1487,24 @@ def top_sloped(design: Design, sloped: np.ndarray) -> np.ndarray:
 @pytest.mark.parametrize("angle", [30, 45, 60])
 @pytest.mark.parametrize("length", [40.2, 40.5, 41.0])
 def test_roof_whose_gable_pokes_a_little_into_one_more_row(catalog, angle, length):
-    """The gable wall at the far end only just reaches into a sixth row of studs. It runs
-    along the slope, not across it, so it must not take the slope away from that row."""
+    """The gable wall at the far end only just reaches into a sixth row of studs. That row
+    holds far less than half a cell, so it stays empty; the gable wall runs along the slope,
+    not across it, so it does not take the slope away from the row before it either."""
     rise = 32.0 * np.tan(np.radians(angle))
     roof = prism_xz([(0.0, 0.0), (64.0, 0.0), (32.0, rise)], length)
     design, sloped, open_top = hints(seed_from(roof), catalog)
     assert design.shape[:2] == (8, 6)
+    assert not design.filled[:, 5].any()
     assert not (sloped & ~open_top).any()
-    assert top_sloped(design, sloped).all(), top_sloped(design, sloped).astype(int).T
+    tops = top_sloped(design, sloped)[:, :5]
+    assert tops.all(), tops.astype(int).T
 
 
 def test_roof_on_an_odd_sized_house_is_sloped_to_its_far_end(catalog):
-    """A 61 x 40.4 mm house with a 45-degree roof: the last row, which the house only just
-    reaches, is sloped like every other row. (Column x=3 holds the ridge in its middle,
-    where the two faces cancel sideways, so it keeps its studs in every row.)"""
+    """A 61 x 40.4 mm house with a 45-degree roof: every row is sloped to the far end. The
+    last row of the grid, which the house only reaches 0.4 mm into, stays empty. (Column x=3
+    holds the ridge, 0.8 of the way across it, where the two faces meet: its top may go
+    either way.)"""
     w, d, h = 61.0, 40.4, 19.2
     house = concat(
         box_seed((w, d, h)),
@@ -859,9 +1513,10 @@ def test_roof_on_an_odd_sized_house_is_sloped_to_its_far_end(catalog):
     design, sloped, _ = hints(seed_from(house), catalog)
     rows = top_sloped(design, sloped).T  # rows[y] is the row of columns at y
     assert design.shape[:2] == (8, 6)
-    expected = np.array([True, True, True, False, True, True, True, True])
-    for y, row in enumerate(rows):
-        assert np.array_equal(row, expected), f"row y={y}: {row.astype(int)}"
+    assert not design.filled[:, 5].any()
+    for y, row in enumerate(rows[:5]):
+        assert np.delete(row, 3).all(), f"row y={y}: {row.astype(int)}"
+        assert row[3] == rows[0][3]
 
 
 def test_narrow_free_standing_ramp_is_sloped_in_every_column(catalog):
@@ -1061,10 +1716,11 @@ def at_zero(seed: Seed) -> Seed:
 
 
 def mirrored(design: Design, axis: int) -> bool:
-    assert design.finish is not None
+    assert design.finish is not None and design.skin is not None
     return bool(
         np.array_equal(design.colors, np.flip(design.colors, axis))
         and np.array_equal(design.finish, np.flip(design.finish, axis))
+        and np.array_equal(design.skin, np.flip(design.skin, axis))
     )
 
 
@@ -1116,16 +1772,19 @@ def test_cat_slope_hints_are_mirror_symmetric(catalog):
 
 
 def test_seed_starting_at_zero_gives_the_same_design_as_before(catalog, pawn_path):
-    """Fingerprints of Designs made before the seed kept its offset (seeds starting at 0).
-
-    The cat's two values were recorded again when colour matching began to count lightness
-    half (bricksnap/catalog); with the earlier weighting the code still gives the earlier
-    values, so only the colours differ. The pawn has no colours and never changed."""
+    """Fingerprints of Designs of seeds starting at 0, so that the placement and the fill of
+    such seeds do not change unnoticed. Recorded again when cells became filled by how much
+    of them the model fills (stage 2), after the sample models were checked in pictures,
+    and again after that fill's review (symmetry, stray cells, box corners, the colour and
+    slope hint of tops, standing), and again in stage 3, when the Design gained its skin
+    and rule 1 began to judge each axis on its own (box corners), and for the pawn once more
+    when a ray that only grazes the model began to count in part (5 cells of the pawn); the
+    values before that also predate the catalogue's colour matching by eye."""
     cat = at_zero(load_seed(CAT, studs=16))
-    assert voxelize(cat, catalog).fingerprint() == "140cbc02fe84b9e7"
-    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "8e8ed1a8400f9386"
+    assert voxelize(cat, catalog).fingerprint() == "5ba8ff8858ce9110"
+    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "844c7e6d36ce691b"
     pawn = at_zero(load_seed(pawn_path, studs=24))
-    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "851d2a1e04735432"
+    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "1d5504448be23355"
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])
@@ -1160,3 +1819,232 @@ def test_seed_starting_within_the_first_cell_keeps_its_offset(catalog):
     moved = Seed(vertices=np.asarray(box.vertices, dtype=float), faces=box.faces)
     assert voxelize(moved, catalog, margin_studs=0).fingerprint() == design.fingerprint()
     assert design.shape == (3, 3, 3) and design.filled.all()
+
+
+# ---- rule 4: the skin nobody can see is filled ------------------------------------------------
+
+HAT = CAT.parent / "hat.glb"
+BLUE, RED = 1, 4
+
+
+def _quad(corners, normal) -> list[list]:
+    """Two triangles of a flat quad, wound so that they face along ``normal``."""
+    a, b, c, d = (np.asarray(p, dtype=float) for p in corners)
+    if np.dot(np.cross(b - a, c - a), normal) < 0:
+        a, b, c, d = a, d, c, b
+    return [[a, b, c], [a, c, d]]
+
+
+def _box_sides(lo, hi, inward: bool, skip: str | None) -> list[list]:
+    """The faces of the box lo..hi (mm), facing out of it (or into it), without ``skip``."""
+    tris = []
+    for axis in range(3):
+        u, v = [a for a in range(3) if a != axis]
+        for side, at in (("-", lo[axis]), ("+", hi[axis])):
+            if skip == side + "xyz"[axis]:
+                continue
+            corners = []
+            for cu, cv in ((lo[u], lo[v]), (hi[u], lo[v]), (hi[u], hi[v]), (lo[u], hi[v])):
+                p = [0.0, 0.0, 0.0]
+                p[axis], p[u], p[v] = at, cu, cv
+                corners.append(p)
+            normal = np.zeros(3)
+            normal[axis] = (1.0 if side == "+" else -1.0) * (-1.0 if inward else 1.0)
+            tris += _quad(corners, normal)
+    return tris
+
+
+def open_shell(outer, inner, open_at: str, colours=False) -> Seed:
+    """A box ``outer`` = (lo, hi) in mm with the box ``inner`` taken out of it, the inside
+    open at the bottom (an upside-down bowl) or at the top (a tube with a floor): one closed
+    surface. With ``colours``, the outside is blue and the inside red."""
+    (olo, ohi), (ilo, ihi) = outer, inner
+    face = "-z" if open_at == "bottom" else "+z"
+    outside = _box_sides(olo, ohi, inward=False, skip=face)
+    inside = _box_sides(ilo, ihi, inward=True, skip=face)
+    z, sign = (olo[2], -1.0) if open_at == "bottom" else (ohi[2], 1.0)
+    ring = []  # the rim, between the outer and the inner rectangle
+    o = [(olo[0], olo[1]), (ohi[0], olo[1]), (ohi[0], ohi[1]), (olo[0], ohi[1])]
+    i = [(ilo[0], ilo[1]), (ihi[0], ilo[1]), (ihi[0], ihi[1]), (ilo[0], ihi[1])]
+    for k in range(4):
+        n = (k + 1) % 4
+        corners = [(*o[k], z), (*o[n], z), (*i[n], z), (*i[k], z)]
+        ring += _quad(corners, (0.0, 0.0, sign))
+    tris = np.asarray(outside + ring + inside, dtype=float)
+    vertices = tris.reshape(-1, 3)
+    faces = np.arange(len(vertices)).reshape(-1, 3)
+    face_colours = None
+    if colours:
+        face_colours = np.zeros((len(faces), 3), dtype=np.uint8)
+        face_colours[:] = (0, 85, 191)  # blue
+        face_colours[len(outside) + len(ring) :] = (201, 26, 9)  # red
+    return Seed(vertices=vertices, faces=faces, face_colors=face_colours)
+
+
+def bowl(colours=False) -> Seed:
+    """An upside-down bowl standing on the ground: 8 x 8 studs, walls 1.3 studs thick and a
+    roof 1.6 plates thick, 10.3 plates tall. The inner wall and the roof's underside reach
+    0.3 into the cells next to them (hidden skin); the top reaches 0.3 into the top layer
+    (skin that faces the sky)."""
+    return open_shell(
+        ((0.0, 0.0, 0.0), (64.0, 64.0, 10.3 * 3.2)),
+        ((10.4, 10.4, 0.0), (53.6, 53.6, 8.7 * 3.2)),
+        "bottom",
+        colours,
+    )
+
+
+def _air(filled: np.ndarray) -> np.ndarray:
+    """Outside air as bricksnap/buildable.py has it: empty cells that the space beyond the
+    four sides or the top reaches through faces (below z = 0 is the table)."""
+    from scipy import ndimage
+
+    padded = np.pad(filled, ((1, 1), (1, 1), (0, 1)), constant_values=False)
+    padded = np.pad(padded, ((0, 0), (0, 0), (1, 0)), constant_values=True)  # the table
+    labels, _ = ndimage.label(~padded, ndimage.generate_binary_structure(3, 1))
+    ring = np.zeros(padded.shape, dtype=bool)
+    ring[0], ring[-1], ring[:, 0], ring[:, -1], ring[:, :, -1] = True, True, True, True, True
+    air = np.isin(labels, np.unique(labels[ring & (labels > 0)]))
+    return air[1:-1, 1:-1, 1:-1]
+
+
+def _visible(filled: np.ndarray) -> np.ndarray:
+    """Filled cells with an outside-air neighbour (beyond the sides or the top counts)."""
+    air = np.pad(_air(filled), ((1, 1), (1, 1), (0, 1)), constant_values=True)
+    air = np.pad(air, ((0, 0), (0, 0), (1, 0)), constant_values=False)
+    near = (
+        air[2:, 1:-1, 1:-1] | air[:-2, 1:-1, 1:-1] | air[1:-1, 2:, 1:-1]
+        | air[1:-1, :-2, 1:-1] | air[1:-1, 1:-1, 2:] | air[1:-1, 1:-1, :-2]
+    )  # fmt: skip
+    return filled & near
+
+
+def without_rule_4(monkeypatch, seed: Seed, catalog, **kwargs) -> Design:
+    import bricksnap.voxelize as module
+
+    with monkeypatch.context() as m:
+        m.setattr(module, "_hidden_skin", lambda filled, skin: np.zeros_like(skin))
+        return voxelize(seed, catalog, **kwargs)
+
+
+def rule_4(monkeypatch, seed: Seed, catalog) -> tuple[Design, Design, np.ndarray]:
+    """The Design without and with rule 4, and the cells rule 4 filled, checked against
+    everything rule 4 promises."""
+    before = without_rule_4(monkeypatch, seed, catalog)
+    after = voxelize(seed, catalog)
+    assert before.skin is not None and after.skin is not None
+    assert before.finish is not None and after.finish is not None
+    old, new_fill = before.filled, after.filled
+    assert not (old & ~new_fill).any()
+    added = new_fill & ~old
+    # exactly the skin that faces no outside air, decided against the fill before the rule
+    assert np.array_equal(added, (before.skin != EMPTY) & ~_air(old))
+    # in its own colour; the cells already filled keep their colours and slope hints
+    assert np.array_equal(after.colors[added], before.skin[added])
+    assert np.array_equal(after.colors[old], before.colors[old])
+    assert np.array_equal(after.finish[old], before.finish[old])
+    assert (after.finish[added] == FINISH_STUDS).all()
+    # skin holds only empty cells
+    assert (after.skin[added] == EMPTY).all()
+    assert np.array_equal(after.skin[~added], before.skin[~added])
+    assert not (after.filled & (after.skin != EMPTY)).any()
+    # nothing anyone can see changes
+    assert np.array_equal(_air(new_fill), _air(old))
+    assert np.array_equal(_visible(new_fill), _visible(old))
+    return before, after, added
+
+
+def test_upside_down_bowl_fills_its_inner_skin_only(catalog, monkeypatch):
+    before, after, added = rule_4(monkeypatch, bowl(), catalog)
+    f = body(after)
+    assert f.shape == (8, 8, 11)
+    assert body(before)[1, 3, 3] == 0 and f[1, 3, 3]  # the inner wall's skin, now filled
+    assert body(before)[3, 3, 8] == 0 and f[3, 3, 8]  # the underside of the roof
+    assert not f[2:6, 2:6, :8].any()  # the hollow itself stays empty
+    assert not f[:, :, 10].any()  # the skin on top faces the sky and stays skin
+    ox, oy, _ = after.seed_offset
+    assert (
+        after.skin is not None and (after.skin[ox + 2 : ox + 6, oy + 2 : oy + 6, 10] != EMPTY).all()
+    )
+    assert added.sum() == 4 * 4 * 1 + 4 * 4 * 8  # the roof's underside and the four walls'
+    assert body(before)[:, :, 0].sum() == f[:, :, 0].sum() - 16  # the bowl stands wider
+
+
+def test_rule_4_fills_the_skin_in_its_own_colour(catalog, monkeypatch):
+    """The inside of the bowl is red and the outside blue: the cells filled are red, and
+    every cell anyone can see keeps its colour."""
+    before, after, added = rule_4(monkeypatch, bowl(colours=True), catalog)
+    assert added.any()
+    assert set(np.unique(after.colors[added]).tolist()) == {RED}
+    seen = _visible(before.filled)
+    assert np.array_equal(after.colors[seen], before.colors[seen])
+
+
+def test_closed_hollow_box_is_solid_so_rule_4_has_nothing_to_do(catalog, monkeypatch):
+    """A sealed hollow is inside the model as stage 1 has it (the outside cannot reach it),
+    so it is filled before rule 4 and leaves no skin inside for it to fill."""
+    outer = box_seed((64.0, 64.0, 10.3 * 3.2))
+    inner = box_seed((43.2, 43.2, 7.4 * 3.2), origin=(10.4, 10.4, 1.3 * 3.2))
+    inner.invert()
+    seed = Seed(vertices=np.asarray(concat(outer, inner).vertices, dtype=float),
+                faces=np.asarray(concat(outer, inner).faces))  # fmt: skip
+    before, after, added = rule_4(monkeypatch, seed, catalog)
+    assert not added.any()
+    assert body(after)[:, :, :10].all()
+    assert after.fingerprint() == before.fingerprint()
+
+
+def test_tube_open_at_the_top_keeps_its_inner_skin(catalog, monkeypatch):
+    """Its inside is reachable from above: outside air, so nothing in it is hidden."""
+    seed = open_shell(
+        ((0.0, 0.0, 0.0), (64.0, 64.0, 32.0)), ((10.4, 10.4, 1.3 * 3.2), (53.6, 53.6, 32.0)), "top"
+    )
+    before, after, added = rule_4(monkeypatch, seed, catalog)
+    assert not added.any()
+    assert after.fingerprint() == before.fingerprint()
+    assert after.skin is not None
+    ox, oy, _ = after.seed_offset
+    assert after.skin[ox + 1, oy + 3, 5] != EMPTY  # the inner wall's skin is still skin
+    assert after.skin[ox + 3, oy + 3, 1] != EMPTY  # and so is the floor's
+
+
+def test_solid_model_is_unchanged_by_rule_4(catalog, monkeypatch):
+    before, after, added = rule_4(monkeypatch, sphere_seed(), catalog)
+    assert not added.any()
+    assert after.fingerprint() == before.fingerprint()
+
+
+def test_rule_4_keeps_a_symmetric_shell_symmetric(catalog, monkeypatch):
+    """The bowl is mirror-symmetric left to right and front to back, and so is the result:
+    the cells rule 4 fills are decided all at once, so no order can tip it to one side."""
+    _, after, added = rule_4(monkeypatch, bowl(colours=True), catalog)
+    assert added.any()
+    for axis in (0, 1):
+        assert np.array_equal(added, np.flip(added, axis))
+        assert mirrored(after, axis)
+
+
+def test_rule_4_thickens_the_sample_hat_without_changing_its_outline(catalog, monkeypatch):
+    """The sample hat is a thin shell, hollow underneath, standing on its brim: the inside
+    of its crown faces only that hollow, which the table closes off."""
+    _, _, added = rule_4(monkeypatch, load_seed(HAT, studs=16), catalog)
+    assert added.sum() > 50
+
+
+def test_hollowing_after_rule_4_keeps_the_shell_rule(catalog, monkeypatch):
+    """A thick upside-down bowl, hollowed: the shell rule applies to the fill rule 4 made
+    (its hidden skin is wall like any other), the floor is kept, and nothing anyone can see
+    changes."""
+    seed = open_shell(
+        ((0.0, 0.0, 0.0), (128.0, 128.0, 40.3 * 3.2)),
+        ((40.8, 40.8, 0.0), (87.2, 87.2, 24.7 * 3.2)),
+        "bottom",
+    )
+    _, solid, added = rule_4(monkeypatch, seed, catalog)
+    assert added.any()
+    hollow = voxelize(seed, catalog, hollow=True)
+    assert np.array_equal(hollow.colors, shapes.hollowed(solid).colors)
+    assert hollow.filled.sum() < solid.filled.sum()
+    f, s = body(hollow), body(solid)
+    assert np.array_equal(f[:, :, :6], s[:, :, :6])  # the floor (6 plates) is kept
+    assert np.array_equal(_visible(hollow.filled), _visible(solid.filled))

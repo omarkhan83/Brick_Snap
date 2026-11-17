@@ -17,7 +17,7 @@ import shapes
 from scipy import ndimage
 
 from bricksnap.buildable import BuildableResult, make_buildable
-from bricksnap.connect import connection_graph, occupancy
+from bricksnap.connect import connection_graph, lone_links, occupancy
 from bricksnap.layout import solve
 from bricksnap.types import EMPTY, FINISH_SMOOTH, FINISH_STUDS, Design, Detail
 
@@ -273,7 +273,9 @@ def test_nose_in_its_own_colour_on_the_front_of_a_head(catalog):
 
 def test_two_colours_meeting_on_a_vertical_plane(catalog):
     design = two_colours()
-    result = run(design, catalog)
+    # the loose repair alone (once joined, the white block hangs on one part, and the
+    # weak-spot phase recolours a few more hidden cells on the other side of the plane)
+    result = run(design, catalog, max_sturdy_solves=0)
     assert result.pieces_before == 2 and result.pieces_after == 1
     assert not result.added.any()
     changed = cells(result.recoloured)
@@ -401,10 +403,25 @@ def test_support_column_avoids_a_detail_part(catalog):
     assert not result.added[2:4, 2, 6].any()
 
 
-def test_nose_on_the_top_edge_of_a_ledge_reaches_over_it(catalog):
+def test_nose_on_the_top_edge_of_a_ledge_gets_a_clamp(catalog):
     # the ledge cell behind the nose's lower row can be seen (air above it), so nothing can
-    # be recoloured; two cells beside the nose's upper row, resting on the ledge, join it
+    # be recoloured; one white cell under the nose, beside the ledge, holds it
     design = nose_on_ledge_top()
+    result = run(design, catalog)
+    assert result.pieces_before == 2 and result.pieces_after == 1
+    assert not result.recoloured.any()
+    (cell,) = cells(result.added)
+    assert cell in {(4, 0, 6), (5, 0, 6)}
+    assert result.design.colors[cell] == WHITE
+    assert "reaches across under it" in result.notes[0]
+
+
+def test_nose_on_the_top_edge_of_a_ledge_reaches_over_it(catalog):
+    # as above, with detail parts standing where a clamp would go: two cells beside the
+    # nose's upper row, resting on the ledge, join it
+    design = nose_on_ledge_top()
+    design.details.append(Detail(part="3070b", color=BLACK, x=4, y=0, z=6))
+    design.details.append(Detail(part="3070b", color=BLACK, x=5, y=0, z=6))
     result = run(design, catalog)
     assert result.pieces_before == 2 and result.pieces_after == 1
     assert not result.recoloured.any()
@@ -419,11 +436,20 @@ def test_nose_on_the_top_edge_of_a_ledge_reaches_over_it(catalog):
 def test_no_tall_post_in_view_under_a_feature_stuck_on_a_face(catalog):
     # a nose on the top edge of a head, with a foot of the model far below it: a column
     # down to the foot would join it, but a feature stuck on a face does not hang in the air
-    # and a tall post in front of the face is no repair; it is reported instead
+    # and a tall post in front of the face is no repair; one white cell under it (a clamp)
+    # holds it instead
     c = grid((8, 7, 10))
     c[:, 1:, :] = WHITE
     c[:, 0, 0] = WHITE
     c[3:5, 0, 9] = PINK
+    design = Design(colors=c)
+    result = run(design, catalog)
+    assert result.pieces_before == 2 and result.pieces_after == 1
+    assert not result.recoloured.any()
+    assert len(cells(result.added)) == 1 and not result.added[:, 0, :8].any()
+    assert not any("column" in n for n in result.notes)
+    # with no room for the clamp, nothing joins it, and it is reported
+    c[3:5, 1, 8] = EMPTY
     design = Design(colors=c)
     result = run(design, catalog)
     assert result.pieces_before == 2 and result.pieces_after == 2
@@ -444,6 +470,13 @@ def test_two_separate_objects_are_reported_not_bridged(catalog):
 def test_a_visible_cell_is_never_recoloured_to_join_a_piece(catalog):
     design = whisker_on_top_edge()
     result = run(design, catalog)
+    assert result.pieces_before == 2 and result.pieces_after == 1
+    assert result.design.colors[3, 1, 5] == WHITE
+    assert not result.recoloured.any()
+    assert cells(result.added) == {(2, 1, 4)}  # a clamp under its root, not a recolour
+    # with the cheek cell under the clamp's place gone, nothing can hold it
+    design.colors[3, 1, 4] = EMPTY
+    result = run(design, catalog)
     assert result.pieces_before == 2 and result.pieces_after == 2
     assert result.design.colors[3, 1, 5] == WHITE
     assert result.design.fingerprint() == design.fingerprint()
@@ -456,6 +489,7 @@ def test_still_loose_comes_first_in_the_notes(catalog):
     c = nose_on_head().colors
     c = np.concatenate([np.full((3, 7, 12), EMPTY, dtype=np.int16), c], axis=0)
     c[0:3, 3, 11] = BLACK  # a whisker on the top edge of the head, cannot be held
+    c[3, 3, 10] = EMPTY  # (a notch under the cheek cell it touches: no room for a clamp)
     result = run(Design(colors=c), catalog)
     assert result.pieces_after == 2
     assert result.notes[0].startswith("Still loose")
@@ -478,7 +512,7 @@ def test_out_of_solves_returns_the_input_and_says_so(catalog):
     [
         lambda: shapes.box(6, 4, 2, WHITE),
         lambda: shapes.striped(shapes.box(6, 6, 4)),
-        lambda: shapes.hollowed(shapes.sphere(12)),
+        lambda: shapes.hollowed(shapes.sphere(14)),
     ],
     ids=["box", "striped-box", "hollow-sphere"],
 )
@@ -651,6 +685,7 @@ def test_loose_parts_that_touch_each_other_get_one_note_with_the_true_reason(cat
     c = grid((11, 4, 6))
     c[5:11, :, :] = WHITE
     c[0:5, 1, 5] = BLACK
+    c[5, 1, 4] = EMPTY  # a notch under the cheek cell it touches: no room for a clamp
     design = Design(colors=c)
     result = run(design, catalog)
     assert result.pieces_after == result.pieces_before == 3
@@ -662,10 +697,11 @@ def test_loose_parts_that_touch_each_other_get_one_note_with_the_true_reason(cat
 
 
 def test_a_sheet_lying_on_the_ground_is_not_told_to_stand_on_something(catalog):
-    # a base plate 12 x 12 studs, one plate thin, on the ground under a tower
-    c = grid((12, 12, 10))
+    # a base plate 12 x 12 studs, one plate thin, in a grid one plate tall: nothing can go
+    # beneath it or on top of it
+    c = grid((12, 12, 1))
     c[:, :, 0] = GREY
-    c[4:8, 4:8, 1:10] = WHITE
+    c[4:8, 4:8, 0] = WHITE
     design = Design(colors=c)
     result = run(design, catalog)
     assert result.pieces_after > 1
@@ -686,7 +722,8 @@ def test_a_column_up_to_the_model_is_described_as_above(catalog):
     result = run(design, catalog)
     assert result.pieces_after == 1
     assert all(z > 8 for _, _, z in cells(result.added))
-    (note,) = result.notes
+    # (each pillar hangs on one part of the lintel, which nothing can change: two notes say so)
+    (note,) = [n for n in result.notes if not n.startswith("Still hanging")]
     assert "above the Red part" in note and "up to the model" in note
     assert "under" not in note
 
@@ -694,10 +731,12 @@ def test_a_column_up_to_the_model_is_described_as_above(catalog):
 def test_a_column_under_a_piece_that_touches_the_model_says_so(catalog):
     # a red cell beside the top edge of a white block (the white cell it touches can be
     # seen), over a white ledge two plates below: a short column down to the ledge holds it
+    # (a notch under the white cell it touches leaves no room for a clamp)
     c = grid((9, 5, 4))
     c[0:6, :, :] = WHITE
     c[6:9, :, 0] = WHITE
     c[6, 2, 3] = RED
+    c[5, 2, 2] = EMPTY
     design = Design(colors=c)
     result = run(design, catalog)
     assert result.pieces_after == 1
@@ -705,3 +744,523 @@ def test_a_column_under_a_piece_that_touches_the_model_says_so(catalog):
     (note,) = result.notes
     assert "under the Red part" in note and "only at its side" in note
     assert "hung in the air" not in note
+
+
+# ---- stage 3: partly covered cells, thickening from above, clamps -------------------------------
+
+
+def whisker_through_an_eye(skin: bool = True) -> Design:
+    """A grey whisker one plate thin sticking out of a white head, held only by a black eye
+    cell that can be seen (the face is set back one stud there, so air is in front of the
+    eye). With ``skin``, the model also passes partly through the white cell under the
+    whisker's root, beside the cheek, and through a few cells elsewhere."""
+    c = grid((10, 7, 12))
+    c[3:9, 1:6, :] = WHITE
+    c[3, 1, 7] = BLACK  # the eye: air in front of it at y = 0
+    c[0:3, 1, 7] = GREY
+    s = grid(c.shape)
+    if skin:
+        s[2, 1, 6] = WHITE  # under the root, beside the cheek
+        s[1, 1, 8] = GREY  # over the whisker, away from anything that holds it
+        s[6, 0, 3] = WHITE  # on the face, far from the whisker
+    return Design(colors=c, skin=s)
+
+
+def test_a_partly_covered_cell_holds_a_whisker_that_only_touches_an_eye(catalog):
+    design = whisker_through_an_eye()
+    result = run(design, catalog)
+    assert result.pieces_before == 2 and result.pieces_after == 1
+    assert not result.recoloured.any()
+    assert cells(result.added) == {(2, 1, 6)}
+    assert result.design.colors[2, 1, 6] == WHITE  # the cell's own colour
+    (note,) = result.notes
+    assert note.startswith("Filled 1 partly covered cell at x=2, y=1, z=6")
+    assert "White" in note and "the Light Bluish Grey part at x=0 to 2, y=1, z=7" in note
+    assert "less than half a cell" in note
+
+
+def test_partly_covered_cells_are_filled_in_their_own_colour(catalog):
+    design = whisker_through_an_eye()
+    assert design.skin is not None
+    design.skin[2, 1, 6] = EMPTY
+    design.skin[2, 1, 8] = RED  # over the root: beside the head, but red, not white
+    design.colors[3, 1, 8] = RED  # and the head is red there (seen from the front)
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert cells(result.added) == {(2, 1, 8)}
+    assert result.design.colors[2, 1, 8] == RED
+
+
+def test_partly_covered_cells_are_never_used_when_nothing_is_loose(catalog):
+    design = shapes.box(6, 4, 2, WHITE)
+    padded = grid((8, 6, 6))
+    padded[1:7, 1:5] = design.colors
+    skin = grid(padded.shape)
+    skin[0, 1:5, 0:6] = WHITE
+    skin[1:7, 1:5, 6 - 0 - 1] = EMPTY
+    design = Design(colors=padded, skin=skin)
+    assert_unchanged(design, run(design, catalog))
+
+
+def test_a_feature_touching_the_body_only_at_its_side_gets_a_clamp(catalog):
+    # the same whisker with no partly covered cells: one white cell under its root, beside
+    # the cheek, lets a white part of the head reach across under it
+    design = whisker_through_an_eye(skin=False)
+    result = run(design, catalog)
+    assert result.pieces_before == 2 and result.pieces_after == 1
+    assert not result.recoloured.any()
+    assert cells(result.added) == {(2, 1, 6)}
+    assert result.design.colors[2, 1, 6] == WHITE
+    (note,) = result.notes
+    assert note.startswith("Added 1 White cell at x=2, y=1, z=6 under the Light Bluish Grey part")
+    assert "only at its side" in note and "reaches across" in note
+
+
+def test_a_clamp_goes_on_top_when_there_is_no_room_under(catalog):
+    design = whisker_through_an_eye(skin=False)
+    # a detail part stands in the cell under the root, so nothing can be added there
+    design.details.append(Detail(part="3070b", color=BLACK, x=2, y=1, z=6))
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert (2, 1, 8) in cells(result.added)
+    assert result.design.colors[2, 1, 8] == WHITE
+    assert any("on top of the Light Bluish Grey part" in n for n in result.notes)
+
+
+def test_a_sheet_on_the_ground_is_thickened_from_above(catalog):
+    # a base plate 12 x 12 studs, one plate thin, on the ground under a tower: nothing can
+    # go beneath it, so a plate goes on top of its loose parts, in its colour
+    c = grid((12, 12, 10))
+    c[:, :, 0] = GREY
+    c[4:8, 4:8, 1:10] = WHITE
+    design = Design(colors=c)
+    # the loose repair alone (the weak-spot phase then adds white cells beside the tower)
+    result = run(design, catalog, max_sturdy_solves=0)
+    assert result.pieces_before > 1 and result.pieces_after == 1
+    added = cells(result.added)
+    assert added and all(z == 1 for _, _, z in added)
+    assert (result.design.colors[result.added] == GREY).all()
+    assert any(
+        "on top of the sheet" in n and "on the ground" in n and "z=1" in n for n in result.notes
+    )
+
+
+def test_a_partly_covered_cell_takes_the_colour_painted_around_it(catalog):
+    # a white column stands under the whisker's root, and then the whole head is painted red
+    # by an edit; the partly covered cell between the root and the column still remembers
+    # the head as white (edits do not change the skin). Filled white, it would be a white
+    # cell in a model that has none left.
+    from bricksnap.design import apply_ops
+
+    design = whisker_through_an_eye()
+    assert design.skin is not None
+    design.colors[2, 1, 0:6] = WHITE
+    ops = [
+        {"op": "paint", "shape": {"type": "box", "min": cell, "max": cell}, "color": RED}
+        for cell in np.argwhere(design.colors == WHITE).tolist()
+    ]
+    assert all(r.applied for r in apply_ops(design, ops, catalog))
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert cells(result.added) == {(2, 1, 6)}
+    assert result.design.colors[2, 1, 6] == RED
+    assert not (result.design.colors == WHITE).any()
+    (note,) = result.notes
+    assert note.startswith("Filled 1 partly covered cell at x=2, y=1, z=6 Red")
+    assert "White" not in note
+
+
+def test_partly_covered_cells_two_steps_from_the_piece_are_used(catalog):
+    # the only partly covered cell touching the whisker is grey, over its root and beside
+    # the white head: it cannot hold the whisker by itself. A white one on top of it, beside
+    # the head, can: grey on the whisker, white reaching into the head.
+    design = whisker_through_an_eye(skin=False)
+    assert design.skin is not None
+    design.skin[2, 1, 8] = GREY
+    design.skin[2, 1, 9] = WHITE
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert cells(result.added) == {(2, 1, 8), (2, 1, 9)}
+    assert result.design.colors[2, 1, 8] == GREY
+    assert result.design.colors[2, 1, 9] == WHITE
+    (note,) = result.notes
+    assert note.startswith("Filled 2 partly covered cells at x=2, y=1, z=8 to 9")
+
+
+def test_no_clamp_for_a_piece_with_the_model_above_or_below_it(catalog):
+    from bricksnap.buildable import _clamp
+
+    design = whisker_through_an_eye(skin=False)
+    c = design.colors
+    piece = c == GREY
+    target = (c != EMPTY) & ~piece
+    nothing = np.zeros(c.shape, dtype=bool)
+    assert _clamp(c, piece, target, nothing, c)[0] == {(2, 1, 6): WHITE}
+    for z in (6, 8):  # a cell of the model directly under, or on, the whisker's tip
+        held = c.copy()
+        held[0, 1, z] = WHITE
+        assert _clamp(held, piece, (held != EMPTY) & ~piece, nothing, held) == ({}, False)
+
+
+def mushroom_on_a_sheet() -> Design:
+    """A white body on a stem, standing on a white sheet one plate thin on the ground, with a
+    few features in other colours and partly covered cells around it (a random test design
+    that showed a stray thickening cell)."""
+    c = grid((14, 12, 16))
+    c[2:9, 3:8, 0] = WHITE  # the sheet on the ground
+    c[4:6, 5:7, 1:3] = WHITE  # the stem
+    c[3:8, 4:7, 3:7] = WHITE  # the body
+    c[7, 5, 3] = BROWN
+    c[8, 5, 3] = PINK
+    c[1:3, 5, 5] = BLACK
+    c[6, 4, 7:9] = GREY
+    s = grid(c.shape)
+    skin = {
+        WHITE: [(1, 4, 0), (2, 4, 3), (3, 6, 1), (3, 7, 1), (3, 7, 4), (4, 3, 1), (4, 7, 4),
+                (5, 3, 6), (5, 6, 7), (6, 6, 7), (6, 7, 4), (7, 3, 5), (7, 5, 7), (7, 7, 1),
+                (7, 8, 0), (8, 5, 1), (8, 5, 5), (8, 6, 1), (8, 6, 5), (9, 4, 0)],
+        BLACK: [(1, 5, 6), (2, 6, 5)],
+        BROWN: [(3, 3, 3), (5, 7, 4)],
+        GREY: [(3, 3, 4)],
+        PINK: [(5, 5, 7), (8, 6, 3)],
+    }  # fmt: skip
+    for colour, where in skin.items():
+        for cell in where:
+            s[cell] = colour
+    return Design(colors=c, skin=s)
+
+
+def test_a_thickening_rests_on_the_sheet_not_on_cells_other_repairs_added(catalog):
+    # a partly covered cell filled for one loose piece once counted as part of the sheet,
+    # and the plate added on top of the sheet stood on it; when the partly covered cell was
+    # taken away again, a cell of the plate was left with nothing above or below it
+    design = mushroom_on_a_sheet()
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert design.skin is not None
+    filled = design.filled
+    for x, y, z in cells(result.added & (design.skin == EMPTY)):
+        below = z > 0 and filled[x, y, z - 1]
+        above = z + 1 < filled.shape[2] and filled[x, y, z + 1]
+        assert below or above, (x, y, z)
+
+
+def test_partly_covered_cells_over_or_under_the_piece_are_tried_alone_first(catalog):
+    # two partly covered cells touch the whisker: one under its root, beside the cheek, and
+    # one in front of its root. Filled together, the one in front gets in the way of the
+    # layout and the whisker stays loose; the one under the root holds it by itself.
+    design = whisker_through_an_eye(skin=False)
+    assert design.skin is not None
+    design.skin[2, 1, 6] = WHITE
+    design.skin[2, 0, 7] = WHITE
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert cells(result.added) == {(2, 1, 6)}
+    assert result.design.colors[2, 1, 6] == WHITE
+
+
+def test_partly_covered_cells_keep_their_colour_in_a_design_nobody_edited(catalog):
+    # straight from the conversion, a partly covered cell's colour is the model's own there,
+    # even where no filled cell around it has that colour (a stripe that is only skin)
+    design = whisker_through_an_eye(skin=False)
+    assert design.skin is not None
+    design.colors[2, 1, 0:6] = WHITE
+    design.skin[2, 1, 6] = YELLOW
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert cells(result.added) == {(2, 1, 6)}
+    assert result.design.colors[2, 1, 6] == YELLOW
+
+
+# ---- stage 3: the worst weak spots --------------------------------------------------------------
+
+
+def heavy_limit(design: Design) -> float:
+    """Cells that must hang on a lone link for it to be heavy (the contract's numbers)."""
+    return max(12.0, min(40.0, design.filled.sum() / 10))
+
+
+def weakness(design: Design, catalog) -> tuple[int, int]:
+    """(heaviest load in cells, number of heavy lone links) of a fresh layout of the Design,
+    worked out independently of the module: ``connect.lone_links`` on ``layout.solve``."""
+    links = lone_links(solve(design, catalog), catalog)
+    limit = heavy_limit(design)
+    return max((ln.cells for ln in links), default=0), sum(ln.cells >= limit for ln in links)
+
+
+def crown_on_one_cell(skin: bool = True) -> Design:
+    """A white body 6 x 6 studs and two bricks tall, and a white crown as big on top of it,
+    joined through ONE cell: everything above hangs on a single stud. With ``skin``, the
+    model passes partly through the ring of cells around that one, some white and some
+    yellow, as the sample pineapple does between its body and its crown."""
+    c = grid((8, 8, 14))
+    c[1:7, 1:7, 0:6] = WHITE
+    c[3, 3, 6] = WHITE
+    c[1:7, 1:7, 7:13] = WHITE
+    s = grid(c.shape)
+    if skin:
+        s[2:5, 2:5, 6] = WHITE
+        s[2, 2:5, 6] = YELLOW
+        s[3, 3, 6] = EMPTY
+    return Design(colors=c, skin=s)
+
+
+def block_beside_block() -> Design:
+    """A red block beside a white one, touching it side by side on the plane x = 3|4 and
+    resting on a single white stud: hidden white cells at the seam, behind the red."""
+    c = grid((10, 6, 10))
+    c[0:4, 1:5, 0:9] = WHITE
+    c[4:8, 1:5, 3:9] = RED
+    c[4, 1, 0:3] = WHITE
+    return Design(colors=c)
+
+
+def pod_beside_a_hull() -> Design:
+    """A grey pod beside a white hull that is a wall one stud thin (every cell of it can be
+    seen), touching it only side by side and resting on one white stud."""
+    c = grid((8, 10, 10))
+    c[2, 0:10, 0:9] = WHITE
+    c[3:6, 3:6, 3:9] = GREY
+    c[3, 3, 0:3] = WHITE
+    return Design(colors=c)
+
+
+def neck_one_cell_wide() -> Design:
+    """A white body and a white head joined by a neck that really is one cell wide: no
+    partly covered cell beside it."""
+    c = grid((8, 8, 16))
+    c[1:7, 1:7, 0:6] = WHITE
+    c[3, 3, 6:9] = WHITE
+    c[1:7, 1:7, 9:15] = WHITE
+    return Design(colors=c)
+
+
+def test_a_crown_on_one_cell_is_held_by_the_partly_covered_cells_around_it(catalog):
+    design = crown_on_one_cell()
+    heaviest, heavy = weakness(design, catalog)
+    assert heaviest >= 200 and heavy >= 1  # the crown hangs on one stud
+    result = run(design, catalog)
+    assert result.pieces_before == result.pieces_after == 1
+    after, _ = weakness(result.design, catalog)
+    assert after < heaviest
+    assert result.added.any() and not result.recoloured.any()
+    assert design.skin is not None
+    # only partly covered cells, each in its own colour, and all in the level of the joint
+    assert (design.skin[result.added] != EMPTY).all()
+    assert np.array_equal(result.design.colors[result.added], design.skin[result.added])
+    assert {z for _, _, z in cells(result.added)} == {6}
+    (note,) = result.notes
+    assert note.startswith("Filled ") and "partly covered cell" in note
+    assert "z=6" in note and "hangs on" in note and "less than half a cell" in note
+
+
+def test_two_colours_side_by_side_are_held_across_the_seam_by_recolouring(catalog):
+    design = block_beside_block()
+    heaviest, heavy = weakness(design, catalog)
+    assert heaviest >= 90 and heavy >= 1
+    result = run(design, catalog)  # run() checks no visible cell changed colour
+    assert result.pieces_after == 1
+    assert weakness(result.design, catalog)[0] < heaviest
+    assert not result.added.any() and result.recoloured.any()
+    assert (result.design.colors[result.recoloured] == RED).all()
+    # behind the red, at most two studs from the seam
+    assert all(x in (2, 3) for x, _, _ in cells(result.recoloured))
+    (note,) = result.notes
+    assert note.startswith("Recoloured ") and "hidden cell" in note and "Red" in note
+
+
+def test_a_pod_touching_a_hull_only_side_by_side_gets_one_clamp_cell(catalog):
+    design = pod_beside_a_hull()
+    heaviest, heavy = weakness(design, catalog)
+    assert heaviest >= 45 and heavy >= 1
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    assert weakness(result.design, catalog)[0] < heaviest
+    assert not result.recoloured.any()
+    ((x, y, z),) = cells(result.added)
+    assert result.design.colors[x, y, z] == WHITE  # the hull's colour
+    # directly under or on a cell of the pod, and beside a cell of the hull in that level
+    assert GREY in (design.colors[x, y, z + 1], design.colors[x, y, z - 1])
+    assert design.colors[x - 1, y, z] == WHITE
+    note = result.notes[0]
+    assert note.startswith("Added 1 White cell") and "reaches across" in note
+
+
+def test_a_neck_that_really_is_one_cell_wide_is_left_and_the_note_says_so(catalog):
+    design = neck_one_cell_wide()
+    heaviest, heavy = weakness(design, catalog)
+    assert heaviest >= 180 and heavy >= 1
+    result = run(design, catalog)
+    assert not result.added.any() and not result.recoloured.any()
+    assert result.design.fingerprint() == design.fingerprint()
+    assert weakness(result.design, catalog)[0] == heaviest
+    (note,) = result.notes  # the links stacked in the neck are one weak spot
+    assert "x=3, y=3" in note and "hangs on" in note
+    assert "no partly covered cell" in note and "that thin" in note
+
+
+def test_a_model_with_no_heavy_lone_link_is_returned_unchanged(catalog):
+    padded = grid((8, 6, 8))
+    padded[1:7, 1:5, 0:6] = WHITE
+    skin = grid(padded.shape)
+    skin[0, 1:5, 0:6] = WHITE
+    skin[1:7, 1:5, 6] = WHITE
+    design = Design(colors=padded, skin=skin)
+    assert weakness(design, catalog)[1] == 0
+    result = run(design, catalog)
+    assert_unchanged(design, result)
+    assert result.build.parts == solve(design, catalog).parts
+
+
+def test_the_weak_spot_phase_is_bounded_in_solves(catalog, monkeypatch):
+    import bricksnap.layout
+
+    calls = []
+    real = bricksnap.layout.solve
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(bricksnap.layout, "solve", counting)
+    for budget in (0, 1, 8):
+        calls.clear()
+        design = crown_on_one_cell()
+        result = make_buildable(design, catalog, max_sturdy_solves=budget)
+        assert len(calls) <= 1 + budget
+        if budget == 0:  # no phase at all: exactly as before this addition
+            assert result.design.fingerprint() == design.fingerprint()
+            assert result.notes == []
+    calls.clear()
+    make_buildable(neck_one_cell_wide(), catalog)
+    assert len(calls) == 1  # nothing could be tried there, so nothing was solved
+
+
+def test_weak_spots_are_cured_after_a_loose_piece_is_joined(catalog):
+    # the crown on one cell, with a nose loose on the body's front: the pass first joins
+    # the nose, then holds the crown
+    design = crown_on_one_cell()
+    design.colors[3:5, 0, 2:4] = PINK
+    heaviest, _ = weakness(design, catalog)
+    result = run(design, catalog)
+    assert result.pieces_before > 1 and result.pieces_after == 1
+    assert weakness(result.design, catalog)[0] < heaviest
+    assert any(n.startswith("Recoloured") and "Dark Pink" in n for n in result.notes)
+    assert any(n.startswith("Filled") and "hangs on" in n for n in result.notes)
+
+
+# ---- stage 3, after review: few cells, a bound that binds, time, and what is left ------------
+
+
+def heads_on_a_bar(*heads: tuple[int, bool]) -> Design:
+    """A white bar 6 studs wide and two bricks tall, with white heads standing on it in a row,
+    each joined to it through ONE cell (its neck), so that each head hangs on a single stud.
+    ``heads`` gives each head's length along y (6 studs wide, 6 plates tall) and whether the
+    model passes partly through the ring of cells around its neck, as in crown_on_one_cell.
+    Two empty rows lie between heads."""
+    length = sum(w for w, _ in heads) + 2 * len(heads)
+    c = grid((8, length + 1, 14))
+    s = grid(c.shape)
+    c[1:7, 1:length, 0:6] = WHITE
+    y = 1
+    for w, skin in heads:
+        mid = y + w // 2
+        c[3, mid, 6] = WHITE
+        c[1:7, y : y + w, 7:13] = WHITE
+        if skin:
+            s[2:5, mid - 1 : mid + 2, 6] = WHITE
+            s[3, mid, 6] = EMPTY
+        y += w + 2
+    return Design(colors=c, skin=s)
+
+
+def counted_solves(monkeypatch) -> list[int]:
+    """Count the layout solver's solves from now on (one entry per solve)."""
+    import bricksnap.layout
+
+    calls: list[int] = []
+    real = bricksnap.layout.solve
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(bricksnap.layout, "solve", counting)
+    return calls
+
+
+def test_the_weak_spot_phase_adds_only_cells_it_needs_beside_the_link(catalog):
+    # the crown on one cell, with more partly covered cells far from its neck: on the body's
+    # side and on top of the crown. Only cells at the neck may be filled, and each one
+    # filled must be needed: without it a fresh layout hangs more on a single link.
+    design = crown_on_one_cell()
+    assert design.skin is not None
+    far = [(0, y, z) for y in range(1, 7) for z in (2, 3)]
+    far += [(x, y, 13) for x in (2, 3, 4) for y in (2, 3, 4)]
+    for c in far:
+        design.skin[c] = WHITE
+    heaviest, _ = weakness(design, catalog)
+    result = run(design, catalog)
+    assert result.pieces_after == 1
+    added = cells(result.added)
+    assert added and not added & set(far)
+    assert all(z == 6 and 2 <= x <= 4 and 2 <= y <= 4 for x, y, z in added), added
+    score = weakness(result.design, catalog)
+    assert score[0] < heaviest
+    for c in sorted(added):
+        trial = result.design.copy()
+        trial.colors[c] = EMPTY
+        assert weakness(trial, catalog) > score, f"the added cell {c} holds nothing"
+
+
+def test_the_weak_spot_phase_keeps_to_its_solves_when_it_needs_more(catalog, monkeypatch):
+    # four heads on single studs, each needing a solve of its own: the bound binds
+    calls = counted_solves(monkeypatch)
+    design = heads_on_a_bar((6, True), (6, True), (6, True), (6, True))
+    make_buildable(design, catalog, max_sturdy_solves=0)
+    without = len(calls)
+    for budget in (1, 2, 8):
+        calls.clear()
+        result = make_buildable(design, catalog, max_sturdy_solves=budget)
+        assert len(calls) <= without + budget, budget
+        if budget < 4:
+            assert any("ran out of attempts" in n for n in result.notes), result.notes
+
+
+def test_the_weak_spot_phase_stops_in_time_when_solves_are_slow(catalog, monkeypatch):
+    # every solve "takes" 3 seconds on a clock the test controls: the pass must still end
+    # in under 10 seconds, curing what it can in that time, and say it ran out
+    import types
+
+    import bricksnap.buildable
+    import bricksnap.layout
+
+    clock = [0.0]
+    real = bricksnap.layout.solve
+
+    def slow(*args, **kwargs):
+        clock[0] += 3.0
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(bricksnap.layout, "solve", slow)
+    monkeypatch.setattr(
+        bricksnap.buildable, "time", types.SimpleNamespace(perf_counter=lambda: clock[0])
+    )
+    design = heads_on_a_bar((6, True), (6, True), (6, True))
+    result = make_buildable(design, catalog)
+    assert clock[0] < 10
+    assert result.added.any()  # it had time for one head
+    assert any("ran out of attempts" in n for n in result.notes), result.notes
+
+
+def test_weak_spots_not_reached_say_whether_anything_could_be_tried(catalog):
+    # two heads that partly covered cells can hold, and a smaller one on a neck that really
+    # is one cell wide. One solve cures one head; the other is not tried for want of
+    # solves, and the narrow neck could not have been helped at all: the notes tell apart
+    # "run again" from "make it wider".
+    design = heads_on_a_bar((6, True), (6, True), (4, False))
+    result = run(design, catalog, max_sturdy_solves=1)
+    left = [n for n in result.notes if n.startswith("Still hanging")]
+    (neck,) = [n for n in left if "x=3, y=19" in n]
+    assert "ran out" not in neck and "that thin" in neck
+    assert any("ran out of attempts" in n and "x=3, y=19" not in n for n in left), left
