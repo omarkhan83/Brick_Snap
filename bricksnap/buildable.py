@@ -8,7 +8,7 @@ way it can, and says what it did.
 
 CONTRACT (tests go in tests/test_buildable.py)
 
-``make_buildable(design, catalog, seed=0, max_solves=12) -> BuildableResult``
+``make_buildable(design, catalog, seed=0, max_solves=12, max_sturdy_solves=8) -> BuildableResult``
 
     @dataclass
     class BuildableResult:
@@ -23,7 +23,8 @@ CONTRACT (tests go in tests/test_buildable.py)
 The solver is the judge: solve, look at which parts are not in the main piece
 (``bricksnap.connect.connection_graph``; the main piece is the one with the most cells among
 those touching the ground, as in ``bricksnap.checks``), repair the Design near them, solve
-again. Stop as soon as there is one piece, or after ``max_solves`` solves.
+again. Stop as soon as there is one piece, or after ``max_solves`` solves. Then cure the
+worst weak spots (below), with solves of its own.
 
 Words used below
 - *Outside air*: empty cells that can be reached, moving between neighbouring empty cells
@@ -67,8 +68,6 @@ A piece that stands on the ground by itself and touches nothing (a second, separ
 is not bridged; it is reported.
 
 STAGE 3 ADDITION TO THE CONTRACT: the pass also cures the worst weak spots
-(Being built by the lead's agent; until this line is removed, what follows is not in the
-code yet.)
 One piece is not enough. With the thinner fill, a model can be one piece and still hang
 together by a thread: in the sample pineapple at 16 studs, 124 of 240 parts hang on a single
 stud, because the fill left one cell between the body and the crown where the model is
@@ -80,10 +79,15 @@ side. The layout solver cannot cure these, because it may not add cells. This pa
   group's only connection, and the cells that hang on it). A lone link is *heavy* when the
   cells hanging on it are at least 40, or at least a tenth of the model's filled cells,
   whichever is smaller, and at least 12.
-- For each heavy lone link, heaviest first, try to give its group a second connection, in
-  this order, keeping a change only if the heaviest load in the whole build goes down (or
-  stays and the number of heavy lone links goes down), the model is still one piece, and
-  nothing that was attached comes loose:
+- For each heavy lone link, heaviest first (those where the Design itself is cut before
+  those the layout could have avoided), try to give its group a second connection, in this
+  order, keeping a change only if the build has no more heavy weak spots than before (a
+  stack of links in one thin place is one weak spot) and either the heaviest load in the
+  whole build goes down by at least 12 cells, or it does not go up, there are fewer heavy
+  weak spots and nothing heavy hangs at the cured place any more; and only if the model
+  has no more pieces than before (one, when it was one piece) and nothing that was
+  attached comes loose. Partly covered cells of a kept change that a fresh solve can do
+  without are taken away again:
   1. fill partly covered cells (skin) around the link: the cells beside the part or joint
      and beside the group's cells next to it, in their own colour, smallest set first;
   2. recolour hidden cells there, as for loose pieces, so one part can span the seam where
@@ -93,17 +97,24 @@ side. The layout solver cannot cure these, because it may not add cells. This pa
   It never thickens or adds support columns for a weak spot: those change the look too much
   for something that already holds.
 - Bounded: this phase may use at most ``max_sturdy_solves`` solves (default 8) beyond those
-  the pass already used, and stops early when no heavy lone link is left. A 16-stud model
-  still finishes in under 10 seconds.
+  the pass already used, taking away included, and stops early when no heavy lone link is
+  left; 0 leaves it out. It starts no solve that would end the pass more than 8 seconds
+  after it began, so a 16-stud model still finishes in under 10 seconds (unless repairing
+  what was loose took that long by itself). This is the one place where the clock matters:
+  on a machine slow enough for it to bind, fewer weak spots are cured.
 - The guarantees of the pass hold unchanged: nothing emptied, no visible cell recoloured,
   every filled or added cell reported in the masks and in a note. The notes for this phase
-  say what was hanging and on what, and what was done, for example: "Filled 8 partly
-  covered cells at x=5 to 7, y=3 to 5, z=18 so that the top of the model (124 parts) no
-  longer hangs on a single stud."
+  say what was hanging and on what, what was done, and how it hangs in the build the pass
+  returns (not in the build right after that one change), for example: "Filled 3 partly
+  covered cells at x=4 to 6, y=5, z=16 to 19 so that the top of the model (116 parts, 331
+  cells) no longer hangs on a single stud at x=6, y=4, z=17 to 18 alone."
 - A model with no heavy lone link comes back exactly as before this addition.
 - What is left is said plainly: a heavy lone link the phase could not cure gets a note
   with its place, how much hangs on it, and why nothing helped (no partly covered cell
-  beside it, for instance: the model really is that thin there).
+  beside it, for instance: the model really is that thin there), or that the pass ran out
+  of attempts before it could try what it could have tried there. These notes come after
+  what is still loose and before the other repairs; a model with nothing loose that has
+  only such notes is otherwise returned unchanged.
 
 Tests must include: a body and a crown joined through one cell where skin cells surround
 it (cured by filling skin, and the heaviest load drops); two blocks of different colours
@@ -112,7 +123,13 @@ hull touching only side by side with no skin (cured by one clamp cell); a neck t
 is one cell wide with no skin beside it (not cured, and the note says so); a model with no
 heavy lone link (unchanged, same fingerprint); the sample pineapple, spaceship and hat at
 16 studs (heaviest load lower than without this phase, still one piece, all guarantees
-hold); every sample at 12, 16 and 24 studs still builds with no loose parts.
+hold); every sample at 12, 16 and 24 studs still builds with no loose parts. After review:
+only cells beside the link, each needed (the crown with partly covered cells far from its
+neck); a bound that binds (four heads, budgets 1, 2 and 8) and a clock that binds (solves
+that take 3 seconds each); a weak spot never reached that could not have been helped
+anyway, told apart from one the solves ran out for; the cat at 24 studs no weaker after
+finishing than without the phase; few cells at 12 and 16 studs; notes true of the build
+returned.
 
 What must be true of the result
 - No filled cell is ever emptied, and the colour of a visible cell is never changed. The
@@ -121,9 +138,9 @@ What must be true of the result
   Design, not from one another repair added (that one may be taken away again).
 - ``result.design`` keeps the input's finish, details, regions, log and seed_offset; added
   cells get FINISH_STUDS. Nothing is appended to the log (these are not a person's edits).
-- ``pieces_after <= pieces_before``. If the first solve is already one piece (or the Design
-  is empty), nothing is changed: both masks are all False, ``notes`` is empty, and
-  ``result.design.fingerprint() == design.fingerprint()``.
+- ``pieces_after <= pieces_before``. If the first solve is already one piece with no heavy
+  lone link (or the Design is empty), nothing is changed: both masks are all False,
+  ``notes`` is empty, and ``result.design.fingerprint() == design.fingerprint()``.
 - When it cannot reach one piece, it returns the best Design it found (fewest pieces, then
   fewest changed cells) and a note saying what is still loose, where, and why nothing
   helped.
@@ -255,10 +272,93 @@ Choices beyond the contract's words:
   cells, so a repair that helped nothing is not returned.
 - The pass stops when a round has nothing new to try, so a model with a piece that cannot
   be joined usually costs one or two solves, not ``max_solves``.
+
+The worst weak spots (``_sturdy``) come after the loose pieces and their pruning, on the
+best Design found (or straight on the input when its first solve is one piece). The link's
+*place* is the part's cells, or for a single-stud joint the two cells of that stud; the
+group is the cells of the parts that hang on it, the rest all other cells but the link's
+part. Before any solve, a change must be able to help, judged on the floor as for loose
+pieces: when the floor itself has no way between group and rest without the link
+(``floor_labels`` with the part's cells emptied, or that one stud's join cut), the change
+must make one; otherwise it must at least touch both group and rest. Links of the first
+kind go first (heaviest first among them): in a thin place several links stack up (the
+pineapple's single cell is three joints and a part, one on the other), and only curing the
+one the Design itself cuts can help; once it is given up, the links stacked on it (whose
+group holds its group) are given up with it.
+- The changes for a link, each the first that could help being solved: partly covered
+  cells, the fewest first, of four sets: those touching both group and rest within two
+  cells of the place; those touching the place; those touching the place or the group's
+  and the rest's cells beside it; and also those touching them (``_skin``, so their colour
+  is the model's own, or the colour painted around them after an edit). Then hidden cells
+  of the rest within two cells of the place, given the group's colour 1 and then 2 studs
+  deep (``_recolour``), and then one clamp cell (``_clamp``, given the group as the piece
+  and the rest without the link's place as what it may touch only at its sides). The
+  first change that the solve shows to be better is kept, and the links are found again
+  on its build; a link none of whose changes is better is given up.
+- Better (``_better``): no more heavy weak spots, where a weak spot is a stack of links
+  in one thin place (``_stacks``: each carrying nearly all of what the heaviest of them
+  carries, as in the notes), and then either the heaviest load (cells, over every lone link
+  of the build) goes down by at least ``HEAVY_MIN`` cells, or there are fewer heavy weak
+  spots, the heaviest load does not go up, and nothing heavy within two cells of the cured
+  link carries most of what hung on it (``_now_at``). "Goes down" alone let the bottle at
+  12 studs grow its neck one layer per solve (96 cells hanging, then 92, 88 and so on: 144
+  cells added to a model of 148 for a load of 56). Counting every lone link let a change
+  that turns a stack of two links into one count as a cure (the cat's front legs at 24
+  studs, which then held worse after finishing than with no change at all); requiring only
+  that the cured link carry 12 cells less let a leg's weak spot move three cells down for
+  24 cells (74 to 54), which finishing alone would have held at 36; and a lower heaviest
+  load bought with one more weak spot let one clamp cell on the pineapple at 24 studs hang
+  41 cells more on the part it was meant to relieve.
+- Taking away (partly covered cells only; a clamp is one cell and a recolour cannot be
+  seen). First, without a solve (``_ranked``), the cells the new build leans on: taken out
+  of it one at a time, farthest from the link first, each stays out when the build without
+  it (``_estimate``: each part keeps its other cells and holds through those, and a part
+  that falls into two is two) has no more pieces, no heavier load and no more heavy weak
+  spots; those that cannot stay out are the ones it leans on. That alone is a poor judge
+  of what a fresh layout needs (on the spaceship at 16 studs, the 2 of 16 cells it leans
+  on leave a fresh layout hanging 102 cells), so then up to ``PRUNE_TRIES`` solves search,
+  by halves, for the shortest list of cells (those it leans on first, then the others
+  nearest the link first) with which a fresh solve does as well: no more pieces or heavy
+  weak spots, and no heavier load unless that load is not heavy at all. These solves count
+  towards ``max_sturdy_solves``. A change the new build leans on none of is sturdier by
+  the tiling the cells brought about (on the cat at 24 studs, 3 cells beside a hind leg):
+  it is kept, and its cells are taken away last, with the solves the phase has left once
+  no link is left to try, the search starting from the one cell nearest the link (so that
+  taking away never costs a cure: on the hat at 12 studs, searching straight away left two
+  weak spots uncured for 3 cells fewer). Not keeping such changes at all cost the
+  pineapple at 16 studs a clamp cell that takes its heaviest load from 50 cells to 28.
+- Cells changed by the loose repairs, and cells under detail parts, are never changed
+  again. The phase stops when its solves are spent, after ``SLOW_PATIENCE`` solves that
+  could not reach the floor of their Design, when no link is left to try, or when the
+  next solve, if it took as long as the longest one of the phase so far, would end later
+  than ``STURDY_SECONDS`` after the pass began. A model where nothing could be tried (the
+  neck in the tests) costs no solve at all.
+- Notes: one per change kept, saying what hung on what and how it hangs in the build that
+  is returned (``_cure_words``: the lightest heavy link there that carries most of the
+  cured group, named as it is now, or none); then one per weak spot left, heaviest first
+  (a stack of links in one place is one note, at the heaviest), at most ``LEFT_NOTES`` of
+  them and a count of the rest. When the phase ran out of solves or time, a weak spot it
+  never reached is looked at without a solve, in the order the phase would have taken its
+  links, to say whether anything could have been tried there ("ran out of attempts") or
+  not ("the model really is that thin there").
+- Measured on the sample models at 12, 16 and 24 studs (heavy links of this pass's build,
+  without the phase, then with it): 57 to 19 (before the review: 23), none left at 16
+  studs; 106 cells added in all (before: 218), none recoloured; at 16 studs pineapple 4,
+  spaceship 4, hat 6; at 12 studs hat 15 (before: 53), pawn 6 (before: 44). After
+  finishing, heavy links go from 50 to 16 (before: 24), and no sample is weaker after
+  finishing than without the phase (the cat at 24 studs had ended with 2 where finishing
+  alone left none). Left: the bottle at 12 studs (its neck is two cells wide), the cat's
+  legs at 24 (4, none after finishing), the hat at 24 (its solves ran out:
+  11 left), and the pineapple at 24 (3), whose crown is a hollow wall one cell thick with
+  no partly covered cell near it. Most cells are still at 24 studs: the bottle 22, the
+  spaceship 25 and the hat 16, where the search ran out of solves before it found fewer.
+  The phase made 61 solves in all over the 33 runs; the slowest pass is the hat at 12
+  studs, 4 seconds. Every sample still builds with no loose parts.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -268,7 +368,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from bricksnap.catalog import Catalog
-from bricksnap.connect import connection_graph, occupancy
+from bricksnap.connect import connection_graph, lone_links, occupancy
 from bricksnap.types import EMPTY, FINISH_STUDS, Build, Design, Placement
 
 
@@ -333,9 +433,10 @@ def visible_cells(filled: np.ndarray) -> np.ndarray:
     return filled & near
 
 
-def floor_labels(colors: np.ndarray) -> np.ndarray:
+def floor_labels(colors: np.ndarray, cut: np.ndarray | None = None) -> np.ndarray:
     """int [x, y, z]: which piece each cell is in when every two vertically adjacent cells
-    and every two side-by-side cells of one colour are joined; -1 where empty.
+    and every two side-by-side cells of one colour are joined; -1 where empty. ``cut`` (bool
+    [x, y, z]) leaves out the join between a cell and the one directly above it.
 
     No layout can join cells this does not join (see the layout solver's notes), so a loose
     piece in a different label from the main piece cannot be attached without a change.
@@ -346,6 +447,8 @@ def floor_labels(colors: np.ndarray) -> np.ndarray:
     idx[filled] = np.arange(n)
     rows, cols = [], []
     m = filled[:, :, :-1] & filled[:, :, 1:]
+    if cut is not None:
+        m &= ~cut[:, :, :-1]
     rows.append(idx[:, :, :-1][m])
     cols.append(idx[:, :, 1:][m])
     for lo, hi in _SIDES:
@@ -613,7 +716,7 @@ def _thicken(colors, piece, claimed, reach, base) -> tuple[dict[Cell, int], bool
     return {}, False
 
 
-def _clamp(colors, piece, target, claimed, original) -> tuple[dict[Cell, int], bool]:
+def _clamp(colors, piece, target, claimed, original, other=None) -> tuple[dict[Cell, int], bool]:
     """ONE cell of the body's colour directly under (or else on top of) a cell of the piece
     that touches the body at its side, beside a cell of the body in that colour, so that a
     part of the body can reach across under (or over) the piece and hold it. Only for a
@@ -621,9 +724,11 @@ def _clamp(colors, piece, target, claimed, original) -> tuple[dict[Cell, int], b
     whether it is on top. The body cell beside it must be one of the Design's own
     (``original``), not one another repair added: one cell holds only next to the body. So
     must the piece's cell it goes under or on top of, since cells other repairs added may
-    yet be taken away again."""
+    yet be taken away again. ``other`` is the rest of the model the piece must touch at
+    its sides alone (by default every filled cell outside the piece)."""
     filled = colors != EMPTY
-    other = filled & ~piece
+    if other is None:
+        other = filled & ~piece
     if (piece[:, :, 1:] & other[:, :, :-1]).any() or (piece[:, :, :-1] & other[:, :, 1:]).any():
         return {}, False
     held = target & filled & ~piece & (original == colors)
@@ -785,6 +890,13 @@ SLOW_SOLVES = 3  # solves the layout could not bring down to the floor; each cos
 SLOW_PATIENCE = 2  # such solves in a row, no better than the best, that end the pass
 CARRIED = "carried"  # another spot's change chosen this round joins the piece already
 _SHOWN_IF_JOINED = ("recolour", "skin", "thicken")  # rungs worth trying when the floor joins
+STURDY_SOLVES = 8  # default for ``max_sturdy_solves``
+HEAVY_CELLS = 40  # a lone link is heavy with at least this many cells hanging on it,
+HEAVY_SHARE = 1 / 10  # or this share of the model's filled cells, whichever is smaller,
+HEAVY_MIN = 12  # and never fewer than this
+LEFT_NOTES = 5  # weak spots left that get a note of their own; the rest are counted
+PRUNE_TRIES = 4  # solves to find what of a kept change a fresh layout does without
+STURDY_SECONDS = 8.0  # the weak-spot phase starts no solve that would end the pass later
 
 
 def _apply(base: Design, spots: list[_Spot]) -> Design:
@@ -916,19 +1028,32 @@ def _choose(
 
 
 def make_buildable(
-    design: Design, catalog: Catalog, seed: int = 0, max_solves: int = 12
+    design: Design,
+    catalog: Catalog,
+    seed: int = 0,
+    max_solves: int = 12,
+    max_sturdy_solves: int = STURDY_SOLVES,
 ) -> BuildableResult:
     from bricksnap.layout import solve
 
+    started = time.perf_counter()
     nothing = np.zeros(design.shape, dtype=bool)
     build = solve(design, catalog, seed=seed)
     solves = 1
     pc = _pieces(build, catalog)
     pieces_before = pc.count
     if pc.count <= 1:
-        return BuildableResult(
-            design.copy(), build, nothing, nothing.copy(), [], pc.count, pc.count
-        )
+        st = _sturdy(design, design, build, pc, catalog, seed, max_sturdy_solves, started)
+        work, build, pc = st.work, st.build, st.pc
+        limit = heavy_limit(int(design.filled.sum()))
+        notes = _sturdy_notes(catalog, work.colors, st, limit)
+        if work is design:
+            return BuildableResult(
+                design.copy(), build, nothing, nothing.copy(), notes, pc.count, pc.count
+            )
+        recoloured = design.filled & (work.colors != design.colors)
+        added = work.filled & ~design.filled
+        return BuildableResult(work, build, recoloured, added, notes, pieces_before, pc.count)
 
     original = design.colors
     hidden = design.filled & ~visible_cells(design.filled)
@@ -1032,12 +1157,16 @@ def make_buildable(
     if best[1]:
         best, solves, slow = _prune(design, best, catalog, seed, solves, slow, max_solves)
 
-    n_best, _, work, build, pc, kept = best
+    _, _, work, build, pc, kept = best
+    st = _sturdy(design, work, build, pc, catalog, seed, max_sturdy_solves, started)
+    work, build, pc = st.work, st.build, st.pc
+    limit = heavy_limit(int(design.filled.sum()))
+    sturdy = _sturdy_notes(catalog, work.colors, st, limit)
     recoloured = design.filled & (work.colors != original)
     added = work.filled & ~design.filled
-    notes = _notes(catalog, work, pc, spots, kept, ran_out, original, hidden)
+    notes = _notes(catalog, work, pc, spots, kept, ran_out, original, hidden, sturdy)
     result_design = work.copy() if work is design else work
-    return BuildableResult(result_design, build, recoloured, added, notes, pieces_before, n_best)
+    return BuildableResult(result_design, build, recoloured, added, notes, pieces_before, pc.count)
 
 
 def _prune(
@@ -1194,16 +1323,27 @@ def _prune(
     return best, solves, slow
 
 
+def _contacts(occ: np.ndarray, removed: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(lower, upper, studs): the pairs of parts of a build where a cell of one lies directly
+    on a cell of the other and neither cell is removed, with how many such cells (studs)."""
+    lo, hi = occ[:, :, :-1], occ[:, :, 1:]
+    keep = (lo >= 0) & (hi >= 0) & (lo != hi) & ~removed[:, :, :-1] & ~removed[:, :, 1:]
+    if not keep.any():
+        none = np.zeros(0, dtype=np.int64)
+        return none, none, none
+    pairs, studs = np.unique(np.stack([lo[keep], hi[keep]]), axis=1, return_counts=True)
+    return pairs[0], pairs[1], studs
+
+
 def _held(occ: np.ndarray, removed: np.ndarray) -> nx.Graph:
     """The parts of a build that keep a cell outside ``removed``, joined where a cell of one
     lies directly on a cell of another and neither cell is removed. (Bricks and plates have
     studs over their whole top, so this is the build's connection graph when nothing is
     removed.)"""
-    lo, hi = occ[:, :, :-1], occ[:, :, 1:]
-    keep = (lo >= 0) & (hi >= 0) & (lo != hi) & ~removed[:, :, :-1] & ~removed[:, :, 1:]
+    lo, hi, _ = _contacts(occ, removed)
     g = nx.Graph()
     g.add_nodes_from(int(v) for v in np.unique(occ[(occ >= 0) & ~removed]))
-    g.add_edges_from((int(a), int(b)) for a, b in zip(lo[keep], hi[keep], strict=True))
+    g.add_edges_from((int(a), int(b)) for a, b in zip(lo, hi, strict=True))
     return g
 
 
@@ -1285,9 +1425,10 @@ def _notes(
     out_of_solves: bool,
     original: np.ndarray,
     hidden: np.ndarray,
+    sturdy: list[str],
 ) -> list[str]:
-    """What is still loose, then the separate objects, then what was added, then what was
-    recoloured.
+    """What is still loose, then the separate objects, then the notes of the weak-spot phase
+    (``sturdy``), then what was added, then what was recoloured.
 
     Loose pieces that touch each other are one note. ``spots`` say what was tried; ``kept``
     are the same spots as they were in the Design that is returned, with its changes.
@@ -1427,4 +1568,573 @@ def _notes(
         added_notes.append((n, text))
     added_notes.sort(key=lambda t: -t[0])
     recolour_notes.sort(key=lambda t: -t[0])
-    return loose_notes + [t for _, t in added_notes] + [t for _, t in recolour_notes]
+    return loose_notes + sturdy + [t for _, t in added_notes] + [t for _, t in recolour_notes]
+
+
+# ---- the worst weak spots ------------------------------------------------------------------
+
+_STURDY_WORDS = {
+    "skin": "filling the partly covered cells beside it",
+    "recolour": "giving the hidden cells at the seam its colour",
+    "clamp": "adding a cell of the body's colour under or over it",
+}
+
+
+def heavy_limit(filled_cells: int) -> float:
+    """Cells that must hang on a lone link for it to be *heavy*."""
+    return max(HEAVY_MIN, min(HEAVY_CELLS, HEAVY_SHARE * filled_cells))
+
+
+def _holds(cells: int, group: np.ndarray, other_cells: int, other_group: np.ndarray) -> bool:
+    """Whether what hangs on another link (``other_group``) hangs on this one as well and is
+    nearly all of what does: the two are one weak spot, a stack of links in a thin place."""
+    inside = (other_group & group).sum()
+    return bool(inside >= 0.9 * other_group.sum() and other_cells >= 0.8 * cells)
+
+
+def _stacks(loads: list[tuple[int, np.ndarray]]) -> list[list[int]]:
+    """Heavy links, given as (cells, group), gathered into weak spots: indices into
+    ``loads``, heaviest first. A stack of links in one thin place (a neck, a column), each
+    carrying nearly all of what the heaviest of them carries, is one weak spot."""
+    out: list[list[int]] = []
+    for i in sorted(range(len(loads)), key=lambda k: -loads[k][0]):
+        stack = next((s for s in out if _holds(*loads[s[0]], *loads[i])), None)
+        if stack is None:
+            out.append([i])
+        else:
+            stack.append(i)
+    return out
+
+
+@dataclass
+class _Link:
+    """A heavy lone link of a build, in cells of the Design."""
+
+    cells: int  # cells that hang on it
+    load: int  # parts that hang on it
+    group: np.ndarray  # cells of the parts that hang on it
+    rest: np.ndarray  # cells of every other part, the link's own part left out
+    at: np.ndarray  # the link: the part's cells, or the two cells of the single stud
+    cut: np.ndarray | None  # for a stud: the join to leave out (see ``floor_labels``)
+    lifted: bool  # the group stands on the ground itself, and comes away when lifted
+    apart: bool = False  # the floor of the Design has no other way between group and rest
+    tried: list[str] = field(default_factory=list)  # kinds of repair a solve judged
+    found: list[str] = field(default_factory=list)  # kinds of repair that could be tried
+
+    def same_place(self, other: _Link) -> bool:
+        """The same weak spot, after a fresh layout may have moved it a little."""
+        if not (self.at & ndimage.binary_dilation(other.at, _CUBE)).any():
+            return False
+        both = (self.group & other.group).sum()
+        return bool(both * 2 >= (self.group | other.group).sum())
+
+    def holds(self, other: _Link) -> bool:
+        """``other`` hangs on this link as well and is nearly all of what does (``_holds``)."""
+        return _holds(self.cells, self.group, other.cells, other.group)
+
+    def near(self, other: _Link) -> bool:
+        """Whether the other link is within two cells of this one."""
+        return bool((other.at & ndimage.binary_dilation(self.at, _CUBE, iterations=2)).any())
+
+    def take(self, other: _Link) -> None:
+        """Add what was tried and found at the other link (the same weak spot) to this one."""
+        self.apart = self.apart or other.apart
+        self.tried = list(dict.fromkeys(self.tried + other.tried))
+        self.found = list(dict.fromkeys(self.found + other.found))
+
+
+_CUBE = np.ones((3, 3, 3), dtype=bool)
+
+
+def _links(
+    build: Build, catalog: Catalog, colors: np.ndarray | None, limit: float
+) -> tuple[list[_Link], int]:
+    """The heavy lone links of a build, each in cells, and the heaviest load (cells) of any
+    lone link. Given the Design's ``colors``, also whether the floor of the Design itself has
+    another way between each group and the rest (``apart`` when it has not)."""
+    occ = occupancy(build, catalog)[0]
+    filled = occ >= 0
+    out: list[_Link] = []
+    found = lone_links(build, catalog)
+    for ln in found:
+        if ln.cells < limit:
+            continue
+        group = np.isin(occ, ln.members)
+        cut = None
+        if ln.joint is not None:
+            lo, hi = ln.joint
+            cut = np.zeros(occ.shape, dtype=bool)
+            cut[:, :, :-1] = (occ[:, :, :-1] == lo) & (occ[:, :, 1:] == hi)
+            at = cut.copy()
+            at[:, :, 1:] |= cut[:, :, :-1]
+            rest = filled & ~group
+        else:
+            at = occ == ln.part
+            rest = filled & ~group & ~at
+        lk = _Link(ln.cells, ln.load, group, rest, at, cut, ln.lifted)
+        if colors is not None:
+            lk.apart = not _link_joined(colors, lk, {})
+        out.append(lk)
+    return out, max((ln.cells for ln in found), default=0)
+
+
+def _link_joined(colors: np.ndarray, lk: _Link, change: dict[Cell, int]) -> bool:
+    """Whether the floor of ``colors`` with ``change`` joins the group to the rest without
+    the link."""
+    trial = colors.copy()
+    for c, colour in change.items():
+        trial[c] = colour
+    if lk.cut is None:
+        trial[lk.at] = EMPTY
+    lab = floor_labels(trial, lk.cut)
+    a = np.unique(lab[lk.group & (lab >= 0)])
+    b = np.unique(lab[lk.rest & (lab >= 0)])
+    return bool(np.intersect1d(a, b).size)
+
+
+def _judge(build: Build, catalog: Catalog, limit: float) -> tuple[tuple[int, int], list[_Link]]:
+    """(heaviest load in cells, number of heavy weak spots), lower is sturdier, and the heavy
+    links. A stack of links in one thin place counts as one weak spot (``_stacks``): a
+    change that leaves two links there instead of three has not made it any sturdier."""
+    links, heaviest = _links(build, catalog, None, limit)
+    return (heaviest, len(_stacks([(k.cells, k.group) for k in links]))), links
+
+
+def _now_at(links: list[_Link], lk: _Link) -> _Link | None:
+    """The heaviest of ``links`` at the place of ``lk`` (within two cells) that carries most
+    of what hung on ``lk``: what hangs there now, or None when nothing heavy does."""
+    half = lk.group.sum() / 2
+    there = [k for k in links if lk.near(k) and (k.group & lk.group).sum() > half]
+    return max(there, key=lambda k: k.cells, default=None)
+
+
+def _better(new: tuple[int, int], old: tuple[int, int], gone: bool) -> bool:
+    """Whether a build is sturdier than another by enough to pay for a change: there are no
+    more heavy weak spots, and either the heaviest load goes down by at least ``HEAVY_MIN``
+    cells, or there are fewer heavy weak spots, the heaviest load does not go up, and the
+    weak spot being cured is ``gone`` (nothing heavy near its place carries most of what
+    hung on it). A step of a few cells is a thin neck grown one layer at a time: each step
+    fattens the model and the next layer hangs as before. A weak spot that only moves a
+    little down a leg is no cure: the finishing pass may well have held it where it was.
+    And a lighter heaviest load bought with one more place that hangs by a thread is not
+    sturdier."""
+    if new[1] > old[1]:
+        return False
+    return new[0] <= old[0] - HEAVY_MIN or (new[0] <= old[0] and new[1] < old[1] and gone)
+
+
+def _estimate(
+    build: Build, catalog: Catalog, occ: np.ndarray, removed: np.ndarray, limit: float
+) -> tuple[int, int, int]:
+    """(pieces, heaviest load, heavy weak spots) of the build with the ``removed`` cells
+    taken out, without a solve: a part that covers some of them keeps the rest of its cells
+    and holds only through those (as in ``_held``), and where what it keeps falls into
+    pieces (a cell taken out of the middle of a 1 x 3 plate), each piece is a part of its
+    own, since no part could span the gap."""
+    from bricksnap.connect import lone_links_of_graph
+
+    keep = (occ >= 0) & ~removed
+    node = np.where(keep, occ, -1).astype(np.int64)
+    top = len(build.parts)
+    for i in np.unique(occ[removed & (occ >= 0)]).tolist():
+        box = node[catalog.cells(build.parts[i])]  # a view: relabelled in place
+        lab, k = ndimage.label(box == i, structure=_SIX)
+        for j in range(2, k + 1):
+            box[lab == j] = top
+            top += 1
+    ids = np.unique(node[keep])
+    n = len(ids)
+    if not n:
+        return 0, 0, 0
+    index = np.full(top, -1, dtype=np.int64)
+    index[ids] = np.arange(n)
+    lo, hi, studs = _contacts(node, removed)
+    edges = [(int(a), int(b), int(s)) for a, b, s in zip(index[lo], index[hi], studs, strict=True)]
+    part = index[node[keep]]
+    volume = np.bincount(part, minlength=n).astype(float)
+    z = np.full(n, occ.shape[2], dtype=np.int64)
+    np.minimum.at(z, part, np.nonzero(keep)[2])
+    found, _ = lone_links_of_graph(n, edges, z.tolist(), volume.tolist(), [True] * n)
+    graph = coo_matrix(
+        (np.ones(len(edges)), ([e[0] for e in edges], [e[1] for e in edges])), shape=(n, n)
+    )
+    pieces = int(connected_components(graph, directed=False)[0])
+    heavy = [(ln.cells, np.isin(node, ids[list(ln.members)])) for ln in found if ln.cells >= limit]
+    return pieces, max((ln.cells for ln in found), default=0), len(_stacks(heavy))
+
+
+def _ranked(
+    change: dict[Cell, int], lk: _Link, build: Build, catalog: Catalog, limit: float
+) -> tuple[list[Cell], int]:
+    """The cells of a change, those the build leans on first, and how many it leans on.
+    Without a solve (``_estimate``): the cells are taken out of the build one at a time,
+    those farthest from the link first, each staying out when the build without it has no
+    more pieces, no heavier load and no more heavy weak spots; those that cannot stay out
+    are the ones it leans on. Within each kind, nearest the link first."""
+    occ = occupancy(build, catalog)[0]
+    removed = np.zeros(occ.shape, dtype=bool)
+    base = _estimate(build, catalog, occ, removed, limit)
+    far = ndimage.distance_transform_edt(~lk.at)
+    for c in sorted(change, key=lambda c: (-far[c], c)):
+        removed[c] = True
+        worse = zip(_estimate(build, catalog, occ, removed, limit), base, strict=True)
+        if any(a > b for a, b in worse):
+            removed[c] = False
+    order = sorted(change, key=lambda c: (bool(removed[c]), far[c], c))
+    return order, sum(not removed[c] for c in change)
+
+
+def _sturdy_options(lk: _Link, colors, skin, claimed, hidden, original, edited):
+    """The changes that could give the link's group a second connection, smallest first:
+    partly covered cells touching the link, then those touching the group's and the rest's
+    cells beside it, then also those touching them; hidden cells of the rest beside the
+    group near the link given the group's colour, 1 then 2 studs deep; ONE clamp cell where
+    the group touches the rest only at its side. Yields (kind, change, on top)."""
+    beside = ndimage.binary_dilation(lk.at, _CUBE) & (lk.group | lk.rest) | lk.at
+    near = ndimage.binary_dilation(lk.at, _CUBE, iterations=2)
+    both = ndimage.binary_dilation(lk.group, _SIX) & ndimage.binary_dilation(lk.rest, _SIX)
+    sets = [
+        {
+            c: v
+            for c, v in _skin(colors, skin, beside, claimed, 1, edited).items()
+            if near[c] and both[c]
+        },
+        _skin(colors, skin, lk.at, claimed, 1, edited),
+        _skin(colors, skin, beside, claimed, 1, edited),
+        _skin(colors, skin, beside, claimed, 2, edited),
+    ]
+    for change in sorted(sets, key=len):  # the fewest cells first
+        yield "skin", change, False
+    there = ndimage.binary_dilation(lk.at, _CUBE, iterations=2) & lk.group
+    for depth in RECOLOUR_DEPTHS[:2]:
+        yield "recolour", _recolour(colors, there, hidden & lk.rest, claimed, depth), False
+    change, up = _clamp(colors, lk.group, lk.rest, claimed, original, lk.rest & ~lk.at)
+    yield "clamp", change, up
+
+
+def _could_help(colors: np.ndarray, lk: _Link, change: dict[Cell, int]) -> bool:
+    """Whether a change could give the group a second connection at all. When the floor has
+    no other way between group and rest, the change must make one (no layout can beat the
+    floor); otherwise it must at least touch both."""
+    if lk.apart:
+        return _link_joined(colors, lk, change)
+    near = ndimage.binary_dilation(_mask(colors.shape, change), _SIX)
+    return bool((near & lk.group).any() and (near & lk.rest).any())
+
+
+@dataclass
+class _Cure:
+    kind: str
+    change: dict[Cell, int]
+    up: bool
+    link: _Link  # as it was before the change
+
+
+@dataclass
+class _Sturdy:
+    """What the weak-spot phase did: the Design, its build and pieces, the cures kept, the
+    heavy links of the build, the weak spots left (one per stack, heaviest first), whether
+    it ran out of solves or time, and the solves it made."""
+
+    work: Design
+    build: Build
+    pc: _Pieces
+    cures: list[_Cure] = field(default_factory=list)
+    links: list[_Link] = field(default_factory=list)
+    left: list[_Link] = field(default_factory=list)
+    ran_out: bool = False
+    solves: int = 0
+
+
+def _sturdy(
+    design: Design,
+    work: Design,
+    build: Build,
+    pc: _Pieces,
+    catalog: Catalog,
+    seed: int,
+    budget: int,
+    started: float,
+) -> _Sturdy:
+    """Cure the heaviest lone links of ``build`` (the best Design the pass found, ``work``)
+    by small changes to the Design, each judged by a solve and kept only if the build is
+    sturdier by enough (``_better``) and has no more pieces; then what a kept change of
+    partly covered cells does not need goes, when a fresh solve agrees. A link is heavy by
+    the input Design's filled cells (``heavy_limit``). ``started`` is when the pass began
+    (``time.perf_counter``): no solve is started that would end after ``STURDY_SECONDS``."""
+    from bricksnap.layout import solve
+
+    out = _Sturdy(work, build, pc)
+    if budget <= 0 or pc.count == 0:
+        return out
+    limit = heavy_limit(int(design.filled.sum()))
+    links, heaviest = _links(build, catalog, work.colors, limit)
+    if not links:
+        return out
+    hidden = design.filled & ~visible_cells(design.filled)
+    blocked = _detail_cells(design, catalog)
+    assert design.skin is not None
+    skin, edited, original = design.skin, bool(design.log), design.colors
+    score = (heaviest, len(_stacks([(k.cells, k.group) for k in links])))
+    given_up: list[_Link] = []
+    slow = 0
+    longest = 0.0  # the longest solve of the phase so far: does another one fit in time?
+
+    def attempt(trial: Design) -> tuple[Build, _Pieces, tuple[int, int], list[_Link]] | None:
+        nonlocal slow, longest
+        late = time.perf_counter() - started + longest >= STURDY_SECONDS
+        if out.solves >= budget or slow >= SLOW_PATIENCE or late:
+            return None
+        t = time.perf_counter()
+        tb = solve(trial, catalog, seed=seed)
+        longest = max(longest, time.perf_counter() - t)
+        out.solves += 1
+        tp = _pieces(tb, catalog)
+        slow += tp.count > _floor_count(trial.colors)
+        return tb, tp, *_judge(tb, catalog, limit)
+
+    def shrink(change, order, need, make, full, pieces):
+        """The shortest first part of ``order`` (at least ``need`` cells, found by halves
+        in up to ``PRUNE_TRIES`` solves) with which a fresh solve does as well as with the
+        whole ``change`` (score ``full``): no more pieces than ``pieces`` or heavy weak
+        spots, and no heavier load unless that load is not heavy at all. Returns (the
+        smaller change, its Design, what ``attempt`` gave), or None."""
+        found = None
+        low, high, k = need, len(change), need
+        for _ in range(PRUNE_TRIES):
+            if k >= high:
+                break
+            fewer = {c: change[c] for c in order[:k]}
+            smaller = make(fewer)
+            got = attempt(smaller)
+            if got is None:
+                break
+            _, gp, (heaviest, spots), _ = got
+            if (
+                gp.count <= pieces.count
+                and spots <= full[1]
+                and (heaviest <= full[0] or heaviest < limit)
+            ):
+                high, found = k, (fewer, smaller, got)
+            else:
+                low = k + 1
+            k = (low + high) // 2
+        return found
+
+    later: list[_Cure] = []  # kept changes the build leans on none of, taken away last
+    while True:
+        open_ = [
+            lk
+            for lk in links
+            if not any(g.same_place(lk) for g in given_up)
+            and not any(g.apart and lk.holds(g) for g in given_up)
+        ]
+        if not open_:
+            break
+        # those the floor itself cuts first: a stack of links in a thin place is cured there
+        lk = min(open_, key=lambda k: (not k.apart, -k.cells))
+        claimed = (work.colors != original) | blocked
+        seen: list[dict[Cell, int]] = []
+        kept = None
+        for kind, change, up in _sturdy_options(
+            lk, work.colors, skin, claimed, hidden, original, edited
+        ):
+            if not change or change in seen or not _could_help(work.colors, lk, change):
+                continue
+            seen.append(change)
+            if kind not in lk.found:
+                lk.found.append(kind)
+            trial = _apply(work, [_Spot(mask=lk.at, change=change)])
+            got = attempt(trial)
+            if got is None:
+                out.ran_out = True
+                break
+            if kind not in lk.tried:
+                lk.tried.append(kind)
+            tb, tp, ts, tl = got
+            if tp.count > pc.count or not _better(ts, score, _now_at(tl, lk) is None):
+                continue
+            order, need = list(change), len(change)
+            if kind == "skin":
+                order, need = _ranked(change, lk, tb, catalog, limit)
+            kept = (kind, change, up, trial, tb, tp, ts, order, need)
+            break
+        if out.ran_out:
+            given_up.append(lk)
+            break
+        if kept is None:
+            given_up.append(lk)
+            continue
+        kind, change, up, trial, tb, tp, ts, order, need = kept
+        cure = _Cure(kind, change, up, lk)
+        if need:
+            # what the build does not lean on goes, when a fresh layout agrees
+            def make(fewer: dict[Cell, int], base: Design = work, at: np.ndarray = lk.at):
+                return _apply(base, [_Spot(mask=at, change=fewer)])
+
+            found = shrink(change, order, need, make, ts, pc)
+            if found:
+                cure.change, trial, (tb, tp, ts, _) = found
+        else:  # it leans on none of them: sturdier by the tiling they brought about
+            later.append(cure)
+        work, build, pc, score = trial, tb, tp, ts
+        links, _ = _links(build, catalog, work.colors, limit)
+        out.cures.append(cure)
+    # changes the build leans on none of, with the solves left: from the nearest cell up
+    for cure in later:
+        far = ndimage.distance_transform_edt(~cure.link.at)
+        order = sorted(cure.change, key=lambda c: (far[c], c))
+        base = work
+
+        def without(fewer: dict[Cell, int], cure: _Cure = cure, base: Design = base) -> Design:
+            smaller = base.copy()
+            assert smaller.finish is not None and design.finish is not None
+            for c in cure.change:
+                if c not in fewer:
+                    smaller.colors[c], smaller.finish[c] = design.colors[c], design.finish[c]
+            return smaller
+
+        found = shrink(cure.change, order, 1, without, score, pc)
+        if found:
+            cure.change, work, (build, pc, score, _) = found
+            links, _ = _links(build, catalog, work.colors, limit)
+    out.work, out.build, out.pc, out.links = work, build, pc, links
+    for k in links:  # what was tried there, for the notes
+        for g in given_up:
+            if g.same_place(k) or (g.apart and k.holds(g)):
+                k.take(g)
+    stacks = [[links[i] for i in s] for s in _stacks([(k.cells, k.group) for k in links])]
+    claimed = (work.colors != original) | blocked
+    for stack in stacks:
+        rep = stack[0]
+        for k in stack[1:]:
+            rep.take(k)
+        if out.ran_out and not rep.tried and not rep.found and len(out.left) < LEFT_NOTES:
+            # never reached: say whether anything could have been tried here at all, taking
+            # the links of the stack in the order the phase would have (once one the floor
+            # cuts has nothing, those stacked on it are given up with it)
+            for k in sorted(stack, key=lambda k: (not k.apart, -k.cells)):
+                for kind, change, _ in _sturdy_options(
+                    k, work.colors, skin, claimed, hidden, original, edited
+                ):
+                    if change and kind not in rep.found and _could_help(work.colors, k, change):
+                        rep.found.append(kind)
+                rep.apart = rep.apart or k.apart
+                if rep.found or k.apart:
+                    break
+        out.left.append(rep)
+    return out
+
+
+def _link_words(catalog: Catalog, colors: np.ndarray, lk: _Link) -> str:
+    """'a single stud at x=6, y=4, z=17 to 18' or 'one part, the Green part at ...'."""
+    if lk.cut is not None:
+        return f"a single stud at {_where(np.argwhere(lk.at))}"
+    return f"one part, {_describe(catalog, colors, lk.at)}"
+
+
+def _cure_words(catalog: Catalog, colors: np.ndarray, lk: _Link, links: list[_Link]) -> str:
+    """How the group a change was made for hangs in the build the pass returns: on nothing
+    heavy any more, or on the heavy link (as it is now) that carries most of it."""
+    s_ = "" if " parts at " in _describe(catalog, colors, lk.group) else "s"
+    old = _link_words(catalog, colors, lk)
+    half = lk.group.sum() / 2
+    holding = [k for k in links if (k.group & lk.group).sum() > half]
+    now = min(holding, key=lambda k: k.cells, default=None)
+    if now is None:
+        return f"no longer hang{s_} on {old} alone"
+    words = _link_words(catalog, colors, now)
+    if not lk.near(now):
+        return (
+            f"no longer hang{s_} on {old} alone, but still hang{s_} on {words}, with "
+            f"{now.cells} cells hanging there in all"
+        )
+    if now.cells < lk.cells:
+        return (
+            f"now hang{s_} on {words}, with {now.cells} cells hanging there instead of {lk.cells}"
+        )
+    return f"still hang{s_} on {words}, with {now.cells} cells hanging there"
+
+
+def _sturdy_notes(catalog: Catalog, colors: np.ndarray, st: _Sturdy, limit: float) -> list[str]:
+    """What the phase did, said of the build the pass returns, then the heavy weak spots
+    left, heaviest first."""
+    out: list[str] = []
+    for cure in st.cures:
+        lk = cure.link
+        what = _describe(catalog, colors, lk.group)
+        parts = f"{_count(lk.load, 'part', 'parts')}, {lk.cells} cells"
+        why = _cure_words(catalog, colors, lk, st.links)
+        s_ = "" if " parts at " in what else "s"
+        n = len(cure.change)
+        where = _where(list(cure.change))
+        values = list(cure.change.values())
+        if cure.kind == "skin":
+            colours = sorted({_colour_name(catalog, v) for v in values})
+            in_colour = (
+                f"each in its own colour ({', '.join(colours[:-1])} and {colours[-1]})"
+                if len(colours) > 1
+                else colours[0]
+            )
+            out.append(
+                f"Filled {_count(n, 'partly covered cell', 'partly covered cells')} at {where} "
+                f"{in_colour} so that {what} ({parts}) {why}: the model passes through "
+                f"{'that cell' if n == 1 else 'those cells'}, so the outline moves by less "
+                "than half a cell."
+            )
+            continue
+        colour = _colour_name(catalog, max(set(values), key=values.count))
+        if cure.kind == "recolour":
+            out.append(
+                f"Recoloured {_count(n, 'hidden cell', 'hidden cells')} at {where} {colour} "
+                f"so that one part can reach across the seam where {what} ({parts}) "
+                f"meet{s_} the rest of the model, and {'they' if not s_ else 'it'} {why}."
+            )
+        else:
+            side, across = ("on top of", "over") if cure.up else ("under", "under")
+            out.append(
+                f"Added {_count(n, colour + ' cell', colour + ' cells')} at {where} {side} "
+                f"{what} ({parts}) so that a {colour} part of the body reaches across {across} "
+                f"it: {'they' if not s_ else 'it'} touched the body only at "
+                f"{'their' if not s_ else 'its'} side, and {'they' if not s_ else 'it'} {why}."
+            )
+    for lk in st.left[:LEFT_NOTES]:
+        what = _describe(catalog, colors, lk.group)
+        hang = f"{_count(lk.load, 'part', 'parts')}, {lk.cells} cells"
+        lifted = (
+            " (standing on the ground, but coming away when the model is lifted)"
+            if lk.lifted
+            else ""
+        )
+        if lk.tried:
+            words = [_STURDY_WORDS[k] for k in _STURDY_WORDS if k in lk.tried]
+            joined = f"{', '.join(words[:-1])} and {words[-1]}" if len(words) > 1 else words[0]
+            verb = "were" if len(words) > 1 else "was"
+            why = (
+                f"{joined[0].upper()}{joined[1:]} {verb} tried, but the layout still hangs "
+                "it there."
+            )
+        elif lk.found:  # something could be tried, but the solves (or the time) ran out
+            why = "The pass ran out of attempts before it could try anything here."
+        else:
+            why = (
+                "Nothing could give it a second hold: no partly covered cell beside it would "
+                "join it to the rest, no hidden cell at a seam there could take its colour, "
+                "and there is no place for one cell under or over it beside the rest of the "
+                "model."
+            )
+            if lk.apart:
+                why += " The model really is that thin there: to make it sturdier, make it wider."
+        s_ = "" if " parts at " in what else "s"
+        out.append(
+            f"Still hanging by a thread: {what} ({hang}) hang{s_} on "
+            f"{_link_words(catalog, colors, lk)} alone{lifted}. {why}"
+        )
+    if len(st.left) > LEFT_NOTES:
+        more = len(st.left) - LEFT_NOTES
+        out.append(
+            f"{_count(more, 'more weak spot', 'more weak spots')} like these, each carrying "
+            f"at least {int(np.ceil(limit))} cells, {'is' if more == 1 else 'are'} left as "
+            "they are."
+        )
+    return out
