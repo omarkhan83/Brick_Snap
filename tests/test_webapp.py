@@ -1580,6 +1580,26 @@ def test_serve_reports_problems_plainly(capsys, monkeypatch):
     assert "65535" in err
 
 
+def test_serve_with_examples_copies_them_once(capsys, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr("bricksnap.webapp.serve_app", lambda **kwargs: calls.append(kwargs))
+    target = tmp_path / "mine"
+    code, out, _ = _cli(capsys, "serve", "--dir", str(target), "--examples", "--no-open")
+    assert code == 0 and len(calls) == 1
+    names = sorted(p.name for p in target.iterdir())
+    assert names == ["car-showcase", "cat-showcase", "duck-showcase"]
+    assert "Copied 3 example models" in out
+    assert (target / "cat-showcase" / "build.json").is_file()
+    # a second time nothing is copied and what the person changed is left alone
+    (target / "cat-showcase" / "build.ldr").write_text("mine")
+    code, out, _ = _cli(capsys, "serve", "--dir", str(target), "--examples", "--no-open")
+    assert code == 0 and "Copied" not in out
+    assert (target / "cat-showcase" / "build.ldr").read_text() == "mine"
+    # without --examples nothing is copied
+    code, _, _ = _cli(capsys, "serve", "--dir", str(tmp_path / "empty"), "--no-open")
+    assert code == 0 and not (tmp_path / "empty").exists()
+
+
 def test_serve_is_listed_in_the_help(capsys):
     code, out, _ = _cli(capsys, "--help")
     assert code == 0

@@ -57,7 +57,8 @@ details, the weak spots that remain in thin models, and fewer small plates on cu
 - An instruction booklet made from our own steps and pictures (`docs/tasks/instruction-booklet.md`).
 - The same models through BrickLink Studio's sculpture import, pictured next to ours.
 - Saved example projects in `samples/projects/` so nothing depends on a live run.
-- A walkthrough script. Polish: error messages, README, licence and credits, Fair Play wording.
+- A walkthrough script (`docs/WALKTHROUGH.md`). Polish: error messages, README, licence and credits, Fair
+  Play wording.
 
 The two-minute walkthrough: the same cat from Studio's import and from BrickSnap, side by side; the AI's
 brief and its rounds; one live edit ("add a red collar"); then the wanted list and, ideally, the physical

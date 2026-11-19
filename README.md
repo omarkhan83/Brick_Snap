@@ -11,6 +11,7 @@ BrickLink Studio, with building steps, plus a parts list and a BrickLink wanted 
 - [`docs/VISION.md`](docs/VISION.md): what we are building and why
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): the order of work and where we are
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it is built
+- [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md): a two-minute tour to give someone
 
 LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.
 

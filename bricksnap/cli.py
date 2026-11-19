@@ -35,9 +35,12 @@ there are no tracebacks for mistakes a user can make.
     bricksnap view PROJECT [--port 8765] [--no-open]
         Serve the 3D viewer for this project (``bricksnap.viewserver.serve``) and print the
         address.
-    bricksnap serve [--dir projects] [--port 8765] [--no-open]
+    bricksnap serve [--dir projects] [--port 8765] [--no-open] [--examples]
         Start the web app (``bricksnap.webapp.serve_app``): everything above from a page in
-        the browser, for every project in the folder. Print the address.
+        the browser, for every project in the folder. Print the address. With --examples,
+        first copy the finished example models (``samples/projects/*-showcase``) into the
+        folder, leaving alone any that are already there, so a fresh checkout has something
+        to show without an AI run.
 
 PROJECT is a path to a project folder; a bare name is looked up under ./projects/.
 
@@ -1493,9 +1496,39 @@ def cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "samples" / "projects"
+
+
+def copy_examples(projects_dir: str | Path) -> list[str]:
+    """Copy the finished example models into ``projects_dir``; return the names copied.
+
+    The examples are the folders of ``samples/projects`` whose names end in "-showcase". One
+    that is already in ``projects_dir`` (under that name) is left exactly as it is.
+    """
+    import shutil
+
+    if not EXAMPLES_DIR.is_dir():
+        raise UserError(
+            f"The example models are not here: {_show(EXAMPLES_DIR)} is missing. They come "
+            "with the BrickSnap folder from GitHub."
+        )
+    target = Path(projects_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for source in sorted(EXAMPLES_DIR.glob("*-showcase")):
+        if source.is_dir() and not (target / source.name).exists():
+            shutil.copytree(source, target / source.name)
+            copied.append(source.name)
+    return copied
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from bricksnap.webapp import serve_app  # imported here: webapp imports this module
 
+    if args.examples:
+        copied = copy_examples(args.dir)
+        if copied:
+            print(f"Copied {len(copied)} example models into {_show(Path(args.dir))}.")
     serve_app(projects_dir=args.dir, port=args.port, open_browser=not args.no_open)
     return 0
 
@@ -1717,6 +1750,11 @@ def _parser() -> _Parser:
         help="the port to use, 1 to 65535, or 0 to pick a free one (default: 8765)",
     )
     p.add_argument("--no-open", action="store_true", help="do not open the browser")
+    p.add_argument(
+        "--examples",
+        action="store_true",
+        help="first copy the finished example models into the folder, if they are not there",
+    )
     p.set_defaults(func=cmd_serve)
     return parser
 
