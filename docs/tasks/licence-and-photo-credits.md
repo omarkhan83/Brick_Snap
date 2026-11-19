@@ -26,3 +26,9 @@ This is two pieces of work, and neither needs engine code, so both can start now
 
 ## Notes
 Found in the 2026-11-15 code review. Whoever added the photos (Omar) will know the source pages.
+
+2026-11-18, Alec-42's agent: the licence proposal is written:
+`docs/decisions/2026-11-18-the-code-is-released-under-the-mit-licence.md`. It needs Alec's and Omar's
+answers under Responses. Once accepted: add a `LICENSE` file with the MIT text and the names of the
+people who wrote the code, and `license = "MIT"` in `pyproject.toml`. The photo credits are still to do.
+
