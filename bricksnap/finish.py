@@ -300,6 +300,29 @@ itself, and, in the run that holds swaps to the stage 3 rule, against that rule 
 ``_fell_back`` fail), the input parts are returned with the details only, rather than a worse
 build. Parts the input already had problems with (collisions, out of the grid, unknown, or not
 a brick or plate) are never swapped.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A detail with ``face`` other than "top" lies on a face of the model, pushed onto the side
+stud of the brick that the solver pinned directly behind its column (see
+``bricksnap.buildable.side_stud_pins`` and ``Placement``).
+- Section 1 for such a detail: it is added as ``Placement(part, colour, x, y, z, 0,
+  face=face)`` when the pair exists, the part may face sideways
+  (``Catalog.can_face_sideways``) with rot 0, its column of three cells is inside the grid,
+  empty in the Design and not taken by an earlier detail, and the part covering the cell
+  directly behind the bottom of its column is upright, starts at the same z and has a side
+  stud on that face (``Catalog.side_stud_faces``). The conditions about standing on studs,
+  gripping studs, and the model coming down on top of it do not apply. Otherwise it is
+  skipped with a note, as any detail ("... was not placed: the part behind it has no stud
+  on that side to hold it.").
+- The side-stud brick is never swapped or removed: it is not a brick or plate of the
+  solver's kinds, so the pass leaves it alone like any part it cannot remake (section 4).
+- A sideways detail stands on nothing, so the cell under its column keeps whatever finish it
+  asks for; it holds nothing and is held by its brick alone. The sturdiness measure joins it
+  to that brick, exactly as ``connect.connection_graph`` does.
+- Steps: it comes with the other details, after everything else, so after its brick.
+- A smooth or sloped mark on the top of the side-stud brick cannot be met (the brick is one
+  part three plates tall; a tile on it would stand above the Design's cells): the note says
+  so in its own words and suggests moving the detail one course down.
 """
 
 from __future__ import annotations
@@ -320,8 +343,9 @@ from bricksnap.connect import (
     lone_links,
     lone_links_of_graph,
     occupancy,
+    on_base_z,
 )
-from bricksnap.types import EMPTY, FINISH_SLOPED, FINISH_SMOOTH, Build, Design, Placement
+from bricksnap.types import EMPTY, FACE_OUT, FINISH_SLOPED, FINISH_SMOOTH, Build, Design, Placement
 
 TILE_KIND = "tile"
 SLOPE_PARTS = ("3039", "3040b", "85984", "54200")
@@ -970,6 +994,14 @@ class _State:
         codes = [pos[a[keep]] * n + pos[b[keep]]]
         for k, q in enumerate(details):  # a detail stands on studs and holds nothing
             w, d, _ = cat.footprint(q)
+            if q.face in FACE_OUT:  # held by the side stud of the brick behind it
+                ox, oy = FACE_OUT[q.face]
+                holder = np.asarray([self.occ[q.x - ox, q.y - oy, q.z]], dtype=np.int64)
+                codes.append(pos[holder] * n + n_ids + k)
+                z.append(on_base_z(q))
+                known.append(True)
+                volume.append(float(w * d * cat.parts[q.part].h))
+                continue
             under = self.occ[q.x : q.x + w, q.y : q.y + d, q.z - 1]
             studs = self.stud[q.x : q.x + w, q.y : q.y + d, q.z - 1] & (under >= 0)
             codes.append(pos[under[studs]] * n + n_ids + k)
@@ -997,7 +1029,9 @@ def _place_details(
         part = catalog.parts.get(d.part)
         reason = ""
         p = None
-        if part is None:
+        if part is not None and d.face != "top":
+            p, reason = _sideways_detail(design, catalog, state, taken, d)
+        elif part is None:
             reason = "it is not a part in the parts table"
         elif d.rot % 360 not in ROTATIONS:
             reason = "it can only be turned by 0, 90, 180 or 270 degrees"
@@ -1023,15 +1057,54 @@ def _place_details(
             elif not part.antistuds_bottom:
                 reason = "it has nothing underneath that grips studs, so it would fall off"
         if reason or p is None:
+            face = f" on the {d.face} face" if d.face != "top" else ""
             notes.append(
                 f"Detail part {_part_label(catalog, d.part)} in "
-                f"{_colour_name(catalog, d.color)} at x={d.x}, y={d.y}, z={d.z} was not "
+                f"{_colour_name(catalog, d.color)} at x={d.x}, y={d.y}, z={d.z}{face} was not "
                 f"placed: {reason}."
             )
             continue
         taken[catalog.cells(p)] = True
         placed.append(p)
     return placed, notes
+
+
+def _sideways_detail(
+    design: Design, catalog: Catalog, state: _State, taken: np.ndarray, d
+) -> tuple[Placement | None, str]:
+    """The Placement of a detail lying on a face, or why it cannot go on."""
+    nx_, ny_, nz_ = design.shape
+    if d.face not in FACE_OUT:
+        return None, f'"{d.face}" is not a face (top, front, right, back or left)'
+    if not catalog.can_face_sideways(d.part):
+        return None, "only a detail one stud wide and one plate thick can lie on a face"
+    if d.rot % 360:
+        return None, "a part lying on a face is not turned (its rot must be 0)"
+    if not catalog.exists(d.part, d.color):
+        return None, f"it is not made in {_colour_name(catalog, d.color)}"
+    p = Placement(d.part, int(d.color), int(d.x), int(d.y), int(d.z), 0, face=d.face)
+    sl = catalog.cells(p)
+    ox, oy = FACE_OUT[d.face]
+    bx, by = p.x - ox, p.y - oy
+    if p.x < 0 or p.y < 0 or p.z < 0 or p.x >= nx_ or p.y >= ny_ or p.z + 3 > nz_:
+        return None, "it would stick out of the model's space"
+    if design.filled[sl].any():
+        return None, "the space in front of the face it needs is not empty"
+    if taken[sl].any():
+        return None, "an earlier detail part already takes that space"
+    holder = -1
+    if 0 <= bx < nx_ and 0 <= by < ny_:
+        holder = int(state.occ[bx, by, p.z])
+    if holder < 0:
+        return None, "there is nothing behind it to hold it"
+    q = state.parts[holder]
+    if q.part not in catalog.parts or q.z != p.z or d.face not in catalog.side_stud_faces(q):
+        return None, (
+            "the part behind it has no stud on that side to hold it (a brick with a stud on its "
+            "side goes there only when the three cells behind are filled, in one colour the "
+            "brick 87087 is made in, and z is a multiple of 3)"
+        )
+    return p, ""
 
 
 def _slope_candidates(
@@ -1555,7 +1628,8 @@ def _verify(state: _State, parts: list[Placement], detail_mask: np.ndarray) -> b
     _SMALL,
     _THIN,
     _OTHER,
-) = range(11)
+    _SIDE_BRICK,
+) = range(12)
 _MAX_REASON_NOTES = 6
 _MAX_PLACES = 3
 
@@ -1736,6 +1810,18 @@ def _why_left(
                 hi, lo = int(grid[cells].max()), int(grid[cells].min())
                 add(name, cells, (reason, hi, hi == lo))
 
+    # the top of a brick with a stud on its side, which holds a detail on a face: one part
+    side_ids = [
+        i
+        for i, p in state.parts.items()
+        if catalog.parts.get(p.part) and catalog.parts[p.part].kind == "side_stud"
+    ]
+    side = np.isin(state.occ, side_ids) if side_ids else np.zeros(state.shape, dtype=bool)
+    add("smooth", left_smooth & side, (_SIDE_BRICK,))
+    add("sloped", left_sloped & side, (_SIDE_BRICK,))
+    left_smooth = left_smooth & ~side
+    left_sloped = left_sloped & ~side
+
     # smooth: a refused tile beats "no tile is made in that colour" beats "no tile fits"
     usable = state.usable
     add("smooth", left_smooth & ~usable, (_OTHER,))
@@ -1825,6 +1911,13 @@ def _reason_sentence(key: tuple, cells: list[tuple[int, int, int]], catalog: Cat
         return (
             f"{subject} {keep} because a detail part stands on {them}; that is as it should "
             "be, nothing to change."
+        )
+    if reason == _SIDE_BRICK:
+        return (
+            f"{subject} {keep} because {'it is' if one else 'they are'} the top of a brick "
+            "with a stud on its side (87087) that holds a detail on a face: that brick is one "
+            f"part three plates tall, so no {part[2:]} can take its top. To have {them} "
+            "smooth, move the detail one brick course down."
         )
     if reason == _STUD_ROW:
         return (
@@ -1953,6 +2046,8 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
     under = np.zeros(design.shape, dtype=bool)
     for p in details:
         detail_mask[catalog.cells(p)] = True
+        if p.face != "top":  # it stands on nothing
+            continue
         w, d, _ = catalog.footprint(p)
         under[p.x : p.x + w, p.y : p.y + d, p.z - 1] = True
     above_empty = np.ones(design.shape, dtype=bool)

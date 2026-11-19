@@ -18,6 +18,12 @@
 // slider acts on the designed build. project.json's brief is shown in a panel beside them.
 //
 // Any text that comes from the files goes into the page with textContent, never innerHTML.
+//
+// A part with "face" (front, right, back or left; absent means "top") lies on its side, as
+// bricksnap/ldraw.py places it: it keeps clear the column of three cells at its (x, y, z),
+// its bottom against the back of that column (the face of the brick behind it), its centre on
+// that brick's side stud (5.6 mm above the column's bottom), its top pointing out of the face.
+// It has no stud on top; a round plate's stud points outwards.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -40,6 +46,10 @@ const SKY_HAZE = 0xdcecf8; // close to the page's sky gradient near the horizon
 const FIT_MARGIN = 0.88; // the framed model reaches this far towards the view's edges (NDC)
 const BOX_MARGIN = 0.99; // and the box around it (often empty at its corners) inside the view
 const VIEW_DIR = new THREE.Vector3(0.55, -1, 0.7).normalize(); // from the model to the camera
+// A part lying on a face: the grid direction its top points to (types.FACE_OUT), and how high
+// above the bottom of its column the side stud it sits on is (10 LDU below a brick's top).
+const FACE_OUT = { front: [0, -1], right: [1, 0], back: [0, 1], left: [-1, 0] };
+const SIDE_STUD_MM = 3 * CELL.z - 10 * 0.4;
 
 // low_side in the part's own axes -> (x, z) direction in those axes
 const SIDES = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] };
@@ -588,16 +598,18 @@ function drawBuild(build, view) {
   const parts = raw.map(({ p, index }) => {
     const part = partsById.get(String(p.part)) || UNKNOWN_PART;
     const rot = normRot(p.rot);
-    const [w, d, h] = footprint(part, rot);
+    // lying on a face: it keeps clear a column of three cells (Catalog.footprint)
+    const out = typeof p.face === 'string' && Object.hasOwn(FACE_OUT, p.face) ? FACE_OUT[p.face] : null;
+    const [w, d, h] = out ? [1, 1, 3] : footprint(part, rot);
     const x = Number(p.x) || 0;
     const y = Number(p.y) || 0;
     const z = Number(p.z) || 0;
     const code = Number(p.color);
     let shape = part.shape;
-    const dir = shape.dir ? ownToGrid(shape.dir, rot) : null;
+    const dir = shape.dir && !out ? ownToGrid(shape.dir, rot) : null;
     if (shape.dir && !dir) shape = { key: 'box', type: 'box' }; // a turn the table does not know
     const id = String(p.part);
-    return { index, id, part, rot, w, d, h, x, y, z, code, shape, dir, step: Math.max(0, Number(p.step) || 0) };
+    return { index, id, part, rot, w, d, h, x, y, z, code, shape, dir, out, face: out ? p.face : 'top', step: Math.max(0, Number(p.step) || 0) };
   });
   // Stable sort by step so "parts with step <= N" is always a prefix.
   parts.sort((a, b) => a.step - b.step || a.index - b.index);
@@ -609,7 +621,22 @@ function drawBuild(build, view) {
 
   // The part's unit shape scaled to its cells (less the gap), turned so a wedge runs down
   // towards its low side, and moved into place. ``grow`` mm is added on every side.
+  const outward = new THREE.Vector3();
   const partMatrix = (p, grow = 0) => {
+    if (p.out) {
+      // on its side: its own height (one plate) is its thickness out of the face, from the
+      // back of its column; across, it is one stud wide and centred on the side stud
+      const t = p.part.h * CELL.z;
+      const [ox, oy] = p.out;
+      pos.set(
+        (p.x + 0.5) * CELL.x + ox * (t / 2 - CELL.x / 2),
+        (p.y + 0.5) * CELL.y + oy * (t / 2 - CELL.y / 2),
+        p.z * CELL.z + SIDE_STUD_MM,
+      );
+      q.setFromUnitVectors(Z_AXIS, outward.set(ox, oy, 0));
+      scl.set(CELL.x - GAP + 2 * grow, CELL.y - GAP + 2 * grow, t - GAP_Z + 2 * grow);
+      return m.compose(pos, q, scl);
+    }
     pos.set((p.x + p.w / 2) * CELL.x, (p.y + p.d / 2) * CELL.y, (p.z + p.h / 2) * CELL.z);
     const wx = p.w * CELL.x - GAP + 2 * grow;
     const wy = p.d * CELL.y - GAP + 2 * grow;
@@ -635,7 +662,15 @@ function drawBuild(build, view) {
       groups.set(key, g);
     }
     g.parts.push(p);
-    if (p.rot === 0 || p.rot === 90 || p.rot === 180 || p.rot === 270) {
+    if (p.out) {
+      // a round plate on its side: its one stud points out of the face
+      if (p.part.studs.length) {
+        const [ox, oy] = p.out;
+        const reach = CELL.x / 2 - p.part.h * CELL.z - STUD_H / 2;
+        const sq = new THREE.Quaternion().setFromUnitVectors(Z_AXIS, new THREE.Vector3(ox, oy, 0));
+        g.studs.push({ step: p.step, x: (p.x + 0.5) * CELL.x - ox * reach, y: (p.y + 0.5) * CELL.y - oy * reach, z: p.z * CELL.z + SIDE_STUD_MM, q: sq });
+      }
+    } else if (p.rot === 0 || p.rot === 90 || p.rot === 180 || p.rot === 270) {
       const top = (p.z + p.h) * CELL.z - GAP_Z / 2 + STUD_H / 2;
       for (const [dx, dz] of p.part.studs) {
         const cell = localToCell(p.part, p.rot, dx, dz);
@@ -662,10 +697,11 @@ function drawBuild(build, view) {
     let studSteps = [];
     if (g.studs.length) {
       studs = new THREE.InstancedMesh(studGeo, mat, g.studs.length);
-      q.identity();
       scl.set(1, 1, 1);
       g.studs.forEach((s, i) => {
         pos.set(s.x, s.y, s.z);
+        if (s.q) q.copy(s.q);
+        else q.identity();
         studs.setMatrixAt(i, m.compose(pos, q, scl));
       });
       studs.instanceMatrix.needsUpdate = true;
@@ -923,7 +959,8 @@ function slopeHeights(shape, world, bottom, top) {
 // edge or a point), ``topRim`` and ``bottomRim`` (see faceRim: how round the face is), for
 // wedges ``downhill``: the grid direction [dx, dy] the slanted face runs down, worked out
 // from the drawn faces (compare with Catalog.low_side), and ``edges``: how many line ends
-// its dark edge lines have. Outlines (the current step's highlight) give their box,
+// its dark edge lines have, and ``face``: "top", or the face a part lying on its side points
+// out of. Outlines (the current step's highlight) give their box,
 // ``topRim`` and ``downhill`` in the same way.
 // With {detail: true}, slower measurements are added to each body: ``edgeBox`` (the box its
 // edge lines cover), ``edgeGap`` (the farthest, in mm, any edge line end lies from the drawn
@@ -1039,6 +1076,7 @@ function inspectView(view, detail) {
         part: p.id,
         entry: p.index,
         kind: p.part.kind,
+        face: p.face,
         shape: g.shape.type,
         top: extent(g.shape.top),
         bottom: extent(g.shape.bottom),

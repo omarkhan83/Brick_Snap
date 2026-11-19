@@ -168,6 +168,49 @@ Stage 2 implementation notes
   height, and the "rot" description says which way a slope runs down at each turn (both
   are worked out from the catalogue). The schema cannot say which colours a part is made in;
   ``apply_ops`` rejects a pair that does not exist and lists the colours that do.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+``place_detail`` takes one more optional field, ``"face"``: "top" (the default, everything
+above unchanged), or "front", "right", "back" or "left" (``bricksnap.types.FACES``). With a
+face the part lies flat against that face of the model, its top pointing outwards, pushed
+onto the side stud of a brick (87087) that the solver puts directly behind it:
+
+    {"op": "place_detail", "part": "98138", "color": 0, "at": [3, 0, 9], "face": "front"}
+
+``at`` is then the lowest cell of the column of three empty cells the part keeps clear,
+and the three cells directly behind that column (one cell further in, against
+``FACE_OUT[face]``) are the brick's. Rejected, with a message saying what would work, when:
+- the part may not face sideways (``Catalog.can_face_sideways``: a one-stud, one-plate
+  detail; list the parts that may), or ``rot`` is not 0 (turning a one-stud part about its
+  stud changes nothing);
+- z is not a multiple of 3 (the side-stud brick sits in a brick course; name the two nearest
+  that are);
+- a cell of the column is outside the grid, filled, or taken by another detail;
+- a cell behind the column is outside the grid or empty (say which cells are missing);
+- the side-stud brick is not made in the colour it would take from the cells behind
+  (``catalog.brick_colour``; say which colours it is made in);
+- the column is not open to the outside (a hollow inside the model);
+- the three cells behind are not one colour (name them, and give the paint op that would
+  make them the colour the brick would take);
+- the brick would be held by nothing: no filled cell other than another sideways detail's
+  brick lies directly above or below the run of such bricks it would be in
+  (``buildable.side_brick_held``);
+- another sideways detail is already held by the same brick.
+An upright detail is now also rejected when a cell it covers is not open to the outside.
+The success message names the colour of the brick behind, which shows around the edges of
+a round part.
+A rejection adds, where one exists, the nearest ``"at"`` along that line or at the nearest
+brick course that would work. Applied: appended to ``design.details`` with its ``face``.
+
+- "mirror": true on a sideways detail places its mirror image across x = nx / 2 with the
+  face mirrored: front and back stay, left and right swap; the same "only one when they
+  overlap" and "both or neither" rules hold.
+- Dangling: after ``add``, a sideways detail goes when a cell of its column is now filled;
+  after ``remove``, when a cell behind its column is now empty.
+- ``remove_detail`` finds a sideways detail by any cell of its column. Messages name a
+  sideways detail with its face ("... at x=3, y=0, z=9, on the front face").
+- ``OP_SCHEMA`` gains the "face" property of place_detail, with its rule in a short
+  description; unknown-field messages list the optional fields "rot", "face" and "mirror".
 """
 
 from __future__ import annotations
@@ -183,8 +226,18 @@ from typing import Any
 
 import numpy as np
 
-from bricksnap.catalog import Catalog, Part, load_catalog
-from bricksnap.types import EMPTY, FINISH_NAMES, FINISH_STUDS, Design, Detail, Placement
+from bricksnap.buildable import outside_air, side_brick_held
+from bricksnap.catalog import Catalog, Part, brick_colour, load_catalog
+from bricksnap.types import (
+    EMPTY,
+    FACE_OUT,
+    FACES,
+    FINISH_NAMES,
+    FINISH_STUDS,
+    Design,
+    Detail,
+    Placement,
+)
 
 OPS = ("add", "remove", "paint", "set_finish", "place_detail", "remove_detail")
 SHAPE_OPS = ("add", "remove", "paint", "set_finish")
@@ -200,10 +253,10 @@ _OP_FIELDS = {
     "remove": ("op", "shape", "mirror"),
     "paint": ("op", "shape", "color", "mirror"),
     "set_finish": ("op", "shape", "finish", "mirror"),
-    "place_detail": ("op", "part", "color", "at", "rot", "mirror"),
+    "place_detail": ("op", "part", "color", "at", "rot", "face", "mirror"),
     "remove_detail": ("op", "at", "mirror"),
 }
-_OPTIONAL_FIELDS = ("rot", "mirror")
+_OPTIONAL_FIELDS = ("rot", "face", "mirror")
 _SHAPE_FIELDS = {
     "box": ("type", "min", "max"),
     "ellipsoid": ("type", "center", "radius"),
@@ -224,7 +277,22 @@ _FIELD_SYNONYMS = {
     "part_id": "part",
     "id": "part",
     "detail": "part",
+    "side": "face",
+    "facing": "face",
+    "direction": "face",
+    "orientation": "face",
 }
+_FACE_SYNONYMS = {
+    "up": "top",
+    "upright": "top",
+    "forward": "front",
+    "-y": "front",
+    "+y": "back",
+    "+x": "right",
+    "-x": "left",
+    "rear": "back",
+}
+_FACE_MIRROR = {"top": "top", "front": "front", "back": "back", "left": "right", "right": "left"}
 _FINISH_SYNONYMS = {
     "tile": "smooth",
     "tiles": "smooth",
@@ -374,6 +442,18 @@ def _build_schema() -> dict[str, Any]:
         "enum": list(ROTATIONS),
         "description": "Quarter turns in degrees; 0 if left out." + turns,
     }
+    sideways = ", ".join(p.id for p in catalog.sideways_parts())
+    face = {
+        "type": "string",
+        "enum": list(FACES),
+        "description": (
+            '"top" if left out: the part stands on studs. "front", "right", "back" or "left": '
+            "it lies flat against that face of the model, held by a side stud (one-stud, "
+            f'one-plate parts only: {sideways}; rot 0). Then "at" is the lowest of the '
+            "three empty cells in front of the face, z is a multiple of 3, and the three "
+            "cells behind them must be filled."
+        ),
+    }
     finish = {
         "type": "string",
         "enum": list(FINISH_NAMES),
@@ -415,7 +495,7 @@ def _build_schema() -> dict[str, Any]:
                 "place_detail",
                 "Stand a small part in empty cells directly on top of filled cells. The part "
                 "must be made in the colour.",
-                {"part": part, "color": same_color, "at": at, "rot": rot},
+                {"part": part, "color": same_color, "at": at, "rot": rot, "face": face},
             ),
             operation(
                 "remove_detail",
@@ -618,7 +698,8 @@ def _check_fields(obj: dict, allowed: tuple[str, ...], what: str) -> None:
         optional = [f for f in allowed if f in _OPTIONAL_FIELDS]
         takes = ", ".join(f'"{f}"' for f in needed)
         if optional:
-            maybe = " and ".join(f'"{f}"' for f in optional)
+            words = [f'"{f}"' for f in optional]
+            maybe = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
             ending = f"It takes these fields: {takes}, and optionally {maybe}."
         else:
             ending = f"It takes exactly these fields: {takes}."
@@ -848,6 +929,25 @@ def _parse_rot(op: dict) -> int:
     )
 
 
+def _parse_face(op: dict) -> str:
+    if "face" not in op:
+        return "top"
+    value = op["face"]
+    if isinstance(value, str) and value in FACES:
+        return value
+    hint = ""
+    if isinstance(value, str):
+        hint = _hint(value, FACES)
+        synonym = _FACE_SYNONYMS.get(value.strip().lower())
+        if synonym:
+            hint = f' Did you mean "{synonym}"?'
+    raise _OpError(
+        f'"face" must be "top" (the default: standing on studs), or "front", "right", "back" '
+        f'or "left" (lying flat against that face of the model), but it is {_show(value)}.'
+        f"{hint}"
+    )
+
+
 def _parse_mirror(op: dict) -> bool:
     value = op.get("mirror", False)
     if not isinstance(value, bool):
@@ -871,6 +971,7 @@ class _Parsed:
     part: str | None = None
     at: tuple[int, int, int] | None = None
     rot: int = 0
+    face: str = "top"
 
 
 _REMOVE_VERBS = ("delete", "erase", "clear", "unplace", "remov")
@@ -921,6 +1022,21 @@ def _parse_op(op: Any, catalog: Catalog) -> _Parsed:
             )
         parsed.at = _parse_at(op, name)
         parsed.rot = _parse_rot(op)
+        parsed.face = _parse_face(op)
+        if parsed.face != "top":
+            if not catalog.can_face_sideways(parsed.part):
+                able = "; ".join(f"{q.id} {q.name}" for q in catalog.sideways_parts())
+                raise _OpError(
+                    f"{part.name} ({part.id}) cannot lie on a face: only a detail one stud wide "
+                    f"and one plate thick can, held by a side stud. Those are: {able}. Use one "
+                    f'of them, or leave out "face" to stand this part on top.'
+                )
+            if parsed.rot != 0:
+                raise _OpError(
+                    f'A part on a face takes "rot": 0 (or no "rot"): it is one stud wide, so '
+                    f'turning it about its stud changes nothing. Leave out "rot" for the '
+                    f"{part.name} ({part.id}) on the {parsed.face} face."
+                )
     else:
         parsed.at = _parse_at(op, name)
     parsed.mirror = _parse_mirror(op)
@@ -1127,7 +1243,7 @@ def _box_text(cells: tuple[slice, slice, slice]) -> str:
 
 
 def _as_placement(d: Detail) -> Placement:
-    return Placement(d.part, d.color, d.x, d.y, d.z, d.rot)
+    return Placement(d.part, d.color, d.x, d.y, d.z, d.rot, face=d.face)
 
 
 def _detail_name(catalog: Catalog, part_id: str, color: int) -> str:
@@ -1138,7 +1254,14 @@ def _detail_name(catalog: Catalog, part_id: str, color: int) -> str:
 
 
 def _detail_where(catalog: Catalog, p: Placement) -> str:
-    return f"the {_detail_name(catalog, p.part, p.color)} at {_at(p.x, p.y, p.z)}"
+    face = f", on the {p.face} face" if p.face != "top" else ""
+    return f"the {_detail_name(catalog, p.part, p.color)} at {_at(p.x, p.y, p.z)}{face}"
+
+
+def _behind(p: Placement) -> tuple[int, int, slice]:
+    """The cells behind a sideways detail's column: the side-stud brick's (x, y, z span)."""
+    ox, oy = FACE_OUT[p.face]
+    return p.x - ox, p.y - oy, slice(p.z, p.z + 3)
 
 
 def _clip_slices(cells: tuple[slice, slice, slice], grid: tuple[int, int, int]) -> tuple:
@@ -1157,6 +1280,7 @@ def _drop_details(design: Design, catalog: Catalog, changed: np.ndarray, *, adde
     grid = design.shape
     kept: list[Detail] = []
     gone: list[str] = []
+    sideways = False
     for d in design.details:
         cells = _covers(catalog, _as_placement(d))
         hit = False
@@ -1164,20 +1288,29 @@ def _drop_details(design: Design, catalog: Catalog, changed: np.ndarray, *, adde
             xs, ys, zs = cells
             if added:
                 hit = bool(changed[_clip_slices(cells, grid)].any())
+            elif d.face in FACE_OUT:
+                bx, by, bz = _behind(_as_placement(d))
+                if 0 <= bx < grid[0] and 0 <= by < grid[1]:
+                    hit = bool(changed[bx, by, max(bz.start, 0) : min(bz.stop, grid[2])].any())
             elif 0 < zs.start <= grid[2]:
                 xs, ys, _ = _clip_slices(cells, grid)
                 hit = bool(changed[xs, ys, zs.start - 1].any())
         if hit:
             gone.append(_detail_where(catalog, _as_placement(d)))
+            sideways = sideways or d.face != "top"
         else:
             kept.append(d)
     if not gone:
         return ""
     design.details[:] = kept
     reason = "a cell it stood in is now filled" if added else "a cell it stood on is now empty"
+    if sideways and not added:
+        reason = "a cell it stood on, or a cell of the brick behind it, is now empty"
     if len(gone) == 1:
         return f" This also removed {gone[0]}, because {reason}."
     reason = "cells they stood in are now filled" if added else "cells they stood on are now empty"
+    if sideways and not added:
+        reason = "cells they stood on, or cells of the bricks behind them, are now empty"
     return f" This also removed {len(gone)} details, because {reason}: {'; '.join(gone)}."
 
 
@@ -1339,6 +1472,11 @@ def _detail_problem(design: Design, catalog: Catalog, p: Placement) -> str | Non
             "filled. A detail stands in empty cells on top of the model: its z is the level "
             "directly above the filled cells it stands on."
         )
+    if not outside_air(design.filled)[cells].all():
+        return (
+            f"it would cover {_box_text(cells)}, which is inside the model, in a space closed "
+            "off from the outside, where nobody could put it or see it."
+        )
     for other in design.details:
         theirs = _covers(catalog, _as_placement(other))
         if theirs is None:
@@ -1437,8 +1575,211 @@ def _slope_note(catalog: Catalog, p: Placement, it: str = "Its") -> str:
     return f" {it} slanted face runs down towards {_direction_word(down)}."
 
 
+def _sideways_problem(
+    design: Design,
+    catalog: Catalog,
+    p: Placement,
+    ignore: Placement | None = None,
+    outside: np.ndarray | None = None,
+) -> str | None:
+    """Why the sideways detail ``p`` cannot go where it is, or None if it can. ``ignore`` is
+    a detail placed with it (its mirror image), counted as already there. ``outside`` is
+    ``buildable.outside_air`` of the design, when the caller has it already."""
+    grid = design.shape
+    cells = catalog.cells(p)
+    xs, ys, zs = cells
+    for axis, s, n in zip(_AXES, cells, grid, strict=True):
+        bad = s.start if s.start < 0 else (s.stop - 1 if s.stop > n else None)
+        if bad is not None:
+            return (
+                f"it keeps clear the column {_box_text(cells)}, and {axis}={_int_text(bad)} is "
+                f"outside the grid. Valid cells are {_ranges(grid)}."
+            )
+    if p.z % 3:
+        lo, hi = p.z - p.z % 3, p.z - p.z % 3 + 3
+        nearest = f"z={lo} or z={hi}" if hi + 3 <= grid[2] else f"z={lo}"
+        return (
+            f"z={p.z} is not the bottom of a brick course. A part on a face is held by the "
+            "side stud of a brick, and bricks sit in courses of three plates, so z must be a "
+            f"multiple of 3: use {nearest}."
+        )
+    filled = np.argwhere(design.colors[cells] != EMPTY)
+    if len(filled):
+        dz = int(filled[0][2])
+        return (
+            f"it keeps clear the column {_box_text(cells)} in front of the {p.face} face, and "
+            f"{_at(p.x, p.y, p.z + dz)} is filled. A part on a face needs those three cells "
+            "empty, with the model directly behind them."
+        )
+    if outside is None:
+        outside = outside_air(design.filled)
+    if not outside[cells].all():
+        return (
+            f"the column {_box_text(cells)} it keeps clear is inside the model, in a space "
+            "closed off from the outside, where nobody could put it or see it."
+        )
+    others = [d for d in design.details] + ([] if ignore is None else [_detail_of(ignore)])
+    for other in others:
+        theirs = _covers(catalog, _as_placement(other))
+        if theirs is None:
+            continue
+        lo = [max(a.start, b.start) for a, b in zip(cells, theirs, strict=True)]
+        hi = [min(a.stop, b.stop) for a, b in zip(cells, theirs, strict=True)]
+        if all(a < b for a, b in zip(lo, hi, strict=True)):
+            return (
+                f"{_at(*lo)} is already taken by {_detail_where(catalog, _as_placement(other))}. "
+                "Remove that one first with "
+                f'{{"op": "remove_detail", "at": [{other.x}, {other.y}, {other.z}]}}, or choose '
+                "another place."
+            )
+    bx, by, bz = _behind(p)
+    behind = f"x={bx}, y={by}, z={_span(bz.start, bz.stop - 1)}"
+    if not (0 <= bx < grid[0] and 0 <= by < grid[1]):
+        return (
+            f"the cells behind it ({behind}), where the brick that holds it must go, are "
+            f"outside the grid. Valid cells are {_ranges(grid)}."
+        )
+    column = design.colors[bx, by, bz]
+    missing = [bz.start + k for k in range(3) if column[k] == EMPTY]
+    if missing:
+        which = ", ".join(f"z={z}" for z in missing)
+        return (
+            f"the three cells behind it ({behind}) must all be filled, because a brick with a "
+            f"stud on its side goes there to hold it, but {which} "
+            f"{'is' if len(missing) == 1 else 'are'} empty."
+        )
+    paint_op = (
+        f'{{"op": "paint", "shape": {{"type": "box", "min": [{bx}, {by}, {bz.start}], '
+        f'"max": [{bx}, {by}, {bz.stop - 1}]}}, "color": {{}}}}'
+    )
+    colour = brick_colour(int(c) for c in column)
+    if len(set(int(c) for c in column)) > 1:
+        names = ", ".join(
+            f"z={bz.start + k} {_colour_name(catalog, int(c))}" for k, c in enumerate(column)
+        )
+        fix = (
+            f"; for example {paint_op.replace('{}', str(colour))}"
+            if catalog.side_stud_exists(colour)
+            else ""
+        )
+        return (
+            f"the three cells behind it ({behind}) are not one colour ({names}), and the brick "
+            "with a stud on its side that holds it is one part, so one colour. Paint them one "
+            f"colour first{fix}."
+        )
+    bricks = {
+        (ox, oy, oz.start)
+        for other in others
+        if other.face in FACE_OUT and other.part in catalog.parts
+        for ox, oy, oz in [_behind(_as_placement(other))]
+    }
+    if (bx, by, bz.start) not in bricks and not side_brick_held(
+        design.colors, bricks, (bx, by, bz.start)
+    ):
+        return (
+            f"the brick that would hold it ({behind}) would have nothing directly above or "
+            "below it but other bricks holding parts on faces, and a brick is held only "
+            "through the parts on and under it, so it would come loose. Choose a place where "
+            "the model goes on above or below that brick."
+        )
+    if not catalog.side_stud_exists(colour):
+        brick = catalog.parts.get("87087")
+        made = _made_in(catalog, brick) if brick is not None else "no colour"
+        return (
+            f"the brick with a stud on its side (87087) that would hold it takes the colour of "
+            f"the cells behind it ({behind}), {_colour_name(catalog, colour)}, and it is not "
+            f"made in that colour. It is made in: {made}. Paint those three cells one of "
+            "those colours first."
+        )
+    for other in others:
+        if other.face in FACE_OUT and other.part in catalog.parts:
+            ox, oy, oz = _behind(_as_placement(other))
+            if (ox, oy, oz.start) == (bx, by, bz.start):
+                return (
+                    f"the brick behind it ({behind}) already holds "
+                    f"{_detail_where(catalog, _as_placement(other))}, and one brick holds one "
+                    "part on its side. Choose another brick."
+                )
+    return None
+
+
+def _detail_of(p: Placement) -> Detail:
+    return Detail(p.part, p.color, p.x, p.y, p.z, p.rot, p.face)
+
+
+def _sideways_suggestion(design: Design, catalog: Catalog, p: Placement) -> str:
+    """The nearest "at" that would work for the sideways detail ``p``: along the line through
+    it in the face's direction, at its own brick course or the nearest ones."""
+    grid = design.shape
+    ox, oy = FACE_OUT[p.face]
+    base = p.z - p.z % 3
+    zs = [z for z in range(base - 6, base + 10, 3) if 0 <= z <= grid[2] - 3]
+    outside = outside_air(design.filled)
+    tries = []
+    for z in zs:
+        for k in range(-max(grid[:2]), max(grid[:2]) + 1):
+            tries.append((abs(z - p.z), abs(k), -k, z, p.x + k * ox, p.y + k * oy))
+    for _, _, _, z, x, y in sorted(tries):
+        if (x, y, z) == (p.x, p.y, p.z) or not (0 <= x < grid[0] and 0 <= y < grid[1]):
+            continue
+        q = Placement(p.part, p.color, x, y, z, 0, face=p.face)
+        if _sideways_problem(design, catalog, q, outside=outside) is None:
+            return f' "at": [{x}, {y}, {z}] with "face": "{p.face}" would fit.'
+    return ""
+
+
+def _place_sideways(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool, int, str]:
+    assert p.part is not None and p.color is not None and p.at is not None
+    x, y, z = p.at
+    first = Placement(p.part, p.color, x, y, z, 0, face=p.face)
+    name = _detail_name(catalog, p.part, p.color)
+    where = f"The {name} at {_at(x, y, z)} on the {p.face} face"
+    problem = _sideways_problem(design, catalog, first)
+    if problem is not None:
+        hint = _sideways_suggestion(design, catalog, first)
+        raise _OpError(f"{where} cannot go there: {problem}{hint}")
+    placed = [first]
+    note = ""
+    if p.mirror:
+        nx = design.shape[0]
+        twin = Placement(p.part, p.color, nx - 1 - x, y, z, 0, face=_FACE_MIRROR[p.face])
+        if catalog.cells(twin) == catalog.cells(first):
+            note = (
+                " It lies on the left-right middle, so its mirror image would take the same "
+                "cells; only one was placed."
+            )
+        else:
+            problem = _sideways_problem(design, catalog, twin, ignore=first)
+            if problem is not None:
+                raise _OpError(
+                    f"{where} would fit, but its mirror image at "
+                    f"{_at(twin.x, twin.y, twin.z)} on the {twin.face} face cannot go there: "
+                    f"{problem} Nothing was placed. Choose a place whose mirror image is free "
+                    'too, or leave out "mirror" to place just one.'
+                )
+            placed.append(twin)
+            note = (
+                f" Also placed its mirror image at {_at(twin.x, twin.y, twin.z)} on the "
+                f"{twin.face} face."
+            )
+    for q in placed:
+        design.details.append(_detail_of(q))
+    bx, by, bz = _behind(first)
+    brick = _colour_name(catalog, int(design.colors[bx, by, bz.start]))
+    message = (
+        f"Placed a {name} at {_at(x, y, z)} on the {p.face} face, keeping clear "
+        f"{_box_text(catalog.cells(first))}; a {brick} brick with a stud on its side will hold "
+        f"it from x={bx}, y={by}, z={_span(bz.start, bz.stop - 1)} (the colour of the cells "
+        f"there), showing around the part's edges.{note} The design now has "
+        f"{_plural(len(design.details), 'detail part')}."
+    )
+    return True, 0, message
+
+
 def _place_detail(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool, int, str]:
     assert p.part is not None and p.color is not None and p.at is not None
+    if p.face != "top":
+        return _place_sideways(design, p, catalog)
     x, y, z = p.at
     first = Placement(p.part, p.color, x, y, z, p.rot)
     name = _detail_name(catalog, p.part, p.color)

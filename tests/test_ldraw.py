@@ -578,3 +578,49 @@ def test_every_catalogue_part_writes(catalog):
     parsed = _parse(text)
     assert len(parsed) == len(parts)
     assert {f for *_, f in parsed} == {p.ldraw_file for p in catalog.parts.values()}
+
+
+# ---- stage 4: sideways parts ----------------------------------------------------------------
+
+
+def _apply(position, matrix, point):
+    a, b, c, d, e, f, g, h, i = matrix
+    x, y, z = point
+    return (
+        position[0] + a * x + b * y + c * z,
+        position[1] + d * x + e * y + f * z,
+        position[2] + g * x + h * y + i * z,
+    )
+
+
+@pytest.mark.parametrize("face", ["front", "right", "back", "left"])
+def test_a_sideways_tile_lies_on_the_side_stud_of_its_brick(face):
+    from bricksnap.catalog import load_catalog
+    from bricksnap.types import FACE_OUT
+
+    cat = load_catalog()
+    ox, oy = FACE_OUT[face]
+    x, y, z = 5, 5, 6
+    tile = Placement("98138", 0, x, y, z, face=face)
+    brick = cat.side_stud_brick(face, 0, x - ox, y - oy, z)
+    tp, tm = placement_to_ldraw(tile, cat)
+    bp, bm = placement_to_ldraw(brick, cat)
+    # the tile's top points out of the face (its own -Y)
+    up = _apply((0, 0, 0), tm, (0, -1, 0))
+    assert up == (ox, 0, oy)
+    # 87087's stud is on its own -Z face, 10 LDU below its top: turned, it is the tile's
+    # bottom centre
+    stud = _apply(bp, bm, (0, 10, -10))
+    bottom = _apply(tp, tm, (0, 8, 0))
+    assert stud == pytest.approx(bottom)
+    # the tile's body stays inside its column, against the brick, its top level with the
+    # brick's top and 4 LDU above its bottom
+    corners = [
+        _apply(tp, tm, (cx, cy, cz)) for cx in (-10, 10) for cy in (0, 8) for cz in (-10, 10)
+    ]
+    xs, ys, zs = zip(*corners, strict=True)
+    assert min(xs) >= 20 * x and max(xs) <= 20 * (x + 1)
+    assert min(zs) >= 20 * y and max(zs) <= 20 * (y + 1)
+    assert (min(ys), max(ys)) == (-8 * (z + 3), -8 * z - 4)
+    if face == "front":
+        assert tp == (110, -62, 112) and tm == (1, 0, 0, 0, 0, -1, 0, 1, 0)

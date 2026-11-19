@@ -1264,3 +1264,117 @@ def test_weak_spots_not_reached_say_whether_anything_could_be_tried(catalog):
     (neck,) = [n for n in left if "x=3, y=19" in n]
     assert "ran out" not in neck and "that thin" in neck
     assert any("ran out of attempts" in n and "x=3, y=19" not in n for n in left), left
+
+
+# ---- stage 4: sideways details ----------------------------------------------------------
+
+
+def _head(behind=(71, 71, 71)) -> Design:
+    """A grey block 6 x 4 x 9 at x 1..6, y 1..4 with a round-tile eye lying on its front face
+    at x=2, z=3; the three cells behind the eye's column get ``behind``."""
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :9] = 71
+    colors[2, 1, 3:6] = behind
+    return Design(colors=colors, details=[Detail("98138", 0, 2, 0, 3, 0, "front")])
+
+
+def test_the_cells_behind_a_sideways_detail_become_one_colour_and_hold_its_brick(catalog):
+    design = _head(behind=(71, 4, 71))  # one red cell in the middle
+    before = design.fingerprint()
+    result = make_buildable(design, catalog)
+    assert design.fingerprint() == before  # the input is never changed
+    assert (result.design.colors[2, 1, 3:6] == 71).all()
+    assert result.recoloured[2, 1, 4] and int(result.recoloured.sum()) == 1
+    assert not result.added.any()
+    assert any("Painted 1 cell at x=2, y=1, z=4" in n for n in result.notes)
+    bricks = [p for p in result.build.parts if p.part == "87087"]
+    assert [(p.x, p.y, p.z, p.color, p.rot) for p in bricks] == [(2, 1, 3, 71, 0)]
+    assert result.pieces_after == 1
+
+
+def test_a_sideways_detail_that_needs_nothing_changes_nothing_but_gets_its_brick(catalog):
+    design = _head()
+    result = make_buildable(design, catalog)
+    assert result.design.fingerprint() == design.fingerprint()
+    assert not result.recoloured.any() and not result.added.any() and result.notes == []
+    assert [p.part for p in result.build.parts].count("87087") == 1
+
+
+def test_a_sideways_detail_whose_brick_cannot_be_made_gets_no_pin(catalog):
+    from bricksnap.buildable import side_stud_pins
+
+    assert len(side_stud_pins(_head(), catalog)) == 1
+    assert side_stud_pins(_head(behind=(31, 31, 31)), catalog) == ()  # 87087 not in Lavender
+    d = _head()
+    d.details[0] = Detail("98138", 0, 2, 0, 4, 0, "front")  # not in a course
+    assert side_stud_pins(d, catalog) == ()
+
+
+WHISKER_EYES = [
+    # the cat at 12 studs: its whiskers hold only through the cells behind these eyes
+    {
+        "op": "paint",
+        "shape": {"type": "box", "min": [3, 4, 12], "max": [3, 4, 14]},
+        "color": 71,
+        "mirror": True,
+    },
+    {
+        "op": "place_detail",
+        "part": "98138",
+        "color": 0,
+        "at": [3, 3, 12],
+        "face": "front",
+        "mirror": True,
+    },
+]
+
+
+def test_a_sideways_detail_that_would_loosen_the_model_is_left_off_with_a_note(catalog):
+    from bricksnap.design import apply_ops
+    from bricksnap.seed import load_seed
+    from bricksnap.voxelize import voxelize
+
+    base = voxelize(load_seed("samples/models/cat.glb", studs=12), catalog)
+    assert make_buildable(base, catalog).pieces_after == 1
+    design = base.copy()
+    assert all(r.applied for r in apply_ops(design, WHISKER_EYES, catalog))
+    result = make_buildable(design, catalog)
+    assert result.pieces_after == 1
+    assert len(design.details) == 2 and result.design.details == []  # kept, but not built
+    left = [n for n in result.notes if n.startswith("Left off")]
+    assert len(left) == 2
+    assert "x=3, y=3, z=12 on the front face" in left[0] and "stays in the design" in left[0]
+    assert "Move it one stud" in left[0]
+    assert not [p for p in result.build.parts if p.part == "87087"]
+
+
+def test_a_brick_held_only_by_other_side_stud_bricks_is_left_off(catalog):
+    from bricksnap.design import apply_ops
+
+    colors = np.full((8, 6, 9), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :4] = 71  # a slab one course and a plate thick
+    design = Design(colors=colors)
+    ok = apply_ops(
+        design,
+        [{"op": "place_detail", "part": "98138", "color": 0, "at": [2, 0, 0], "face": "front"}],
+        catalog,
+    )
+    assert ok[0].applied
+    # a later edit takes away the cell above its brick: the brick would be held by nothing
+    apply_ops(
+        design,
+        [{"op": "remove", "shape": {"type": "box", "min": [2, 1, 3], "max": [2, 1, 3]}}],
+        catalog,
+    )
+    assert len(design.details) == 1
+    result = make_buildable(design, catalog)
+    assert result.pieces_after == 1 and result.design.details == []
+    (note,) = [n for n in result.notes if n.startswith("Left off")]
+    assert "nothing above or below it" in note
+
+
+def test_the_column_of_a_sideways_detail_is_never_filled(catalog):
+    from bricksnap.buildable import _detail_cells
+
+    blocked = _detail_cells(_head(), catalog)
+    assert blocked[2, 0, 3:6].all() and int(blocked.sum()) == 3

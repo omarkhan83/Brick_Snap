@@ -1690,7 +1690,7 @@ def test_place_detail_needs_at(catalog):
 def test_place_detail_unexpected_fields(catalog):
     msg = rejected_fully(table(), {**detail(), "rotation": 90}, catalog)
     assert 'Did you mean "rot"?' in msg
-    assert '"op", "part", "color", "at", and optionally "rot" and "mirror"' in msg
+    assert '"op", "part", "color", "at", and optionally "rot", "face" and "mirror"' in msg
     msg = rejected_fully(table(), {**detail(), "position": [1, 0, 3]}, catalog)
     assert 'Did you mean "at"?' in msg
     msg = rejected_fully(table(), {**detail(), "shape": B((0, 0, 0), (1, 1, 1))}, catalog)
@@ -2292,3 +2292,177 @@ def test_stage2_messages_have_no_tracebacks_and_use_plain_coordinates(catalog):
     for msg in _stage2_messages(catalog):
         assert "Traceback" not in msg and "Error" not in msg
         assert "(1, 0, 3)" not in msg  # coordinates are written x=…, y=…, z=…
+
+
+# ---- stage 4: details on a face (sideways) --------------------------------------------------
+
+
+def wall() -> Design:
+    """An 8 x 6 x 12 grid: a grey block at x 1..6, y 1..4, z 0..5 (two brick courses), so its
+    front face is at y = 1 and the column in front of it at y = 0; mirror x -> 7 - x."""
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :6] = GREY
+    return Design(colors=colors)
+
+
+def side(at=(2, 0, 3), face="front", part="98138", **extra) -> dict[str, Any]:
+    return detail(part=part, at=at, face=face, **extra)
+
+
+def test_a_detail_can_lie_on_a_face(catalog):
+    d = wall()
+    r = one(d, side(), catalog)
+    assert r.applied, r.message
+    assert d.details == [Detail("98138", 0, 2, 0, 3, 0, "front")]
+    assert "on the front face" in r.message and "x=2, y=1, z=3..5" in r.message
+    assert d.log == [side()]
+    assert replay(wall(), d.log, catalog).details == d.details
+
+
+def test_a_detail_on_each_face_and_its_column(catalog):
+    for at, face in (
+        ((2, 0, 3), "front"),
+        ((7, 2, 0), "right"),
+        ((3, 5, 0), "back"),
+        ((0, 2, 3), "left"),
+    ):
+        d = wall()
+        r = one(d, side(at=at, face=face), catalog)
+        assert r.applied, (face, r.message)
+        p = Placement("98138", 0, *at, face=face)
+        assert catalog.footprint(p) == (1, 1, 3)
+
+
+def test_a_sideways_detail_must_sit_in_a_brick_course(catalog):
+    msg = rejected_fully(wall(), side(at=(2, 0, 4)), catalog)
+    assert "multiple of 3" in msg and "z=3 or z=6" in msg
+    assert '"at": [2, 0, 3] with "face": "front" would fit' in msg
+
+
+def test_a_sideways_detail_needs_its_column_empty(catalog):
+    msg = rejected_fully(wall(), side(at=(2, 1, 3)), catalog)
+    assert "x=2, y=1, z=3 is filled" in msg
+    assert '"at": [2, 0, 3]' in msg
+
+
+def test_a_sideways_detail_needs_the_cells_behind_it_filled(catalog):
+    msg = rejected_fully(wall(), side(at=(2, 0, 6)), catalog)
+    assert "x=2, y=1, z=6..8" in msg and "z=6, z=7, z=8 are empty" in msg
+    assert '"at": [2, 0, 3]' in msg  # the nearest course that works
+
+
+def test_a_sideways_detail_needs_a_side_stud_brick_in_that_colour(catalog):
+    d = wall()
+    d.colors[2, 1, 3:6] = 31  # Lavender: 87087 is not made in it
+    msg = rejected_fully(d, side(), catalog)
+    assert "87087" in msg and "not made in that colour" in msg and "Paint those three cells" in msg
+
+
+def test_the_cells_behind_a_sideways_detail_must_be_one_colour(catalog):
+    d = wall()
+    d.colors[2, 1, 4] = 4  # red between grey: the brick would be two colours
+    msg = rejected_fully(d, side(), catalog)
+    assert (
+        "not one colour (z=3 Light Bluish Grey (71), z=4 Red (4), z=5 Light Bluish Grey (71))"
+        in msg
+    )
+    fix = (
+        '{"op": "paint", "shape": {"type": "box", "min": [2, 1, 3], "max": [2, 1, 5]}, "color": 71}'
+    )
+    assert fix in msg
+    assert one(d, json.loads(fix), catalog).applied
+    r = one(d, side(), catalog)
+    assert r.applied and "a Light Bluish Grey (71) brick with a stud on its side" in r.message
+
+
+def test_only_one_stud_one_plate_details_may_face_sideways(catalog):
+    msg = rejected_fully(wall(), side(part="59900"), catalog)
+    assert "cannot lie on a face" in msg
+    for pid in ("98138", "3070b", "6141"):
+        assert pid in msg
+    assert "60897" not in msg
+
+
+def test_a_sideways_detail_takes_no_turn(catalog):
+    msg = rejected_fully(wall(), side(rot=90), catalog)
+    assert '"rot": 0' in msg
+
+
+def test_an_unknown_face_is_explained(catalog):
+    msg = rejected_fully(wall(), side(face="forward"), catalog)
+    assert '"face" must be' in msg and 'Did you mean "front"?' in msg
+    assert validate_op(side(face="left"), catalog) is None
+
+
+def test_one_brick_holds_one_sideways_detail(catalog):
+    d = wall()
+    assert one(d, side(at=(1, 0, 3)), catalog).applied
+    msg = rejected_fully(d, side(at=(0, 1, 3), face="left"), catalog)
+    assert "already holds" in msg
+
+
+def test_a_mirrored_sideways_detail_swaps_left_and_right(catalog):
+    d = wall()
+    r = one(d, side(mirror=True), catalog)
+    assert r.applied, r.message
+    assert [(x.x, x.face) for x in d.details] == [(2, "front"), (5, "front")]
+    d = wall()
+    r = one(d, side(at=(0, 2, 3), face="left", mirror=True), catalog)
+    assert r.applied, r.message
+    assert [(x.x, x.face) for x in d.details] == [(0, "left"), (7, "right")]
+
+
+def test_a_sideways_detail_goes_when_its_column_fills_or_its_brick_empties(catalog):
+    d = wall()
+    one(d, side(), catalog)
+    r = one(
+        d,
+        {"op": "add", "shape": {"type": "box", "min": [2, 0, 5], "max": [2, 0, 5]}, "color": GREY},
+        catalog,
+    )
+    assert r.applied and d.details == [] and "is now filled" in r.message
+    d = wall()
+    one(d, side(), catalog)
+    r = one(
+        d, {"op": "remove", "shape": {"type": "box", "min": [2, 1, 5], "max": [2, 1, 5]}}, catalog
+    )
+    assert r.applied and d.details == [] and "brick behind it" in r.message
+    d = wall()
+    one(d, side(), catalog)
+    one(
+        d, {"op": "remove", "shape": {"type": "box", "min": [4, 1, 5], "max": [4, 1, 5]}}, catalog
+    )  # elsewhere
+    assert len(d.details) == 1
+
+
+def test_remove_detail_finds_a_sideways_detail_by_any_cell_of_its_column(catalog):
+    d = wall()
+    one(d, side(), catalog)
+    r = one(d, undetail((2, 0, 5)), catalog)
+    assert r.applied and d.details == [] and "on the front face" in r.message
+
+
+def test_the_schema_offers_the_face(catalog):
+    place = next(s for s in OP_SCHEMA["anyOf"] if s["properties"]["op"]["const"] == "place_detail")
+    assert place["properties"]["face"]["enum"] == ["top", "front", "right", "back", "left"]
+    assert "face" not in place["required"]
+
+
+def test_the_brick_behind_a_sideways_detail_needs_the_model_above_or_below_it(catalog):
+    d = wall()
+    d.colors[:, :, 3:] = EMPTY  # one course: a brick there would be held by nothing
+    msg = rejected_fully(d, side(at=(2, 0, 0)), catalog)
+    assert "nothing directly above or below" in msg
+
+
+def test_a_sideways_detail_and_an_upright_one_never_share_a_cell(catalog):
+    d = wall()
+    d.colors[1:7, 0, :3] = GREY  # a ledge in front of the bottom course
+    assert one(d, detail(at=(2, 0, 3)), catalog).applied  # upright, on the ledge
+    msg = rejected_fully(d, side(), catalog)
+    assert "is already taken by" in msg
+    d = wall()
+    d.colors[1:7, 0, :3] = GREY
+    assert one(d, side(), catalog).applied
+    msg = rejected_fully(d, detail(at=(2, 0, 3)), catalog)
+    assert "is already taken by" in msg

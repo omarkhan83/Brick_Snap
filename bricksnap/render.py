@@ -95,6 +95,18 @@ For the instruction booklet (``bricksnap.instructions``):
   parts of which at least a few pixels show in that view.
 None of this changes any picture the renderer draws today.
 
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A part with ``Placement.face`` other than "top" (a Build part, or a Design detail) is drawn
+lying on its side in its column of three cells, exactly where ``bricksnap.ldraw`` puts it:
+its bottom against the brick behind the column, centred on the side stud (10 LDU below the
+top of the column), reaching 8 LDU (0.4 stud) out of the face, its top pointing out of
+that face. In the view named by its face it is seen face-on in its real outline (a round
+tile or round plate as a disc one stud across, a 1 x 1 tile as a square); in the other side
+views and from the top it is a thin edge; in both three-quarter views it is a disc or slab
+in its real place. A round plate on its side carries its stud, pointing outwards. It has no
+stud on top in the stud grid. Every other part, and every picture without a sideways part,
+is drawn exactly as before.
+
 Implementation notes
 --------------------
 - Every view is an affine map from continuous grid coordinates (x and y in studs, z in
@@ -165,6 +177,11 @@ Implementation notes
   are not faded in "iso", where their flat shading already shows the shape.
 - The smallest scale is 3 pixels per stud: below that a plate is under 1.2 pixels tall and
   rows are sampled at pixel centres, so some one-plate parts would not be drawn at all.
+- Sideways parts are always shaped parts (``_sideways_mesh``): the part upright in a 1 x 1
+  x 1 box (a lathe for round kinds, a box otherwise, plus a stud of 12 by 4 LDU when it has
+  one), turned so its top points to -y, moved onto the back of the column at the stud's
+  height, then turned about the column's centre to its face. Their shape key includes the
+  face, so "identical part in line" never confuses an upright part with a sideways one.
 - ``label_texts`` lists every text in the label margins (with the tick it belongs to);
   the pictures draw exactly that list.
 
@@ -211,11 +228,12 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from bricksnap.catalog import Catalog
+from bricksnap.catalog import SIDE_STUD_BRICK, Catalog
 from bricksnap.connect import occupancy
 from bricksnap.types import (
     CELL_MM,
     EMPTY,
+    FACE_OUT,
     FINISH_STUDS,
     PLATE_MM,
     STUD_MM,
@@ -553,6 +571,8 @@ ROUND_SIDES = 24
 ROUND_GAP = 0.02  # studs: round parts are a hair narrower than their footprint
 SLOPE_LIP = 0.5  # plates: the height of the low edge of a slope
 CURVE_SEGMENTS = 6
+STUD_DIAMETER_LDU = 12.0  # a stud on a part lying on its side is drawn in its real size
+STUD_HEIGHT_LDU = 4.0
 # (height fraction, radius fraction) from the bottom up
 _LATHE_PROFILES: dict[str, tuple[tuple[float, float], ...]] = {
     "round_brick": ((0.0, 1.0), (1.0, 1.0)),
@@ -714,9 +734,80 @@ def _open_underneath(catalog: Catalog, p: Placement) -> list[tuple[int, int]]:
     ]
 
 
+def _box_tris(lo, hi) -> tuple[list, list[int]]:
+    """The twelve triangles of a box from corner ``lo`` to ``hi``, two per face (faces 0-5)."""
+    (x0, y0, z0), (x1, y1, z1) = lo, hi
+    c = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    tris: list = []
+    face: list[int] = []
+    for f, (a, b, cc, d) in enumerate(quads):
+        tris += [[c[a], c[b], c[cc]], [c[a], c[cc], c[d]]]
+        face += [f, f]
+    return tris, face
+
+
+def _sideways_mesh(catalog: Catalog, p: Placement) -> _Mesh | None:
+    """A one-stud, one-plate part lying on its side in its column of three cells, its top
+    pointing out of ``p.face``, its bottom against the brick behind and centred on the side
+    stud (as ``bricksnap.ldraw`` places it)."""
+    part = catalog.parts[p.part]
+    if p.face not in FACE_OUT or (part.sx, part.sz, part.h) != (1, 1, 1):
+        return None
+    # the part upright in a 1 x 1 x 1 box (studs and plates): body, and a stud on top if any
+    round_faces: tuple[int, ...] = ()
+    if part.kind in ROUND_KINDS:
+        body = _lathe_mesh(1, 1, 1, part.kind)
+        tris = [t for t in body.tris]
+        face = body.face.tolist()
+        round_faces = tuple(sorted(set(body.face[body.round_side].tolist())))
+        faces = body.faces
+    else:
+        tris, face = _box_tris((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+        faces = 6
+    if part.studs_top:
+        stud = _lathe_mesh(1, 1, 1, "round_tile")
+        for t, f in zip(stud.tris, stud.face.tolist(), strict=True):
+            if f == 0:  # its bottom lies on the part's top
+                continue
+            scaled = np.asarray(t, dtype=np.float64).copy()
+            scaled[:, :2] = 0.5 + (scaled[:, :2] - 0.5) * (STUD_DIAMETER_LDU / 20.0)
+            scaled[:, 2] = 1.0 + scaled[:, 2] * (STUD_HEIGHT_LDU / 8.0)
+            tris.append(scaled)
+            face.append(faces + f)
+        round_faces += (faces + 2,)
+    pts = np.asarray(tris, dtype=np.float64).reshape(-1, 3)
+    # upright millimetres, centred across, z up from the part's bottom
+    up_x = (pts[:, 0] - 0.5) * CELL_MM[0]
+    up_y = (pts[:, 1] - 0.5) * CELL_MM[1]
+    up_z = pts[:, 2] * CELL_MM[2]
+    # on the front face: its top towards -y, its bottom on the back of the column, centred
+    # on the stud, which is the side-stud height below the top of the column
+    stud_mm = 3 * CELL_MM[2] - catalog.side_stud_height(SIDE_STUD_BRICK) * CELL_MM[2] / 8.0
+    fx = up_x / CELL_MM[0] + 0.5
+    fy = 1.0 - up_z / CELL_MM[1]
+    fz = (stud_mm + up_y) / CELL_MM[2]
+    # turned about the column's centre to the face wanted
+    dx, dy = fx - 0.5, fy - 0.5
+    turn = {"front": (dx, dy), "right": (-dy, dx), "back": (-dx, -dy), "left": (dy, -dx)}
+    tx, ty = turn[p.face]
+    out = np.stack([tx + 0.5, ty + 0.5, fz], axis=1).reshape(-1, 3, 3)
+    centre = out.reshape(-1, 3).min(axis=0) / 2 + out.reshape(-1, 3).max(axis=0) / 2
+    if part.studs_top:  # the centre of the body alone, so the stud's faces point outwards
+        body_n = len(tris) - sum(1 for f in face if f >= faces)
+        flat = out[:body_n].reshape(-1, 3)
+        centre = flat.min(axis=0) / 2 + flat.max(axis=0) / 2
+    return _mesh(list(out), face, centre, round_faces)
+
+
 def _part_mesh(catalog: Catalog, p: Placement, cache: dict) -> _Mesh | None:
     """The triangles of a part with a real shape, or None for a part drawn as a box."""
     part = catalog.parts.get(p.part)
+    if part is not None and p.face != "top":
+        key = (p.part, p.rot % 360, p.face)
+        if key not in cache:
+            cache[key] = _sideways_mesh(catalog, p)
+        return cache[key]
     if part is None or part.kind not in WEDGE_KINDS + ROUND_KINDS:
         return None
     key = (p.part, p.rot % 360)
@@ -741,7 +832,7 @@ class _ShapeCollector:
         self.normal: list[np.ndarray] = []
         self.round_side: list[np.ndarray] = []
         self.faces = 0
-        self.keys: dict[tuple[str, int], int] = {}
+        self.keys: dict[tuple[str, int, str], int] = {}
         self.inst: list[np.ndarray] = []
         self.inst_key: list[int] = []
         self.inst_pos: list[tuple[int, int, int]] = []
@@ -759,7 +850,7 @@ class _ShapeCollector:
         self.round_side.append(mesh.round_side)
         self.faces += mesh.faces
         self.inst.append(np.full(len(mesh.tris), len(self.inst_key), dtype=np.int64))
-        self.inst_key.append(self.keys.setdefault((p.part, p.rot % 360), len(self.keys)))
+        self.inst_key.append(self.keys.setdefault((p.part, p.rot % 360, p.face), len(self.keys)))
         self.inst_pos.append((p.x, p.y, p.z))
         self.inst_size.append(self.catalog.footprint(p))
         return True
@@ -845,7 +936,7 @@ def _design_scene(design: Design, catalog: Catalog) -> _Scene:
     for d in design.details:
         if d.part not in catalog.parts:
             continue
-        p = Placement(part=d.part, color=d.color, x=d.x, y=d.y, z=d.z, rot=d.rot % 360)
+        p = Placement(d.part, d.color, d.x, d.y, d.z, d.rot % 360, face=d.face)
         w, dd, h = catalog.footprint(p)
         if d.x < 0 or d.y < 0 or d.z < 0 or d.x + w > nx or d.y + dd > ny or d.z + h > nz:
             continue

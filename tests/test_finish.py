@@ -39,6 +39,7 @@ from bricksnap.types import (
     Design,
     Detail,
     Placement,
+    plain,
 )
 
 RED, WHITE = 4, 15
@@ -1454,7 +1455,8 @@ def mixed_cases(catalog) -> dict[str, list[tuple[Design, Build]]]:
 
 
 def parts_fingerprint(builds: list[Build]) -> str:
-    text = json.dumps([[dataclasses.astuple(p) for p in b.parts] for b in builds])
+    # written as before parts had a face, so the recorded fingerprints still apply
+    text = json.dumps([[tuple(plain(p).values()) for p in b.parts] for b in builds])
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
@@ -1740,7 +1742,7 @@ def test_every_sample_is_no_less_sturdy_after_finishing(catalog, samples, monkey
             continue  # the rule had something to refuse in this model
         assert after.parts == was.parts, name
         if studs == 16 and name in UNCHANGED_AT_16:
-            text = json.dumps([dataclasses.astuple(p) for p in after.parts])
+            text = json.dumps([tuple(plain(p).values()) for p in after.parts])
             assert hashlib.sha256(text.encode()).hexdigest()[:16] == UNCHANGED_AT_16[name], name
 
 
@@ -1959,3 +1961,80 @@ def test_how_the_sturdiness_sentences_read(catalog):
         "1 cell marked smooth at x=5, y=5, z=5 kept its stud because a tile there would leave "
         f"4 parts hanging on a single part, {advice}",
     ]
+
+
+# ---- stage 4: sideways details ----------------------------------------------------------
+
+
+def test_a_sideways_detail_is_put_on_the_side_stud_brick_after_it(catalog):
+    from bricksnap.types import Detail
+
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :9] = 71
+    finish_marks = np.zeros(colors.shape, dtype=np.uint8)
+    finish_marks[:, :, 8] = FINISH_SMOOTH  # tiles on top, the pinned brick stays as it is
+    design = Design(
+        colors=colors, finish=finish_marks, details=[Detail("98138", 0, 2, 0, 3, 0, "front")]
+    )
+    pin = catalog.side_stud_brick("front", 71, 2, 1, 3)
+    build = solve(design, catalog, pinned=[pin])
+    out = finish(build, design, catalog)
+    eye = [p for p in out.parts if p.part == "98138"]
+    assert [(p.x, p.y, p.z, p.rot, p.face) for p in eye] == [(2, 0, 3, 0, "front")]
+    brick = [p for p in out.parts if p.part == "87087"]
+    assert [(p.x, p.y, p.z, p.rot) for p in brick] == [(2, 1, 3, 0)]
+    assert eye[0].step > brick[0].step
+    assert "1 detail part" in out.notes[0]
+    g = connection_graph(out, catalog)
+    i, j = out.parts.index(eye[0]), out.parts.index(brick[0])
+    assert g.has_edge(i, j)
+
+
+def test_a_sideways_detail_with_no_side_stud_behind_it_is_skipped_with_a_note(catalog):
+    from bricksnap.types import Detail
+
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :9] = 71
+    design = Design(colors=colors, details=[Detail("98138", 0, 2, 0, 3, 0, "front")])
+    out = finish(solve(design, catalog), design, catalog)  # nothing pinned
+    assert not [p for p in out.parts if p.part == "98138"]
+    assert any(
+        "at x=2, y=0, z=3 on the front face was not placed" in n and "no stud on that side" in n
+        for n in out.notes
+    )
+
+
+def test_two_details_in_one_column_put_on_only_the_first(catalog):
+    from bricksnap.types import Detail
+
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :9] = 71
+    colors[1:7, 0, :3] = 71  # a ledge in front
+    details = [Detail("98138", 0, 2, 0, 3, 0, "front"), Detail("98138", 4, 2, 0, 3)]
+    design = Design(colors=colors, details=details)
+    pin = catalog.side_stud_brick("front", 71, 2, 1, 3)
+    out = finish(solve(design, catalog, pinned=[pin]), design, catalog)
+    placed = [p for p in out.parts if p.part == "98138"]
+    assert [p.face for p in placed] == ["front"]
+    assert any("an earlier detail part already takes that space" in n for n in out.notes)
+    design.details.reverse()
+    out = finish(solve(design, catalog, pinned=[pin]), design, catalog)
+    assert [p.face for p in out.parts if p.part == "98138"] == ["top"]
+    assert any("on the front face was not placed: an earlier detail" in n for n in out.notes)
+
+
+def test_a_smooth_top_on_a_side_stud_brick_says_why_it_keeps_its_stud(catalog):
+    from bricksnap.types import Detail
+
+    colors = np.full((8, 6, 12), EMPTY, dtype=np.int16)
+    colors[1:7, 1:5, :9] = 71
+    marks = np.zeros(colors.shape, dtype=np.uint8)
+    marks[:, :, 8] = FINISH_SMOOTH
+    design = Design(colors=colors, finish=marks, details=[Detail("98138", 0, 2, 0, 6, 0, "front")])
+    pin = catalog.side_stud_brick("front", 71, 2, 1, 6)
+    out = finish(solve(design, catalog, pinned=[pin]), design, catalog)
+    assert [p for p in out.parts if p.part == "87087"]
+    (note,) = [n for n in out.notes if "x=2, y=1, z=8" in n]
+    assert (
+        "top of a brick with a stud on its side (87087)" in note and "one brick course down" in note
+    )

@@ -18,6 +18,7 @@ import struct
 import threading
 import time
 from collections.abc import Generator, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -2301,4 +2302,82 @@ def test_each_view_draws_its_own_build(
             assert red[~(panes["rough"] | panes["designed"])].sum() == 0, show
             for name in shown:
                 assert red[panes[name]].sum() > 300, (show, name)
+        p.assert_clean()
+
+
+# ---- stage 4: parts lying on a face ------------------------------------------------------
+
+
+def sideways_build(catalog: Catalog) -> tuple[Build, list[tuple[Placement, Placement]]]:
+    """Four bricks with a stud on one side, turned to each face, each with a detail on that
+    stud: a black round tile on the front, a round plate on the right (its stud outwards), a
+    1 x 1 tile on the left and a round tile on the back."""
+    from bricksnap.types import FACE_OUT
+
+    pairs = []
+    for i, (face, part) in enumerate(
+        (("front", "98138"), ("right", "6141"), ("left", "3070b"), ("back", "98138"))
+    ):
+        bx, by = 2 + 4 * i, 2
+        brick = replace(catalog.side_stud_brick(face, 71, bx, by, 0), step=1)
+        ox, oy = FACE_OUT[face]
+        pairs.append((brick, Placement(part, 0, bx + ox, by + oy, 0, 0, 2, face)))
+    return Build((16, 5, 3), [q for pair in pairs for q in pair]), pairs
+
+
+@pytest.mark.browser
+def test_a_part_on_a_face_lies_on_its_bricks_side_stud(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """A part with a face is drawn on its side as bricksnap.ldraw places it: flat against its
+    brick's face, one plate (3.2 mm) thick out of the face, one stud across, centred on the
+    side stud 5.6 mm above the bottom of its column; no stud on top, and a round plate's stud
+    points outwards. The step slider shows the bricks before the details."""
+    from bricksnap.types import FACE_OUT
+
+    build, pairs = sideways_build(catalog)
+    with viewing(browser, tmp_path / "side", pawn_path, build) as (p, _):
+        drawn = p.inspect()
+        bodies = {b["entry"]: b for b in drawn["bodies"]}
+        for k, (_brick, detail) in enumerate(pairs):
+            body = bodies[2 * k + 1]
+            assert body["face"] == detail.face and bodies[2 * k]["face"] == "top"
+            lo, hi = _box(body)
+            blo, bhi = _box(bodies[2 * k])
+            ox, oy = FACE_OUT[detail.face]
+            axis = 0 if ox else 1
+            sign = ox or oy
+            size = hi - lo
+            # one plate thick out of the face (less the gap), one stud across and up
+            assert size[axis] == pytest.approx(3.2 - 0.2, abs=0.05), (detail.face, size)
+            assert size[1 - axis] == pytest.approx(8 - 0.4, abs=0.05)
+            assert size[2] == pytest.approx(8 - 0.4, abs=0.05)
+            assert (lo[2] + hi[2]) / 2 == pytest.approx(5.6, abs=0.05)  # on the side stud
+            # against the brick's face, on the side the face points to
+            face_at = bhi[axis] if sign > 0 else blo[axis]
+            inner = lo[axis] if sign > 0 else hi[axis]
+            assert abs(inner - face_at) < 0.5, (detail.face, inner, face_at)
+            assert sign * ((lo[axis] + hi[axis]) / 2 - face_at) > 0
+            # inside its column of three cells
+            col_lo = np.array([detail.x, detail.y, 0]) * CELL_MM
+            assert (lo >= col_lo - 1e-3).all() and (hi <= col_lo + [8, 8, 9.6]).all()
+        # studs: one on top of each brick, and the round plate's, pointing out of the right face
+        assert len(drawn["studs"]) == 5
+        plate_hi = _box(bodies[3])[1][0]
+        side = [s for s in drawn["studs"] if s["min"][2] < 9]
+        assert len(side) == 1
+        slo, shi = _box(side[0])
+        assert slo[0] == pytest.approx(plate_hi + 0.1, abs=0.2) and shi[0] - slo[
+            0
+        ] == pytest.approx(1.7, abs=0.05)
+        p.view_pixels("sideways")
+        # the step slider: the bricks first, then the details
+        assert p.state()["maxStep"] == 2
+        p.page.locator("#step").fill("1")
+        p.settle()
+        assert p.state()["visibleCount"] == 4
+        assert {b["face"] for b in p.inspect()["bodies"]} == {"top"}
+        p.page.locator("#all").click()
+        p.settle()
+        assert p.state()["visibleCount"] == 8
         p.assert_clean()

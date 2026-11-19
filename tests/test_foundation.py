@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 from bricksnap.connect import connection_graph, occupancy
@@ -370,3 +372,87 @@ def test_the_sturdiness_measure_is_shared(catalog):
     for ln in connect.lone_links(build, catalog):
         want = sum(int(np.prod(catalog.footprint(build.parts[i]))) for i in ln.members)
         assert ln.cells == want
+
+
+# ---- sideways parts: the field exists, and files from before it are untouched ---------------
+
+
+def test_an_upright_part_is_saved_and_fingerprinted_as_before_sideways_parts_existed(tmp_path):
+    from conftest import REPO
+
+    from bricksnap.types import plain
+
+    assert "face" not in plain(Placement("3005", 4, 0, 0, 0))
+    assert "face" not in plain(Detail("98138", 0, 1, 2, 3))
+    assert plain(Placement("98138", 0, 1, 0, 3, face="front"))["face"] == "front"
+    # every saved sample still counts as up to date and is re-saved byte for byte
+    for name in ("pawn", "cat-designed", "cat-showcase", "duck-showcase", "car-showcase"):
+        sample = Project(REPO / "samples" / "projects" / name)
+        design, build = sample.load_design(), sample.load_build()
+        assert build.design_id == design.fingerprint(), name
+        again = tmp_path / "build.json"
+        build.save(again)
+        assert again.read_bytes() == sample.build_path.read_bytes(), name
+    # an upright detail is written, and counted in the fingerprint, without the new field
+    design.details.append(Detail("98138", 0, 1, 2, 3))
+    design.save(tmp_path / "design.npz", tmp_path / "design.json")
+    assert '"face"' not in (tmp_path / "design.json").read_text()
+    loaded = Design.load(tmp_path / "design.npz", tmp_path / "design.json")
+    assert loaded.details == design.details and loaded.fingerprint() == design.fingerprint()
+    old_style = json.dumps(
+        [{"part": "98138", "color": 0, "x": 1, "y": 2, "z": 3, "rot": 0}], sort_keys=True
+    )
+    assert json.dumps([plain(d) for d in design.details], sort_keys=True) == old_style
+    # a sideways part and a sideways detail come back as they went
+    sideways = Build(
+        (2, 2, 3), [Placement("87087", 4, 0, 1, 0), Placement("98138", 0, 0, 0, 0, face="front")]
+    )
+    sideways.save(again)
+    assert Build.load(again).parts == sideways.parts
+    design.details.append(Detail("98138", 0, 0, 0, 3, face="left"))
+    assert design.fingerprint() != loaded.fingerprint()
+    design.save(tmp_path / "design.npz", tmp_path / "design.json")
+    assert Design.load(tmp_path / "design.npz", tmp_path / "design.json").details[-1].face == "left"
+
+
+# ---- stage 4: sideways parts in the catalogue --------------------------------------------------
+
+
+def test_side_studs_turn_with_the_part(catalog):
+    from bricksnap.types import Placement
+
+    # LDraw -Z is grid -y at rot 0 (the rotation table), so 87087's one side stud faces front
+    faces = [catalog.side_stud_faces(Placement("87087", 0, 0, 0, 0, r)) for r in (0, 90, 180, 270)]
+    assert faces == [["front"], ["right"], ["back"], ["left"]]
+    assert sorted(catalog.side_stud_faces(Placement("4733", 0, 0, 0, 0, 0))) == sorted(
+        ["front", "right", "back", "left"]
+    )
+    assert catalog.side_stud_faces(Placement("3005", 0, 0, 0, 0, 0)) == []
+    assert catalog.side_stud_height("87087") == 10.0
+    for face in ("front", "right", "back", "left"):
+        brick = catalog.side_stud_brick(face, 0, 1, 2, 3)
+        assert (brick.part, brick.x, brick.y, brick.z) == ("87087", 1, 2, 3)
+        assert catalog.side_stud_faces(brick) == [face]
+
+
+def test_which_parts_may_face_sideways(catalog):
+    from bricksnap.types import Placement
+
+    assert [p.id for p in catalog.sideways_parts()] == ["3070b", "6141", "98138"]
+    assert not catalog.can_face_sideways("60897")  # its clip sticks out
+    assert not catalog.can_face_sideways("3005")  # not a detail part
+    eye = Placement("6141", 0, 4, 0, 6, face="front")
+    assert catalog.footprint(eye) == (1, 1, 3)
+    assert catalog.cells(eye) == (slice(4, 5), slice(0, 1), slice(6, 9))
+    assert catalog.stud_cells(eye) == []  # its stud points sideways and holds nothing
+    assert catalog.side_stud_faces(eye) == []
+    assert catalog.side_stud_exists(0) and not catalog.side_stud_exists(31)
+
+
+def test_the_side_stud_brick_colour_is_the_most_common_behind(catalog):
+    from bricksnap.catalog import brick_colour
+
+    assert brick_colour([4, 4, 1]) == 4
+    assert brick_colour([1, 4, 4]) == 4
+    assert brick_colour([1, 2, 3]) == 2  # a tie: the middle cell
+    assert brick_colour([71, 71, 71]) == 71

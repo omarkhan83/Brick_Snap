@@ -20,6 +20,32 @@ rot  part X points along          part Z points along
 
 ``Placement.(x, y, z)`` is always the minimum-corner cell of what the part covers, whatever
 the rotation. ``local_to_cell`` turns a stud offset inside the part into a grid cell.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A part with ``Placement.face`` other than "top" lies on its side, its top pointing out of
+that face of the model, pushed onto the side stud of a brick directly behind it (see
+``Placement`` in ``bricksnap/types.py``). This module says:
+
+- ``Part.studs_side``: the side studs of a part, from ``studs_side`` in ``parts.json``, as
+  (direction in the part's own axes, "+x", "-x", "+z" or "-z"; height of the stud's centre
+  below the top of the body, in LDU). 87087 has one, "-z", 10 LDU below its top; 4733 has
+  four.
+- ``Catalog.side_stud_faces(p)``: the faces ("front", "right", "back", "left") of an upright
+  placed part that carry a side stud, turned by ``rot`` exactly as the rotation table says.
+  At rot 0 the part's -Z points along grid -y, so 87087's stud faces "front" at rot 0,
+  "right" at 90, "back" at 180 and "left" at 270. A sideways part has none.
+- ``Catalog.can_face_sideways(part_id)`` and ``sideways_parts()``: the detail parts that may
+  lie on their side: one stud wide and deep, one plate thick, gripping studs underneath, with
+  a body no bigger than its footprint (98138, 3070b and 6141 in the shipped table; not the
+  clip 60897, whose clip sticks out).
+- ``footprint`` of a sideways part is (1, 1, 3) and ``cells`` the column of three cells it
+  keeps clear; ``stud_cells`` of a sideways part is empty (its stud, if it has one, points
+  sideways and holds nothing).
+- ``SIDE_STUD_BRICK`` (87087) is the brick the solver pins behind a sideways part;
+  ``side_stud_brick(face, colour, x, y, z)`` is that brick at (x, y, z), turned so its side
+  stud points to ``face``, and ``side_stud_exists(colour)`` whether it is made in a colour.
+- ``brick_colour(colours)``: the colour the side-stud brick behind a sideways part takes from
+  the three cells it covers (bottom first): the most common of them, the middle one on a tie.
 """
 
 from __future__ import annotations
@@ -32,7 +58,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bricksnap.types import Placement
+from bricksnap.types import FACE_OUT, Placement
 
 _HERE = Path(__file__).parent
 
@@ -56,6 +82,36 @@ SLOPE_KINDS = ("slope", "curved_slope", "slope_inverted")
 
 _SIDES = {"+x": (1, 0), "-x": (-1, 0), "+z": (0, 1), "-z": (0, -1)}
 
+SIDE_STUD_BRICK = "87087"
+"""The brick with a stud on one side that holds a sideways part."""
+
+SIDEWAYS_COLUMN = 3
+"""Cells tall: the column a sideways part keeps clear (one brick course)."""
+
+_FACE_OF = {step: face for face, step in FACE_OUT.items()}
+
+
+def _turn(lx: int, lz: int, rot: int) -> tuple[int, int]:
+    """A direction in a part's own axes (X, Z) as a grid direction (dx, dy) at ``rot``."""
+    rot %= 360
+    if rot == 0:
+        return lx, lz
+    if rot == 90:
+        return -lz, lx
+    if rot == 180:
+        return -lx, -lz
+    if rot == 270:
+        return lz, -lx
+    raise ValueError(f"rot must be 0, 90, 180 or 270, not {rot}")
+
+
+def brick_colour(colours: Iterable[int]) -> int:
+    """The colour of the side-stud brick behind a sideways part, from the colours of the
+    three cells it covers, bottom first: the most common, the middle one on a tie."""
+    cs = [int(c) for c in colours]
+    best = max(cs, key=lambda c: cs.count(c))
+    return best if cs.count(best) > 1 else cs[len(cs) // 2]
+
 
 @dataclass(frozen=True)
 class Part:
@@ -76,6 +132,9 @@ class Part:
     LDraw's Y points down, so ``body_min[1]`` is the TOP of the body. The LDraw origin is not
     at the same place in every part; use this box, not an assumption, to position a part."""
     slope: dict | None = None  # for slopes: {"low_side": "+x" | "-x" | "+z" | "-z", "angle_deg": n}
+    studs_side: tuple[tuple[str, float], ...] = ()
+    """Side studs: (direction in the part's own axes, height of the stud's centre below the top
+    of the body in LDU), for example (("-z", 10.0),) for 87087."""
 
 
 @dataclass(frozen=True)
@@ -95,8 +154,11 @@ class Catalog:
     # ---- geometry -------------------------------------------------------------------------
 
     def footprint(self, p: Placement) -> tuple[int, int, int]:
-        """(w, d, h): cells covered along grid x, grid y and z."""
+        """(w, d, h): cells covered along grid x, grid y and z. A sideways part covers the
+        column of three cells it keeps clear: (1, 1, 3)."""
         part = self.parts[p.part]
+        if p.face != "top":
+            return 1, 1, SIDEWAYS_COLUMN
         if p.rot % 180 == 0:
             return part.sx, part.sz, part.h
         return part.sz, part.sx, part.h
@@ -123,9 +185,59 @@ class Catalog:
         return p.x + ox, p.y + oy
 
     def stud_cells(self, p: Placement) -> list[tuple[int, int]]:
-        """Grid (x, y) of every stud on top of the part. The studs are at z = p.z + h."""
+        """Grid (x, y) of every stud on top of the part. The studs are at z = p.z + h.
+        A sideways part has none: its top points sideways."""
         part = self.parts[p.part]
+        if p.face != "top":
+            return []
         return [self.local_to_cell(p, dx, dz) for dx, dz in part.studs_top]
+
+    def side_stud_faces(self, p: Placement) -> list[str]:
+        """The faces ("front", "right", "back", "left") of an upright part that carry a side
+        stud, turned by ``p.rot``; empty for a part with none, and for a sideways part."""
+        part = self.parts[p.part]
+        if p.face != "top":
+            return []
+        out = []
+        for side, _ in part.studs_side:
+            if side in _SIDES:
+                face = _FACE_OF[_turn(*_SIDES[side], p.rot)]
+                if face not in out:
+                    out.append(face)
+        return out
+
+    def side_stud_height(self, part_id: str) -> float:
+        """How far below the top of the body the centre of the part's side stud is, in LDU
+        (10 for 87087)."""
+        part = self.parts[part_id]
+        return part.studs_side[0][1] if part.studs_side else 10.0
+
+    def side_stud_brick(self, face: str, colour: int, x: int, y: int, z: int) -> Placement:
+        """``SIDE_STUD_BRICK`` at (x, y, z), turned so its side stud points to ``face``."""
+        for rot in (0, 90, 180, 270):
+            p = Placement(SIDE_STUD_BRICK, int(colour), x, y, z, rot)
+            if face in self.side_stud_faces(p):
+                return p
+        raise ValueError(f"{SIDE_STUD_BRICK} cannot be turned to face {face!r}")
+
+    def side_stud_exists(self, colour: int) -> bool:
+        """Whether the side-stud brick is made in this colour."""
+        return self.exists(SIDE_STUD_BRICK, colour)
+
+    def can_face_sideways(self, part_id: str) -> bool:
+        """Whether a detail part may lie on its side on a side stud: one stud wide and deep,
+        one plate thick, gripping studs underneath, its body no bigger than its footprint."""
+        part = self.parts.get(part_id)
+        if part is None or part.kind not in DETAIL_KINDS:
+            return False
+        if (part.sx, part.sz, part.h) != (1, 1, 1) or not part.antistuds_bottom:
+            return False
+        lo, hi = part.body_min, part.body_max
+        return all(lo[i] >= -11.0 and hi[i] <= 11.0 for i in (0, 2))
+
+    def sideways_parts(self) -> list[Part]:
+        """Detail parts that may lie on their side (``can_face_sideways``), catalogue order."""
+        return [p for p in self.detail_parts() if self.can_face_sideways(p.id)]
 
     def low_side(self, p: Placement) -> tuple[int, int] | None:
         """Grid direction (dx, dy) a slope descends towards as placed, or None for other parts.
@@ -357,6 +469,9 @@ def load_catalog_from(parts_path: Path, colours_path: Path) -> Catalog:
                 body_min=body_min,
                 body_max=body_max,
                 slope=p.get("slope"),
+                studs_side=tuple(
+                    (str(sd["dir"]), float(sd.get("y_ldu", 10.0))) for sd in p.get("studs_side", [])
+                ),
             )
         )
     return Catalog(parts, colours)

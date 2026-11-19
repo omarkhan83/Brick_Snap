@@ -821,3 +821,17 @@ def test_a_long_name_stays_on_the_cover_and_in_the_footer(tmp_path, catalog):
         a = np.asarray(page)
         dark = (a < 200).any(axis=2)
         assert not dark[:, :40].any() and not dark[:, -40:].any()
+
+
+def test_the_booklet_keeps_a_part_on_its_face(catalog):
+    from bricksnap.instructions import _tight
+    from bricksnap.types import Build, Placement
+
+    build = Build(
+        shape=(9, 9, 6),
+        parts=[
+            Placement("87087", 71, 4, 4, 0, 90, 1),
+            Placement("98138", 0, 5, 4, 0, 0, 2, "right"),
+        ],
+    )
+    assert [p.face for p in _tight(build, catalog).parts] == ["top", "right"]

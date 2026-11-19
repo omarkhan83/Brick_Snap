@@ -30,6 +30,19 @@ Implementation notes: the main piece, its base and the searches are exactly thos
 joined to every part on the base (parts and single-stud joints whose loss cuts a group off
 it), and one over the plain graph of the main piece (groups standing on the base that come
 away when lifted), then the same merging of groups and runs.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A part with ``Placement.face`` other than "top" lies on its side in the column of three cells
+in front of a brick (see ``Placement``).
+- ``occupancy``: it covers its column (``Catalog.cells``), for collisions and bounds alike.
+- ``connection_graph``: it is joined to the part directly behind its column, one stud
+  engaged, when that part is upright, starts at the same z, and has a side stud on that face
+  (``Catalog.side_stud_faces``). Otherwise it holds nothing and is held by nothing: it is
+  loose. It never sits on studs below it and nothing sits on it (it has no stud on top and
+  its underside faces the brick).
+- ``on_base_z(p)``: the level at which a part counts as standing on the ground or the base:
+  its own z, or z + 1 for a sideways part, which never rests on the ground (its lower edge
+  is above the bottom of its column). The checks and the lone links use it.
 """
 
 from __future__ import annotations
@@ -42,10 +55,34 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from bricksnap.catalog import Catalog
-from bricksnap.types import Build
+from bricksnap.types import FACE_OUT, Build, Placement
 
 MIN_LOAD = 3
 """A lone link carrying fewer parts than this is not a weak spot."""
+
+
+def on_base_z(p: Placement) -> int:
+    """The z at which ``p`` counts as resting on the ground or the base: its own, or one
+    above it for a sideways part, which never rests on the ground."""
+    return p.z if p.face == "top" else p.z + 1
+
+
+def side_stud_holder(build: Build, catalog: Catalog, occ: np.ndarray, i: int) -> int | None:
+    """The part whose side stud holds the sideways part ``i``, or None when nothing does."""
+    p = build.parts[i]
+    if p.face not in FACE_OUT or p.part not in catalog.parts:
+        return None
+    ox, oy = FACE_OUT[p.face]
+    bx, by = p.x - ox, p.y - oy
+    if not (0 <= bx < occ.shape[0] and 0 <= by < occ.shape[1] and 0 <= p.z < occ.shape[2]):
+        return None
+    j = int(occ[bx, by, p.z])
+    if j < 0 or j == i:
+        return None
+    q = build.parts[j]
+    if q.part not in catalog.parts or q.z != p.z or p.face not in catalog.side_stud_faces(q):
+        return None
+    return j
 
 
 def occupancy(
@@ -104,6 +141,11 @@ def connection_graph(build: Build, catalog: Catalog, occ: np.ndarray | None = No
         part = catalog.parts.get(p.part)
         if part is None:
             continue
+        if p.face != "top":
+            holder = side_stud_holder(build, catalog, occ, i)
+            if holder is not None:
+                g.add_edge(holder, i, studs=1)
+            continue
         top = p.z + part.h
         if top >= nz_:
             continue
@@ -118,6 +160,8 @@ def connection_graph(build: Build, catalog: Catalog, occ: np.ndarray | None = No
             above_part = catalog.parts.get(above.part)
             # the part above must start exactly on this layer and accept studs underneath
             if above_part is None or above.z != top or not above_part.antistuds_bottom:
+                continue
+            if above.face != "top":  # a sideways part's underside faces its brick
                 continue
             counts[j] = counts.get(j, 0) + 1
         for j, n in counts.items():
@@ -393,7 +437,7 @@ def _lone_links_of_build(build: Build, catalog: Catalog) -> tuple[list[LoneLink]
     ]
     edges = []
     for a, b, s in graph.edges(data="studs"):
-        lo, hi = (a, b) if build.parts[a].z < build.parts[b].z else (b, a)
+        lo, hi = (a, b) if on_base_z(build.parts[a]) < on_base_z(build.parts[b]) else (b, a)
         edges.append((int(lo), int(hi), int(s)))
-    z = [p.z for p in build.parts]
+    z = [on_base_z(p) for p in build.parts]
     return lone_links_of_graph(len(build.parts), edges, z, volume, known)

@@ -2265,3 +2265,87 @@ def test_part_pixels_of_several_views_from_one_scene(catalog):
             assert many[view] == R.part_pixels(b, catalog, view, upto_step=upto), view
     big = R.part_pixels_views(b, catalog, ("iso",), px_per_stud=12)
     assert big["iso"] == R.part_pixels(b, catalog, "iso", px_per_stud=12)
+
+
+# ---- stage 4: parts lying on a face -------------------------------------------------------
+
+
+def _eye_build(face: str, part: str = "98138") -> Build:
+    from bricksnap.catalog import load_catalog
+    from bricksnap.types import FACE_OUT
+
+    cat = load_catalog()
+    ox, oy = FACE_OUT[face]
+    return Build(
+        shape=(3, 3, 3),
+        parts=[
+            cat.side_stud_brick(face, 4, 1 - ox, 1 - oy, 0),
+            Placement(part, 0, 1, 1, 0, step=2, face=face),
+        ],
+    )
+
+
+@pytest.mark.parametrize("face", ["front", "right", "back", "left"])
+def test_a_sideways_part_is_round_face_on_and_thin_edge_on(face, catalog):
+    build = _eye_build(face)
+    s = 20
+    for view in ("front", "right", "back", "left", "top", "iso", "iso_back"):
+        owner = R.part_map(build, catalog, view, px_per_stud=s)
+        rows, cols = np.nonzero(owner == 1)
+        if view == face:  # face-on: a disc one stud across, its corners show the brick
+            assert s - 3 <= cols.max() - cols.min() + 1 <= s
+            assert abs((cols.max() - cols.min()) - (rows.max() - rows.min())) <= 2
+            area = len(rows) / (s * s)
+            assert 0.6 < area < 0.85  # pi / 4 of the square
+        elif view in ("top",) or {view, face} in (
+            {"front", "right"},
+            {"front", "left"},
+            {"back", "right"},
+            {"back", "left"},
+        ):
+            assert (
+                len(rows)
+                and min(cols.max() - cols.min(), rows.max() - rows.min()) + 1 <= 0.4 * s + 2
+            )
+    # the picture of the build is drawn in every view without error
+    for view in R.ALL_VIEWS:
+        R.render_build(build, catalog, view, px_per_stud=8)
+
+
+def test_a_sideways_round_plate_shows_its_stud_and_a_tile_is_square(catalog):
+    owner = R.part_map(_eye_build("front", "3070b"), catalog, "front", px_per_stud=20)
+    rows, cols = np.nonzero(owner == 1)
+    assert len(rows) >= 0.9 * 20 * 20  # a square tile fills its square
+    owner = R.part_map(_eye_build("right", "6141"), catalog, "front", px_per_stud=20)
+    rows, cols = np.nonzero(owner == 1)
+    plate = cols.max() - cols.min() + 1
+    assert 0.4 * 20 + 3 <= plate <= 0.6 * 20 + 2  # 8 LDU of plate and 4 of stud, edge-on
+
+
+def test_a_sideways_detail_is_drawn_in_a_design_picture(catalog):
+    from bricksnap.types import Design, Detail
+
+    colors = np.full((3, 3, 3), EMPTY, dtype=np.int16)
+    colors[1, 2, :] = 4
+    design = Design(colors=colors, details=[Detail("98138", 0, 1, 1, 0, 0, "front")])
+    plain = Design(colors=colors.copy())
+    a = np.asarray(R.render_design(design, catalog, "front", px_per_stud=20, labels=False))
+    b = np.asarray(R.render_design(plain, catalog, "front", px_per_stud=20, labels=False))
+    differs = (a != b).any(axis=2)
+    assert 0.6 * 400 < differs.sum() < 1.1 * 400
+
+
+@pytest.mark.parametrize("face", ["front", "right", "back", "left"])
+def test_a_sideways_part_touches_its_brick_on_the_side_it_faces(face, catalog):
+    from scipy import ndimage
+
+    from bricksnap.types import FACE_OUT
+
+    ox, oy = FACE_OUT[face]
+    owner = R.part_map(_eye_build(face), catalog, "top", px_per_stud=20)
+    part, brick = owner == 1, owner == 0
+    assert part.any() and brick.any()
+    assert (ndimage.binary_dilation(brick, iterations=2) & part).any()  # against it
+    (pr, pc), (br, bc) = (np.argwhere(m).mean(axis=0) for m in (part, brick))
+    # seen from above: picture right is +x, picture up is +y
+    assert np.sign(round(pc - bc)) == ox and np.sign(round(br - pr)) == oy, (face, pc - bc, br - pr)

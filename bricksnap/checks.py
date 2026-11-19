@@ -69,6 +69,19 @@ Implementation notes
 - The tip-over sentence describes the standing area by its span when that area is a
   rectangle, and otherwise by the corners of its outline; either way it gives the point
   of the outline nearest the centre of mass, so it is clear which way to widen the base.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A part with ``Placement.face`` other than "top" lies on its side in the column of three cells
+in front of a brick, held by that brick's side stud (``bricksnap.connect`` says when).
+- It takes up its column for collisions and bounds, like any part.
+- It never rests on the ground (``connect.on_base_z``): it gives no ground contact, is never
+  an anchor of the weak-spot searches, and adds nothing to the standing area.
+- One with no side stud behind it is loose like any other loose part, and the text says so
+  in its own words, after the line about separate pieces: "The Black Tile 1 x 1 Round with
+  Groove (98138) at x=3, y=0, z=9 lies on the front face, but the Light Bluish Grey Brick
+  1 x 1 (3005) behind it at x=3, y=1, z=9 has no stud on that side to hold it (only a brick
+  with a stud on its side, such as 87087, starting at the same height, can)." or "... but
+  nothing is behind it to hold it."
 """
 
 from __future__ import annotations
@@ -80,8 +93,8 @@ import numpy as np
 from scipy.spatial import ConvexHull, QhullError
 
 from bricksnap.catalog import Catalog
-from bricksnap.connect import connection_graph, occupancy
-from bricksnap.types import Build, Placement, Report
+from bricksnap.connect import connection_graph, occupancy, on_base_z
+from bricksnap.types import FACE_OUT, Build, Placement, Report
 
 MAX_WEAK_SPOTS = 10
 MAX_EXAMPLES = 5
@@ -428,8 +441,8 @@ def _weak_spots(
     main_known = [i for i in main if known[i]]
     if not main_known:
         return [], 0, "smaller"
-    base_z = 0 if grounded else min(parts[i].z for i in main_known)
-    anchors = {i for i in main_known if parts[i].z == base_z}
+    base_z = 0 if grounded else min(on_base_z(parts[i]) for i in main_known)
+    anchors = {i for i in main_known if on_base_z(parts[i]) == base_z}
     spots = _find_spots(build, catalog, occ, graph, main, anchors)
 
     def group_extent(s: _Spot) -> str:
@@ -539,6 +552,35 @@ def _weak_spots(
 # ---- the check -------------------------------------------------------------------------------
 
 
+def _unheld_sideways(
+    build: Build, catalog: Catalog, occ: np.ndarray, loose: list[int], namer: _Namer
+) -> list[str]:
+    """A sentence for each loose sideways part that has no side stud behind it."""
+    out = []
+    for i in loose:
+        p = build.parts[i]
+        if p.face not in FACE_OUT or p.part not in catalog.parts:
+            continue
+        ox, oy = FACE_OUT[p.face]
+        bx, by = p.x - ox, p.y - oy
+        j = -1
+        if 0 <= bx < occ.shape[0] and 0 <= by < occ.shape[1] and 0 <= p.z < occ.shape[2]:
+            j = int(occ[bx, by, p.z])
+        if j < 0:
+            why = "nothing is behind it to hold it"
+        else:
+            q = build.parts[j]
+            if q.z == p.z and q.part in catalog.parts and p.face in catalog.side_stud_faces(q):
+                continue  # held there; loose only because its brick is
+            why = (
+                f"the {namer.what(j)} behind it at x={bx}, y={by}, z={p.z} has no stud on that "
+                "side to hold it (only a brick with a stud on its side, such as 87087, starting "
+                "at the same height, can)"
+            )
+        out.append(f"The {namer.at(i)} lies on the {p.face} face, but {why}.")
+    return out
+
+
 def check(build: Build, catalog: Catalog) -> Report:
     parts = build.parts
     n_parts = len(parts)
@@ -565,7 +607,7 @@ def check(build: Build, catalog: Catalog) -> Report:
     )
     corner = np.array([[p.x, p.y, p.z] for p in parts], dtype=float)
     volume = dims.prod(axis=1)
-    on_ground = known & np.array([p.z == 0 for p in parts], dtype=bool)
+    on_ground = known & np.array([on_base_z(p) == 0 for p in parts], dtype=bool)
 
     pieces = [sorted(c) for c in nx.connected_components(graph)]
     n_components = len(pieces)
@@ -711,6 +753,7 @@ def check(build: Build, catalog: Catalog) -> Report:
             "Parts only hold when one sits on another's studs; parts side by side in a layer "
             "do not hold each other."
         )
+        details.extend(_unheld_sideways(build, catalog, occ, loose, namer))
     if not grounded and total > 0:
         lowest = min((i for i in main if known[i]), key=lambda i: (parts[i].z, i))
         summary.append("the main piece does not touch the ground")

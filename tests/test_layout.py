@@ -1021,3 +1021,134 @@ def test_sturdy_builds_still_number_their_steps(catalog):
         assert len({(p.z, catalog.parts[p.part].kind) for p in parts}) == 1
     order = sorted(build.parts, key=lambda p: p.step)
     assert [p.z for p in order] == sorted(p.z for p in order)
+
+
+# ---- stage 4: pinned side-stud bricks ------------------------------------------------------
+
+
+def _pinned_cases(catalog):
+    solid = design_of(np.ones((6, 5, 9), dtype=bool))
+    wall = design_of(np.ones((10, 1, 6), dtype=bool))  # one stud thick, two courses tall
+    return [
+        (solid, [catalog.side_stud_brick("front", DEFAULT_COLOUR, 2, 0, 3)]),
+        (
+            solid,
+            [
+                catalog.side_stud_brick("left", DEFAULT_COLOUR, 0, 2, 6),
+                catalog.side_stud_brick("right", DEFAULT_COLOUR, 5, 2, 6),
+                catalog.side_stud_brick("back", DEFAULT_COLOUR, 3, 4, 0),
+            ],
+        ),
+        (wall, [catalog.side_stud_brick("front", DEFAULT_COLOUR, 4, 0, 3)]),
+    ]
+
+
+def test_pinned_bricks_are_placed_exactly_and_the_rest_is_tiled_around_them(catalog):
+    for design, pins in _pinned_cases(catalog):
+        build = solve(design, catalog, pinned=pins)
+        got = [p for p in build.parts if p.part == "87087"]
+        assert sorted((p.x, p.y, p.z, p.rot, p.color) for p in got) == sorted(
+            (p.x, p.y, p.z, p.rot, p.color) for p in pins
+        )
+        assert all(p.step >= 1 for p in build.parts)
+        occ, collisions, out_of_bounds, unknown = occupancy(build, catalog)
+        assert not collisions and not out_of_bounds and not unknown
+        assert np.array_equal(occ >= 0, design.filled)
+        for p in build.parts:
+            if p.part != "87087":
+                assert catalog.parts[p.part].kind in ("brick", "plate")
+        assert_one_piece(build, catalog)
+
+
+def test_nothing_pinned_gives_the_same_build(catalog):
+    design = design_of(np.ones((7, 5, 10), dtype=bool))
+    a = solve(design, catalog)
+    b = solve(design, catalog, pinned=())
+    assert a.parts == b.parts
+
+
+def test_a_pinned_brick_is_held_like_a_one_by_one_brick(catalog):
+    # a single column: the pin in the middle course holds the courses above and below
+    design = design_of(np.ones((1, 1, 9), dtype=bool))
+    pin = catalog.side_stud_brick("front", DEFAULT_COLOUR, 0, 0, 3)
+    build = solve(design, catalog, pinned=[pin])
+    assert pin.part in [p.part for p in build.parts]
+    assert_one_piece(build, catalog)
+
+
+def test_a_pin_the_solver_cannot_place_is_refused_in_words(catalog):
+    design = design_of(np.ones((4, 4, 6), dtype=bool))
+    bad = [
+        catalog.side_stud_brick("front", DEFAULT_COLOUR, 1, 0, 1),  # not in a course
+        catalog.side_stud_brick("front", 4, 1, 0, 0),  # cells of another colour
+        catalog.side_stud_brick("front", DEFAULT_COLOUR, 1, 0, 6),  # outside the grid
+    ]
+    for pin in bad:
+        with pytest.raises(ValueError, match="pinned 87087"):
+            solve(design, catalog, pinned=[pin])
+    pin = catalog.side_stud_brick("front", DEFAULT_COLOUR, 1, 0, 0)
+    with pytest.raises(ValueError, match="pinned twice"):
+        solve(design, catalog, pinned=[pin, pin])
+
+
+def _some_pins(design: Design, catalog, rng, most: int = 4):
+    """Up to ``most`` side-stud bricks where one could go: a course of one colour the brick
+    is made in, with the model going on above or below it."""
+    from bricksnap.types import FACE_OUT
+
+    c = design.colors
+    nx, ny, nz = c.shape
+    spots = []
+    for x in range(nx):
+        for y in range(ny):
+            for z in range(0, nz - 2, 3):
+                col = c[x, y, z : z + 3]
+                if (
+                    col[0] == EMPTY
+                    or (col != col[0]).any()
+                    or not catalog.side_stud_exists(int(col[0]))
+                ):
+                    continue
+                if (z > 0 and c[x, y, z - 1] != EMPTY) or (z + 3 < nz and c[x, y, z + 3] != EMPTY):
+                    spots.append((x, y, z))
+    rng.shuffle(spots)
+    pins, used = [], set()
+    for x, y, z in spots:
+        if len(pins) == most:
+            break
+        if any((x, y, zz) in used for zz in (z - 3, z + 3)):
+            continue  # not stacked: a stack could be held by nothing
+        used.add((x, y, z))
+        face = list(FACE_OUT)[len(pins) % 4]
+        pins.append(catalog.side_stud_brick(face, int(c[x, y, z]), x, y, z))
+    return pins
+
+
+def test_repair_and_sturdiness_never_move_a_pinned_brick(catalog):
+    """Pins in random lumps and shells, where repair and the sturdiness step have work to do
+    around them: every pin stays exactly where it was put, and nothing else changes kind."""
+    rng = np.random.default_rng(5)
+    tried = 0
+    for seed in range(20):
+        design = random_blob(seed) if seed % 2 else random_shell(seed)
+        pins = _some_pins(design, catalog, rng)
+        if not pins:
+            continue
+        tried += 1
+        build = solve(design, catalog, seed=seed, pinned=pins)
+        got = sorted((p.x, p.y, p.z, p.rot, p.color) for p in build.parts if p.part == "87087")
+        assert got == sorted((p.x, p.y, p.z, p.rot, p.color) for p in pins), seed
+        occ, collisions, out_of_bounds, _ = occupancy(build, catalog)
+        assert not collisions and not out_of_bounds
+        assert np.array_equal(occ >= 0, design.filled), seed
+    assert tried >= 15
+
+
+def test_a_pinned_cell_stays_a_brick_cell_where_slabs_turn_into_plates(catalog):
+    from bricksnap.layout import _Solver
+
+    slab = design_of(np.ones((8, 6, 3), dtype=bool))  # one course thick: plates
+    pin = catalog.side_stud_brick("front", DEFAULT_COLOUR, 3, 0, 0)
+    plain = _Solver(slab, catalog, 0)
+    assert not plain.brick[3, 0, 0]
+    assert _Solver(slab, catalog, 0, (pin,)).brick[3, 0, 0]

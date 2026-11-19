@@ -14,7 +14,8 @@ CONTRACT (tests go in tests/test_buildable.py)
     class BuildableResult:
         design: Design          # a changed copy; the input Design is never modified
         build: Build            # layout.solve(result.design, catalog, seed): no need to solve again
-        recoloured: np.ndarray  # bool [x, y, z]: hidden cells whose colour was changed
+        recoloured: np.ndarray  # bool [x, y, z]: cells whose colour was changed (hidden ones,
+                                # and the cells behind a sideways detail, see stage 4)
         added: np.ndarray       # bool [x, y, z]: cells that were empty and are now filled
         notes: list[str]        # plain sentences with coordinates, most important first
         pieces_before: int      # connected pieces of the first solve
@@ -354,6 +355,38 @@ group holds its group) are given up with it.
   spaceship 25 and the hat 16, where the search ran out of solves before it found fewer.
   The phase made 61 solves in all over the 33 runs; the slowest pass is the hat at 12
   studs, 4 seconds. Every sample still builds with no loose parts.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A detail with ``face`` other than "top" lies on a face of the model, held by the side stud of
+a brick (87087) in the three cells directly behind its column (see ``Placement``).
+- ``place_detail`` only accepts such a detail when those three cells are one colour. If a
+  later ``paint`` made them differ, they are made one colour again before the first solve,
+  the colour ``catalog.brick_colour`` picks (the most common, the middle one on a tie), with
+  a note ("Painted 1 cell at x=3, y=1, z=11 Orange so that one brick with a stud on its side
+  can hold the Black Tile ... on the front face: ..."), and reported in ``recoloured``.
+  Those cells are on the model's surface, behind the detail: this is the one place where the
+  pass changes the colour of a visible cell, and only after an edit made them differ.
+- Every solve the pass makes is given the bricks to pin (``layout.solve(..., pinned=...)``,
+  worked out by ``side_stud_pins``): one ``catalog.side_stud_brick`` per sideways detail
+  that the finishing pass can put on (a part that may face sideways, made in its colour,
+  z a multiple of 3, its column empty and inside the grid, the three cells behind filled
+  with one colour the side-stud brick is made in, no other detail on the same brick), and
+  whose brick is held: ``side_brick_held(colors, bricks, brick)``, a filled cell that is not
+  another such brick lies directly above or below the run of such bricks it is in. The same
+  helper is what ``place_detail`` asks.
+- A sideways detail never costs the model its buildability. Those whose brick would be held
+  by nothing are left off (latest first, until every brick left is held). If the build is
+  then not one piece, the details whose brick touches (or is) a loose part are left off and
+  the pass runs again; if that is not one piece either, all sideways details are left off
+  and it runs again; the first of these that is one piece is returned. Each left-off detail
+  gets a note saying it was left off, why, that it stays in the design but is not built,
+  and what to try (move it one stud or one course). ``result.design`` is then the Design
+  without those details, so the finishing pass does not put them on; the saved Design keeps
+  them. When the model is not one piece even without any sideways detail, the details stay
+  and the usual "Still loose" notes say why.
+- The cells behind a sideways detail are never emptied (nothing is) and never recoloured
+  by any repair: they are left out of the hidden cells the repairs may recolour.
+- A Design with no sideways detail comes out exactly as before.
 """
 
 from __future__ import annotations
@@ -367,9 +400,9 @@ from scipy import ndimage
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
-from bricksnap.catalog import Catalog
+from bricksnap.catalog import Catalog, brick_colour
 from bricksnap.connect import connection_graph, lone_links, occupancy
-from bricksnap.types import EMPTY, FINISH_STUDS, Build, Design, Placement
+from bricksnap.types import EMPTY, FACE_OUT, FINISH_STUDS, Build, Design, Detail, Placement
 
 
 @dataclass
@@ -828,12 +861,141 @@ def _detail_cells(design: Design, catalog: Catalog) -> np.ndarray:
     out = np.zeros(design.shape, dtype=bool)
     for d in design.details:
         if d.part in catalog.parts:
-            p = Placement(part=d.part, color=d.color, x=d.x, y=d.y, z=d.z, rot=d.rot)
+            p = Placement(part=d.part, color=d.color, x=d.x, y=d.y, z=d.z, rot=d.rot, face=d.face)
             xs, ys, zs = catalog.cells(p)
             out[
                 max(xs.start, 0) : xs.stop, max(ys.start, 0) : ys.stop, max(zs.start, 0) : zs.stop
             ] = True
     return out
+
+
+def _sideways_spot(design: Design, catalog: Catalog, d: Detail) -> tuple[int, int, int] | None:
+    """The cell of the brick behind a sideways detail, when the finishing pass could put the
+    detail on (the cells behind may still be of several colours); None otherwise."""
+    if d.face not in FACE_OUT or not catalog.can_face_sideways(d.part):
+        return None
+    if d.rot % 360 or not catalog.exists(d.part, d.color) or d.z % 3:
+        return None
+    nx_, ny_, nz_ = design.shape
+    ox, oy = FACE_OUT[d.face]
+    bx, by = d.x - ox, d.y - oy
+    inside = all(0 <= v < n for v, n in ((d.x, nx_), (d.y, ny_), (bx, nx_), (by, ny_)))
+    if not inside or not 0 <= d.z <= nz_ - 3:
+        return None
+    if (design.colors[d.x, d.y, d.z : d.z + 3] != EMPTY).any():
+        return None
+    if (design.colors[bx, by, d.z : d.z + 3] == EMPTY).any():
+        return None
+    return bx, by, d.z
+
+
+def side_brick_held(
+    colors: np.ndarray, bricks: set[tuple[int, int, int]], brick: tuple[int, int, int]
+) -> bool:
+    """Whether a side-stud brick (by its bottom cell) would be held: going up and down its
+    column through the other side-stud bricks there (``bricks``, by bottom cell), a filled
+    cell that is not one of them lies directly above or below that run. A brick is held only
+    through the parts on and under it, and a run of such bricks only through what ends it."""
+    x, y, z = brick
+    nz = colors.shape[2]
+    lo = z
+    while (x, y, lo - 3) in bricks:
+        lo -= 3
+    hi = z + 3
+    while (x, y, hi) in bricks:
+        hi += 3
+    return bool(
+        (lo > 0 and colors[x, y, lo - 1] != EMPTY) or (hi < nz and colors[x, y, hi] != EMPTY)
+    )
+
+
+def _plan_pins(design: Design, catalog: Catalog) -> tuple[list[tuple[int, Placement]], list[int]]:
+    """(index of the detail, its side-stud brick) for every sideways detail the finishing
+    pass can put on, and the indices of those whose brick would be held by nothing
+    (``side_brick_held``), latest first given up until every brick left is held."""
+    pins: list[tuple[int, Placement]] = []
+    seen: set[tuple[int, int, int]] = set()
+    for i, d in enumerate(design.details):
+        spot = _sideways_spot(design, catalog, d)
+        if spot is None or spot in seen:
+            continue
+        bx, by, bz = spot
+        cells = design.colors[bx, by, bz : bz + 3]
+        colour = int(cells[0])
+        if (cells != colour).any() or not catalog.side_stud_exists(colour):
+            continue
+        seen.add(spot)
+        pins.append((i, catalog.side_stud_brick(d.face, colour, bx, by, bz)))
+    unheld: list[int] = []
+    while True:
+        bricks = {(p.x, p.y, p.z) for _, p in pins}
+        loose = [
+            k
+            for k, (_, p) in enumerate(pins)
+            if not side_brick_held(design.colors, bricks, (p.x, p.y, p.z))
+        ]
+        if not loose:
+            return pins, unheld
+        unheld.append(pins.pop(loose[-1])[0])
+
+
+def side_stud_pins(design: Design, catalog: Catalog) -> tuple[Placement, ...]:
+    """The side-stud bricks to pin in every solve of ``design``: one behind each sideways
+    detail the finishing pass can put on, in the colour of the three cells behind it (which
+    must already be one colour, made in that colour), none on a brick taken by an earlier
+    detail, and none that would be held by nothing (``side_brick_held``)."""
+    return tuple(p for _, p in _plan_pins(design, catalog)[0])
+
+
+def _solve(solve, design: Design, catalog: Catalog, seed: int) -> Build:
+    """``solve`` (``layout.solve``) with the side-stud bricks of ``design`` pinned; with none
+    to pin it is called exactly as before sideways parts existed."""
+    pins = side_stud_pins(design, catalog)
+    if pins:
+        return solve(design, catalog, seed=seed, pinned=pins)
+    return solve(design, catalog, seed=seed)
+
+
+def _pin_cells(design: Design, catalog: Catalog) -> np.ndarray:
+    """bool [x, y, z]: the cells of the bricks pinned behind sideways details."""
+    out = np.zeros(design.shape, dtype=bool)
+    for p in side_stud_pins(design, catalog):
+        out[p.x, p.y, p.z : p.z + 3] = True
+    return out
+
+
+def _hold_sideways(design: Design, catalog: Catalog) -> tuple[Design, list[str]]:
+    """``design`` with the three cells behind each sideways detail made one colour, and a
+    note per detail whose cells changed. The same object when nothing changes."""
+    out = design
+    notes: list[str] = []
+    seen: set[tuple[int, int, int]] = set()
+    for d in design.details:
+        spot = _sideways_spot(out, catalog, d)
+        if spot is None or spot in seen:
+            continue
+        seen.add(spot)
+        bx, by, bz = spot
+        cells = out.colors[bx, by, bz : bz + 3]
+        colour = brick_colour(int(c) for c in cells)
+        if not catalog.side_stud_exists(colour):
+            continue
+        wrong = [bz + k for k in range(3) if int(cells[k]) != colour]
+        if not wrong:
+            continue
+        if out is design:
+            out = design.copy()
+        out.colors[bx, by, bz : bz + 3] = colour
+        zs = f"z={wrong[0]}" if len(wrong) == 1 else f"z={wrong[0]} to {wrong[-1]}"
+        part = catalog.parts[d.part]
+        notes.append(
+            f"Painted {_count(len(wrong), 'cell', 'cells')} at x={bx}, y={by}, {zs} "
+            f"{_colour_name(catalog, colour)} so that one brick with a stud on its side can "
+            f"hold the {_colour_name(catalog, d.color)} {part.name} ({part.id}) at x={d.x}, "
+            f"y={d.y}, z={d.z} on the {d.face} face: a brick is one colour, and those cells "
+            "sit behind the part."
+        )
+    return out, notes
 
 
 def _floor_joins(colors: np.ndarray, piece: np.ndarray, target: np.ndarray) -> bool:
@@ -1034,11 +1196,100 @@ def make_buildable(
     max_solves: int = 12,
     max_sturdy_solves: int = STURDY_SOLVES,
 ) -> BuildableResult:
+    sideways = [i for i, d in enumerate(design.details) if d.face != "top"]
+    if not sideways:
+        return _make_buildable(design, catalog, seed, max_solves, max_sturdy_solves)
+    # a sideways detail must never cost the model its buildability: first those whose brick
+    # would be held by nothing are left off, then, if the build is loose, those whose brick
+    # touches what came loose, and if that does not cure it all of them
+    _, unheld = _plan_pins(design, catalog)
+    left = {i: "held" for i in unheld}
+    work = _without(design, left)
+    result = _make_buildable(work, catalog, seed, max_solves, max_sturdy_solves)
+    on = [
+        i for i in sideways if i not in left and _sideways_spot(design, catalog, design.details[i])
+    ]
+    if result.pieces_after > 1 and on:
+        pc = _pieces(result.build, catalog)
+        loose = np.isin(pc.label, pc.loose) if pc.loose else np.zeros(design.shape, dtype=bool)
+        near = ndimage.binary_dilation(loose)
+        blamed = [i for i in on if _brick_touches(design, catalog, design.details[i], near)]
+        for group in (blamed, on):
+            if not group:
+                continue
+            trial = {**left, **{i: "loose" for i in group}}
+            got = _make_buildable(
+                _without(design, trial), catalog, seed, max_solves, max_sturdy_solves
+            )
+            if got.pieces_after <= 1:
+                result, left = got, trial
+                break
+    if left:
+        result.notes = [
+            _left_off_note(catalog, design, i, why) for i, why in sorted(left.items())
+        ] + result.notes
+    return result
+
+
+def _without(design: Design, left: dict[int, str]) -> Design:
+    """``design`` without the details ``left`` (by index): a copy, or itself when none."""
+    if not left:
+        return design
+    out = design.copy()
+    out.details = [d for i, d in enumerate(out.details) if i not in left]
+    return out
+
+
+def _brick_touches(design: Design, catalog: Catalog, d: Detail, near: np.ndarray) -> bool:
+    spot = _sideways_spot(design, catalog, d)
+    if spot is None:
+        return False
+    bx, by, bz = spot
+    return bool(near[bx, by, bz : bz + 3].any())
+
+
+def _left_off_note(catalog: Catalog, design: Design, i: int, why: str) -> str:
+    d = design.details[i]
+    part = catalog.parts[d.part]
+    what = (
+        f"the {_colour_name(catalog, d.color)} {part.name} ({part.id}) at x={d.x}, y={d.y}, "
+        f"z={d.z} on the {d.face} face"
+    )
+    ox, oy = FACE_OUT[d.face]
+    where = f"x={d.x - ox}, y={d.y - oy}, z={d.z} to {d.z + 2}"
+    if why == "held":
+        reason = (
+            f"the brick with a stud on its side that would hold it, at {where}, would have "
+            "nothing above or below it but other such bricks, and a brick is held only "
+            "through the parts on and under it, so it would come loose"
+        )
+    else:
+        reason = (
+            f"with the brick with a stud on its side that would hold it, at {where}, part of "
+            "the model next to that brick could not be held (the brick takes cells it held "
+            "on through)"
+        )
+    also = ", or make the model go on above or below that brick" if why == "held" else ""
+    return (
+        f"Left off {what}: {reason}. It stays in the design but is not built. Move it one stud "
+        f"sideways or one brick course (3 plates) up or down{also}."
+    )
+
+
+def _make_buildable(
+    design: Design,
+    catalog: Catalog,
+    seed: int,
+    max_solves: int,
+    max_sturdy_solves: int,
+) -> BuildableResult:
     from bricksnap.layout import solve
 
     started = time.perf_counter()
     nothing = np.zeros(design.shape, dtype=bool)
-    build = solve(design, catalog, seed=seed)
+    given = design
+    design, held = _hold_sideways(given, catalog)
+    build = _solve(solve, design, catalog, seed)
     solves = 1
     pc = _pieces(build, catalog)
     pieces_before = pc.count
@@ -1046,17 +1297,17 @@ def make_buildable(
         st = _sturdy(design, design, build, pc, catalog, seed, max_sturdy_solves, started)
         work, build, pc = st.work, st.build, st.pc
         limit = heavy_limit(int(design.filled.sum()))
-        notes = _sturdy_notes(catalog, work.colors, st, limit)
-        if work is design:
+        notes = held + _sturdy_notes(catalog, work.colors, st, limit)
+        if work is given:
             return BuildableResult(
                 design.copy(), build, nothing, nothing.copy(), notes, pc.count, pc.count
             )
-        recoloured = design.filled & (work.colors != design.colors)
-        added = work.filled & ~design.filled
+        recoloured = given.filled & (work.colors != given.colors)
+        added = work.filled & ~given.filled
         return BuildableResult(work, build, recoloured, added, notes, pieces_before, pc.count)
 
     original = design.colors
-    hidden = design.filled & ~visible_cells(design.filled)
+    hidden = design.filled & ~visible_cells(design.filled) & ~_pin_cells(design, catalog)
     blocked = _detail_cells(design, catalog)
     assert design.skin is not None
     skin = design.skin
@@ -1141,7 +1392,7 @@ def make_buildable(
         if not changed:
             break
         work = _apply(design, spots)
-        build = solve(work, catalog, seed=seed)
+        build = _solve(solve, work, catalog, seed)
         solves += 1
         pc = _pieces(build, catalog)
         struggled = pc.count > _floor_count(work.colors)
@@ -1162,10 +1413,10 @@ def make_buildable(
     work, build, pc = st.work, st.build, st.pc
     limit = heavy_limit(int(design.filled.sum()))
     sturdy = _sturdy_notes(catalog, work.colors, st, limit)
-    recoloured = design.filled & (work.colors != original)
-    added = work.filled & ~design.filled
-    notes = _notes(catalog, work, pc, spots, kept, ran_out, original, hidden, sturdy)
-    result_design = work.copy() if work is design else work
+    recoloured = given.filled & (work.colors != given.colors)
+    added = work.filled & ~given.filled
+    notes = held + _notes(catalog, work, pc, spots, kept, ran_out, original, hidden, sturdy)
+    result_design = work.copy() if work is given else work
     return BuildableResult(result_design, build, recoloured, added, notes, pieces_before, pc.count)
 
 
@@ -1310,7 +1561,7 @@ def _prune(
             continue
         seen.add(key(spots))
         trial = _apply(design, spots)
-        tb = solve(trial, catalog, seed=seed)
+        tb = _solve(solve, trial, catalog, seed)
         solves += 1
         tp = _pieces(tb, catalog)
         struggled = tp.count > _floor_count(trial.colors)
@@ -1871,7 +2122,7 @@ def _sturdy(
     links, heaviest = _links(build, catalog, work.colors, limit)
     if not links:
         return out
-    hidden = design.filled & ~visible_cells(design.filled)
+    hidden = design.filled & ~visible_cells(design.filled) & ~_pin_cells(design, catalog)
     blocked = _detail_cells(design, catalog)
     assert design.skin is not None
     skin, edited, original = design.skin, bool(design.log), design.colors
@@ -1886,7 +2137,7 @@ def _sturdy(
         if out.solves >= budget or slow >= SLOW_PATIENCE or late:
             return None
         t = time.perf_counter()
-        tb = solve(trial, catalog, seed=seed)
+        tb = _solve(solve, trial, catalog, seed)
         longest = max(longest, time.perf_counter() - t)
         out.solves += 1
         tp = _pieces(tb, catalog)

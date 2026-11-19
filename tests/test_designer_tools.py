@@ -1116,3 +1116,27 @@ def test_render_without_seed_says_there_is_one_row(project_path: Path, views):
     text = blocks[1]["text"]
     assert "Top row" not in text and "Bottom row" not in text
     assert "one row" in text and "could not be loaded" in text
+
+
+def test_describe_says_when_a_detail_on_a_face_was_not_built(tmp_path, catalog):
+    project = create_project("samples/models/cat.glb", studs=12, directory=tmp_path)
+    paint = {"type": "box", "min": [3, 4, 12], "max": [3, 4, 14]}
+    ops = [
+        {"op": "paint", "shape": paint, "color": 71, "mirror": True},
+        {
+            "op": "place_detail",
+            "part": "98138",
+            "color": 0,
+            "at": [3, 3, 12],
+            "face": "front",
+            "mirror": True,
+        },
+    ]
+    project.meta["brief"] = "a cat"
+    project.save_meta()
+    text = text_of(call_tool(project.path, "apply_ops", {"ops": ops}))
+    assert "a Light Bluish Grey (71) brick with a stud on its side" in text
+    rebuild(project)
+    text = text_of(call_tool(project.path, "describe", {}))
+    assert text.count("on the front face (held by a side stud); NOT BUILT") == 2
+    assert "Left off the Black Tile 1 x 1 Round with Groove (98138) at x=3, y=3, z=12" in text

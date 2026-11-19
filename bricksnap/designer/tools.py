@@ -61,6 +61,16 @@ STAGE 2 ADDITIONS TO THE CONTRACT
   remove_detail, the "mirror" option) with one example each; the schema comes from
   ``bricksnap.design.OP_SCHEMA`` as before.
 
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+
+- The apply_ops description says, with one example, that a one-stud, one-plate detail may
+  lie flat on a face (``"face"`` in place_detail, see ``bricksnap.design``).
+- describe: a sideways detail's line ends with the face it is on, and with "NOT BUILT" when
+  the current build left it off (the build's notes say why); a detail part that may
+  lie on a face (``Catalog.can_face_sideways``) says so in the list of detail parts; a
+  sideways detail stands on nothing, so it does not count as covering the cell under its
+  column when describe counts where a finish shows.
+
 Implementation notes
 --------------------
 - ``describe`` also lists the filled cells layer by layer (consecutive plates with the same
@@ -312,7 +322,15 @@ TOOLS: list[dict[str, Any]] = [
             '{"op": "place_detail", "part": "98138", "color": 0, "at": [3, 0, 12], "rot": 0}. '
             "remove_detail removes the detail covering a cell: "
             '{"op": "remove_detail", "at": [3, 0, 12]}. Details follow the grid: filling a '
-            "detail's cell or emptying the cell below it removes the detail.\n"
+            "detail's cell or emptying the cell below it removes the detail. A one-stud, "
+            'one-plate detail can instead lie flat on a face with "face": "front", "right", '
+            '"back" or "left": "at" is then the lowest of three empty cells in front of the '
+            "face (z a multiple of 3), the three cells behind must be filled, and a brick with "
+            "a stud on its side goes there to hold it. Example, an eye on a face whose front "
+            'cells are at y = 1: {"op": "place_detail", "part": "98138", "color": 0, "at": '
+            '[3, 0, 9], "face": "front"}. The three cells behind must be one colour; the brick '
+            "takes it and shows around a round tile's edges, so keep them the face's colour, "
+            "not the eye's.\n"
             'Mirror: add "mirror": true to any operation to apply it also to its mirror image '
             "across the model's left-right middle (cell x pairs with cell nx - 1 - x; describe "
             'gives nx). Example: {"op": "paint", "shape": {"type": "box", "min": [2, 3, 30], '
@@ -790,9 +808,12 @@ def _layers(filled: np.ndarray) -> list[str]:
 
 
 def _detail_cells(design, catalog) -> np.ndarray:
-    """Boolean [x, y, z] array: True where a placed detail part stands."""
+    """Boolean [x, y, z] array: True where a placed detail part stands. A detail on a face
+    stands on nothing, so it is left out."""
     taken = np.zeros(design.shape, dtype=bool)
     for d in design.details:
+        if d.face != "top":
+            continue
         with contextlib.suppress(Exception):  # an unknown part takes no cells we can know
             p = Placement(part=d.part, color=d.color, x=d.x, y=d.y, z=d.z, rot=d.rot)
             sx, sy, sz = catalog.cells(p)
@@ -826,7 +847,7 @@ def _finish_lines(design, catalog) -> list[str]:
     return lines
 
 
-def _details_lines(design, catalog) -> list[str]:
+def _details_lines(design, catalog, build=None) -> list[str]:
     if not design.details:
         return ["  none"]
     lines = []
@@ -837,6 +858,14 @@ def _details_lines(design, catalog) -> list[str]:
         side = _slope_words(catalog, d.part, d.rot)
         if side:
             line += f", slopes down to {side}"
+        if d.face != "top":
+            line += f", on the {d.face} face (held by a side stud)"
+            built = build is None or any(
+                (p.part, p.color, p.x, p.y, p.z, p.face) == (d.part, d.color, d.x, d.y, d.z, d.face)
+                for p in build.parts
+            )
+            if not built:
+                line += "; NOT BUILT: the rebuild left it off (its note says why)"
         lines.append(line)
     return lines
 
@@ -862,6 +891,8 @@ def _detail_part_lines(catalog, palette: list[int]) -> list[str]:
         side = _slope_words(catalog, part.id, 0)
         if side:
             bits.append(f"slopes down to {side}")
+        if catalog.can_face_sideways(part.id):
+            bits.append("may lie on a face")
         made = f"{len(part.colours)} colours"
         if palette:
             lacking = [str(c) for c in palette if c not in part.colours]
@@ -968,7 +999,8 @@ def _describe(project: Project) -> list[dict[str, Any]]:
     out.append("FINISH MARKS (every other filled cell has studs on top)")
     out.extend(_finish_lines(design, catalog))
     out.append("DETAILS PLACED")
-    out.extend(_details_lines(design, catalog))
+    current = build if build is not None and not _build_out_of_date(project) else None
+    out.extend(_details_lines(design, catalog, current))
     out.append("")
 
     out.append("EDITS")

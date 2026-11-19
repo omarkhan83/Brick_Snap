@@ -76,7 +76,10 @@ projects/<name>/
   less than half of, where it holds the colour the cell would have had. Edits never touch it; the
   make-buildable pass may fill such a cell.
 - `details`: a list of small parts standing on free studs (part, colour, cell, rotation), such as round
-  tiles for eyes. A detail occupies cells that are empty in `colors`, directly above filled ones.
+  tiles for eyes. A detail occupies cells that are empty in `colors`, directly above filled ones. A
+  one-stud detail may instead lie on a side face of the model (`face`: front, right, back, or left): it
+  then keeps clear the column of three cells in front of a brick course, and the solver puts a 1 x 1 brick
+  with a stud on its side exactly behind it.
 - `regions`: names for areas of the grid ("ear_left"), stored as the shape that defined them.
 - `log`: every edit operation applied since the base Design, in order. Replaying the log on
   `design.base.npz` reproduces the current Design. That gives undo, before/after, and a record of what the
@@ -159,9 +162,16 @@ designer or the person made, and what the pass did is written in the Build's not
 **Finish (Build to Build).** Swaps plain parts for better-looking ones covering exactly the same cells:
 tiles where the finish is smooth; 45-degree slopes where a sloped cell steps down by a brick; cheese slopes
 where it steps down by two plates. A slope takes the corner off a step and never adds material. Then the
-Design's detail parts are stood on their studs. A swap that would loosen any part of the model is not made,
-and a part that does not exist in the cell's colour is never substituted. What could not be done is
-written in the Build's notes.
+Design's detail parts are stood on their studs, or pushed onto the side stud of the brick behind them. A
+swap that would loosen any part of the model is not made, and a part that does not exist in the cell's
+colour is never substituted. What could not be done is written in the Build's notes.
+
+**Parts that face sideways.** `Placement.face` says which way a part's top points. Everything upright has
+"top" and is stored exactly as before. A sideways part is always a one-stud detail on a side-stud brick
+(part 87087) that the make-buildable pass asks the solver to pin in place. If a sideways detail would cost
+the model its hold (the brick behind it was some other part's only link), the make-buildable pass builds
+without that detail and says so in the notes; the detail stays in the Design. The decision is
+`docs/decisions/2026-11-18-a-part-can-face-sideways-on-a-side-stud-brick.md`.
 
 **Checks (Build to report).** No two parts share a cell. Every part is connected to every other, through
 studs, in one piece that reaches the ground. The centre of mass sits over the footprint. Weak spots (a
@@ -328,7 +338,9 @@ point for the optional printable output.
 
 - The AI never writes to the Build. Only the solver and finishing pass do.
 - The make-buildable pass never empties a cell and never recolours a visible one, and the saved Design is
-  only ever changed by edit operations.
+  only ever changed by edit operations. (One exception to the colour rule: the three cells behind a
+  sideways detail become one colour if a later paint made them differ, because one brick stands there.
+  The notes say so.)
 - Every part and colour pair in a Build comes from the parts table.
 - A Build that fails its checks is never presented as finished; the failure is reported in words.
 - Nothing leaves the computer except through the AI design step.

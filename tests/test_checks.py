@@ -938,3 +938,89 @@ def test_long_single_stud_column_is_fast(catalog):
     assert len(r.weak_spots) == 10
     assert r.weak_spots[0].startswith("2999 parts above x=0, y=0, z=3")
     assert elapsed < 2.0, f"took {elapsed:.2f} s"
+
+
+# ---- stage 4: sideways parts --------------------------------------------------------------
+
+
+def _tower(middle: Placement) -> list[Placement]:
+    """Three bricks at x=1, y=1 with ``middle`` as the second, and a black round tile lying
+    on the front face of the middle one."""
+    return [
+        Placement("3005", 71, 1, 1, 0, step=1),
+        middle,
+        Placement("3005", 71, 1, 1, 6, step=3),
+        Placement("98138", 0, 1, 0, 3, step=4, face="front"),
+    ]
+
+
+def test_a_sideways_part_on_a_side_stud_is_joined(catalog):
+    from bricksnap.connect import connection_graph
+
+    build = Build(shape=(3, 3, 9), parts=_tower(Placement("87087", 71, 1, 1, 3, 0, step=2)))
+    report = check(build, catalog)
+    assert report.ok, report.text
+    assert report.components == 1 and report.loose == []
+    g = connection_graph(build, catalog)
+    assert g.edges[1, 3]["studs"] == 1
+
+
+def test_a_sideways_part_with_no_side_stud_behind_it_is_loose_and_said_so(catalog):
+    for middle, words in (
+        (Placement("3005", 71, 1, 1, 3, step=2), "has no stud on that side"),
+        (Placement("87087", 71, 1, 1, 3, 180, step=2), "has no stud on that side"),  # backwards
+    ):
+        report = check(Build(shape=(3, 3, 9), parts=_tower(middle)), catalog)
+        assert not report.ok and report.loose == [3]
+        assert "lies on the front face, but the" in report.text and words in report.text
+    parts = _tower(Placement("3005", 71, 1, 1, 3, step=2))
+    parts[3] = Placement("98138", 0, 2, 0, 3, step=4, face="front")  # nothing behind it
+    report = check(Build(shape=(3, 3, 9), parts=parts), catalog)
+    assert report.loose == [3] and "nothing is behind it to hold it" in report.text
+
+
+def test_a_sideways_part_never_stands_on_the_ground(catalog):
+    build = Build(
+        shape=(3, 3, 6),
+        parts=[
+            Placement("87087", 71, 1, 1, 0, 0, step=1),
+            Placement("98138", 0, 1, 0, 0, step=2, face="front"),
+        ],
+    )
+    report = check(build, catalog)
+    assert report.ok, report.text
+    from bricksnap.connect import on_base_z
+
+    assert on_base_z(build.parts[1]) == 1 and on_base_z(build.parts[0]) == 0
+    # alone, held by nothing, it does not count as grounded
+    alone = check(Build(shape=(3, 3, 6), parts=[build.parts[1]]), catalog)
+    assert not alone.grounded and not alone.ok
+    # its column takes up cells: another part there collides with it
+    clash = Build(shape=(3, 3, 6), parts=[*build.parts, Placement("3024", 71, 1, 0, 2, step=3)])
+    assert check(clash, catalog).collisions == [(1, 2)]
+
+
+def test_a_sideways_part_is_not_held_by_a_stud_under_its_column(catalog):
+    from bricksnap.connect import connection_graph
+
+    # a 1 x 1 brick under the column: its stud is under the tile's edge, which does not grip
+    parts = _tower(Placement("3005", 71, 1, 1, 3, step=2)) + [
+        Placement("3005", 71, 1, 0, 0, step=1)
+    ]
+    build = Build(shape=(3, 3, 9), parts=parts)
+    g = connection_graph(build, catalog)
+    assert not g.has_edge(3, 4)
+    report = check(build, catalog)
+    assert 3 in report.loose and "has no stud on that side" in report.text
+
+
+def test_a_side_stud_holds_only_a_part_starting_at_the_same_height(catalog):
+    # the side-stud brick starts one plate lower than the column in front of it
+    parts = [
+        Placement("3005", 71, 1, 1, 0, step=1),
+        Placement("3024", 71, 1, 1, 3, step=2),
+        Placement("87087", 71, 1, 1, 4, 0, step=3),
+        Placement("98138", 0, 1, 0, 5, step=4, face="front"),
+    ]
+    report = check(Build(shape=(3, 3, 9), parts=parts), catalog)
+    assert report.loose == [3] and "starting at the same height" in report.text

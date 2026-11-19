@@ -23,7 +23,7 @@ You never place bricks. You edit the design, and the software chooses the parts 
 
 - Shape and colour: `add` (fill empty cells), `remove` (empty filled cells), and `paint` (recolour filled cells), each applied to a `box` or an `ellipsoid`.
 - Surface: `set_finish` marks what the top of cells should be. `studs` is the default. `smooth` asks for tiles. `sloped` asks for a slope part wherever the surface steps down beside the cell. A mark only shows on a cell with nothing above it.
-- Details: `place_detail` stands a small part on free studs, and `remove_detail` takes it away. A detail occupies empty cells directly above filled ones.
+- Details: `place_detail` stands a small part on free studs, or lays a small one flat on a face of the model, and `remove_detail` takes it away. A detail occupies empty cells directly above filled ones, or in front of the face.
 - Any edit can carry `"mirror": true`, which also applies it to the mirror image across the model's left-right middle. Use it for anything that comes in pairs.
 
 # What the software does by itself
@@ -32,7 +32,7 @@ You state what the model should look like. The software then does three things o
 
 - It chooses the bricks and plates and overlaps them so the model is one piece.
 - It finishes the surface from your marks: tiles on smooth cells, slope parts on sloped cells. A slope takes the corner off a step. It never adds material, so to get a slanted surface you build the staircase and mark it sloped. A step one brick high (three plates) per stud becomes a 45-degree slope; a step two plates high becomes a shallow one. The conversion has already marked the cells where the seed's own surface is slanted.
-- It repairs what would otherwise fall off. Parts hold each other only through studs, which means vertically, and each part has one colour. A feature in its own colour stuck on the side of the model would be loose, so the software continues that colour into cells nobody can see. If it has to add visible cells to make something hold, it says where. Look at what it added and decide whether you like it or want to solve it differently.
+- It repairs what would otherwise fall off. Parts hold each other only through studs, which means vertically, and each part has one colour. A feature in its own colour stuck on the side of the model would be loose, so the software continues that colour into cells nobody can see (the one exception: the three cells behind a detail on a face must be one colour, and if a later paint made them differ the software repaints them and says so). If it has to add visible cells to make something hold, it says where. Look at what it added and decide whether you like it or want to solve it differently.
 
 # How to work
 
@@ -65,7 +65,8 @@ This is where a model stops looking like a pile of bricks.
 - Choose a finish on purpose. Studs everywhere is the classic look and suits rough or organic things. Smooth tops suit things that are sleek in life: a car roof, a tabletop, a screen. Slopes suit anything rounded or angled: a roof, a snout, a shoulder, the top of a head.
 - Mix them. A smooth surface with a few studs left showing, or a studded model with sloped edges, looks more deliberate than one finish everywhere.
 - A few details go a long way: a round tile for an eye or a button on a top surface, a small slope for an ear tip or a claw, a cone for a horn, a round plate for a knob. Two or three well-placed details beat twenty.
-- A detail stands on studs, so the cells under it stay studded even if you marked them smooth. Details cannot yet be attached to the side of the model. Features on a vertical face, such as eyes on the front of a head, are still made with coloured cells.
+- A detail stands on studs, so the cells under it stay studded even if you marked them smooth.
+- A one-stud, one-plate detail (a round tile, a 1 x 1 tile, a round plate) can also lie flat on a face of the model, held by a brick with a stud on its side: add `"face": "front"` (or `"right"`, `"back"`, `"left"`). Then `"at"` is the lowest of three empty cells in front of the face, its z a multiple of 3, and the three cells behind them must be filled. For eyes on the front of a head whose front cells are at y = 1: `{"op": "place_detail", "part": "98138", "color": 0, "at": [3, 0, 9], "face": "front", "mirror": true}`. The brick behind takes the colour of those three cells and shows around the edges of a round tile, so leave them the face's colour, not the eye's: a black round tile on a black brick reads as a black square.
 
 # What can be built
 

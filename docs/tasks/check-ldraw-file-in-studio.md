@@ -74,3 +74,9 @@ answered: yes and yes. The pictures are on Alec's computer in `C:\Users\AlecR\Br
 
 Still needs a person, because both mean pressing buttons inside Studio: question 3 (press Stability, and
 look for parts drawn see-through, which is how Studio shows a collision) and question 4 (the wanted list).
+
+2026-11-19, Alec-42's agent: a cat with two round-tile eyes on the front of its head (the first parts we
+place sideways, each on a brick with a stud on its side) opens in Studio 2.26.10 with the 139 parts and
+31 steps the file holds. Studio names the eyes "Tile, Round 1 x 1" in the last step and draws them flat
+against the face. LeoCAD draws the same.
+

@@ -165,6 +165,14 @@ Implementation notes
   duck at 16 studs (622 parts, 88 steps) 5.6 s, 3.1 MB, 9.4 MB. The tests' two 200-step
   builds: 1,600 parts in 16.7 s (HTML 10.7 MB, PDF 25.5 MB) and 600 parts, 3 a step, in
   15.5 s (10.1 MB, 22.9 MB); held to one core, 23.4 s and 22.4 s.
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+A part lying on a face (``Placement.face``) is drawn by the renderer in its real place and
+turn, so the pages need nothing new for it, except: the build is moved into its tight grid
+with its face kept, and its sentence says where it goes by the part it is pushed onto ("The
+black tile 1 x 1 round goes at the front left, pushed onto the stud on the front side of the
+brick 1 x 1 with stud on 1 side from step 21."). The finishing pass gives it a step after
+that brick's, as for every detail.
 """
 
 from __future__ import annotations
@@ -190,7 +198,7 @@ from bricksnap import render as R
 from bricksnap.catalog import Catalog, load_catalog
 from bricksnap.export import PartLine, parts_list
 from bricksnap.project import Project, ProjectError
-from bricksnap.types import Build, Placement, write_text_atomic
+from bricksnap.types import FACE_OUT, Build, Placement, write_text_atomic
 
 DISCLAIMER = (
     "LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or "
@@ -362,7 +370,7 @@ def _tight(build: Build, catalog: Catalog) -> Build:
         w, d, h = catalog.footprint(p)
         hi = [max(hi[0], p.x + w), max(hi[1], p.y + d), max(hi[2], p.z + h)]
     parts = [
-        Placement(p.part, p.color, p.x - lo[0], p.y - lo[1], p.z, p.rot, p.step)
+        Placement(p.part, p.color, p.x - lo[0], p.y - lo[1], p.z, p.rot, p.step, p.face)
         for p in build.parts
     ]
     return Build((hi[0] - lo[0], hi[1] - lo[1], max(hi[2], 1)), parts)
@@ -505,6 +513,19 @@ class _Geometry:
         else:
             side = "in the middle"
         bits = [side]
+        if p.face in FACE_OUT:  # it lies on a face, pushed onto the side stud behind it
+            ox, oy = FACE_OUT[p.face]
+            bx, by = p.x - ox, p.y - oy
+            holder = None
+            if 0 <= bx < occ.shape[0] and 0 <= by < occ.shape[1] and 0 <= p.z < nz:
+                holder = int(occ[bx, by, p.z])
+            if holder is not None and holder >= 0:
+                bits.append(f"pushed onto the stud on the {p.face} side of {self._name(holder, i)}")
+            else:
+                bits.append(f"on the {p.face} face")
+            same_kind = [q for q in b.parts if q.step == step and q.part == p.part]
+            colour = any(q.color != p.color for q in same_kind)
+            return f"The {_part_words(cat, p, colour=colour)} goes {', '.join(bits)}."
         xs, ys, _ = cat.cells(p)
         below = self._most(occ[xs, ys, p.z - 1].ravel(), earlier_or_now) if p.z > 0 else None
         if below is not None:  # what it stands on says how high it is

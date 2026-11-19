@@ -219,6 +219,30 @@ or through nothing beside it at all (a thin tail standing on one brick, the ears
 cat), has no place to try, so its lone links stay. The finishing pass runs after the solver
 and splits parts (a brick under a sloped edge becomes a slope and smaller parts); it refuses
 a split that would leave the build less sturdy than the solver made it (see its contract).
+
+STAGE 4 ADDITION TO THE CONTRACT: sideways parts
+``solve(design, catalog, seed=0, sturdy=True, pinned=())``. ``pinned`` lists bricks to place
+exactly as given: a brick with a stud on its side (kind "side_stud", in practice 87087) that
+holds a sideways detail part (``Placement.face``). Each must be 1 x 1 and one brick course
+tall, stand in a course (z a multiple of 3) inside the grid, and cover three filled cells of
+its own colour; otherwise ``solve`` raises ValueError saying which pin is wrong. Two pins on
+one cell are an error too.
+
+- Every pinned brick is in the result exactly as given (its part, colour, position and rot;
+  its ``step`` is assigned like any other part's). Everything else is tiled around it with
+  bricks and plates as before; its cells are covered by it alone.
+- For holding together it counts as the 1 x 1 brick it is: it has a stud on top and grips
+  studs underneath, so the parts above and below it hold it as they would a 3005. Repair and
+  the sturdiness step never take it out, never turn it into plates, and never force a part
+  across its cell.
+- With nothing pinned the result is exactly what it was before, part for part (the bench
+  says "No change").
+
+How: the pins are placed first, before any layer is tiled, as parts of the solver's own
+kind "brick", and their cells are kept brick cells whatever ``_demote_slabs`` and
+``_demote_for_joins`` decide around them. ``_layer_parts_in_box``, through which repair and
+the sturdiness step choose what to tear up, never returns a pinned part, and a layer is
+tiled only where no part stands yet, so nothing can move them.
 """
 
 from __future__ import annotations
@@ -384,7 +408,9 @@ _SIDE = (
 
 
 class _Solver:
-    def __init__(self, design: Design, catalog: Catalog, seed: int) -> None:
+    def __init__(
+        self, design: Design, catalog: Catalog, seed: int, pinned: tuple[Placement, ...] = ()
+    ) -> None:
         self.cat = catalog
         self.colors = np.asarray(design.colors, dtype=np.int16)
         self.nx, self.ny, self.nz = (int(v) for v in self.colors.shape)
@@ -423,6 +449,10 @@ class _Solver:
         self.ub_size = ub_cells[ub].astype(np.int64).tolist()  # per column
         self._demote_slabs()
         self._demote_for_joins()
+        self.pinned = tuple(pinned)
+        self.n_pinned = 0  # the first parts placed are the pins, which nothing may move
+        for p in self.pinned:
+            self.brick[p.x, p.y, p.z // PLATES_PER_BRICK] = True
 
     # ---- set-up -----------------------------------------------------------------------------
 
@@ -1025,7 +1055,7 @@ class _Solver:
         ids = np.unique(self.occ[max(0, x0) : x1, max(0, y0) : y1, z0])
         out = []
         for i in ids.tolist():
-            if i < 0:
+            if i < self.n_pinned:  # an empty cell (-1) or a pinned brick
                 continue
             p = self.parts[i]
             if p is not None and p.z == z0 and p.kind == kind:
@@ -1551,10 +1581,21 @@ class _Solver:
 
     # ---- whole solve ------------------------------------------------------------------------
 
+    def _place_pins(self) -> None:
+        """Place the pinned bricks first, as they are given."""
+        for p in self.pinned:
+            segs = (int(self.seg[p.x, p.y, p.z]),)
+            self._add(_Part("brick", p.part, p.rot, p.color, p.x, p.y, p.z, 1, 1, 3, segs))
+        self.n_pinned = len(self.pinned)
+        self._log.clear()
+
     def solve(self) -> list[_Part]:
         uf = _UF(self.nseg)
+        self._place_pins()
         for key in self.all_keys():
             region = self.layer_mask(key).copy()
+            if self.n_pinned:
+                region &= self.occ[:, :, key[1]] < 0
             if region.any():
                 uf = self.tile_layer(key, region, uf)
         self._log.clear()
@@ -1681,8 +1722,36 @@ def _touching(group: list[int], adj: dict[int, set[int]]) -> bool:
     return len(seen) == len(inside)
 
 
-def solve(design: Design, catalog: Catalog, *, seed: int = 0, sturdy: bool = True) -> Build:
-    solver = _Solver(design, catalog, seed)
+def _check_pins(design: Design, catalog: Catalog, pinned: tuple[Placement, ...]) -> None:
+    """Raise ValueError, in plain words, for a pinned brick the solver cannot place."""
+    nx, ny, nz = design.shape
+    seen: set[tuple[int, int, int]] = set()
+    for p in pinned:
+        where = f"the pinned {p.part} at x={p.x}, y={p.y}, z={p.z}"
+        if p.part not in catalog.parts or p.face != "top":
+            raise ValueError(f"{where} is not an upright part from the parts table.")
+        if catalog.footprint(p) != (1, 1, PLATES_PER_BRICK):
+            raise ValueError(f"{where} is not a 1 x 1 brick.")
+        if p.z % PLATES_PER_BRICK or not (0 <= p.x < nx and 0 <= p.y < ny and 0 <= p.z <= nz - 3):
+            raise ValueError(f"{where} is not in a brick course inside the grid.")
+        if (design.colors[p.x, p.y, p.z : p.z + 3] != p.color).any():
+            raise ValueError(f"{where} does not stand on three filled cells of its colour.")
+        if (p.x, p.y, p.z) in seen:
+            raise ValueError(f"{where} is pinned twice.")
+        seen.add((p.x, p.y, p.z))
+
+
+def solve(
+    design: Design,
+    catalog: Catalog,
+    *,
+    seed: int = 0,
+    sturdy: bool = True,
+    pinned: tuple[Placement, ...] | list[Placement] = (),
+) -> Build:
+    pinned = tuple(pinned)
+    _check_pins(design, catalog, pinned)
+    solver = _Solver(design, catalog, seed, pinned)
     solver.sturdy_on = sturdy
     parts = solver.solve()
     parts.sort(key=lambda p: (p.z, 0 if p.kind == "plate" else 1, p.y, p.x))

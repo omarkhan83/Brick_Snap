@@ -38,6 +38,13 @@ FINISH_SLOPED = 2
 FINISH_NAMES = {"studs": FINISH_STUDS, "smooth": FINISH_SMOOTH, "sloped": FINISH_SLOPED}
 """The words edit operations and messages use for ``Design.finish`` values."""
 
+FACES = ("top", "front", "right", "back", "left")
+"""Which way the top of a part points. "top" is upright, as almost every part is. The other
+four are the picture views (``bricksnap.render``) in which the part's top is seen straight
+on: "front" points to -y, "right" to +x, "back" to +y, "left" to -x."""
+FACE_OUT = {"front": (0, -1), "right": (1, 0), "back": (0, 1), "left": (-1, 0)}
+"""The (x, y) step from the model outwards for each sideways face."""
+
 DEFAULT_COLOUR = 71
 """LDraw colour code used when a seed has no colour of its own (Light Bluish Gray)."""
 
@@ -86,6 +93,15 @@ class Seed:
         return self.vertices.max(axis=0) - self.vertices.min(axis=0)
 
 
+def plain(part: Any) -> dict[str, Any]:
+    """A Detail or Placement as a dict for files and fingerprints: ``asdict`` without
+    ``face`` when the part is upright."""
+    d = asdict(part)
+    if d.get("face") == "top":
+        del d["face"]
+    return d
+
+
 @dataclass
 class Detail:
     """A small part standing on free studs of the Design (eyes, buttons, ear tips, lights).
@@ -101,6 +117,7 @@ class Detail:
     y: int
     z: int
     rot: int = 0  # degrees, 0 / 90 / 180 / 270
+    face: str = "top"  # one of FACES; see "Sideways parts" under Placement
 
 
 @dataclass
@@ -183,7 +200,7 @@ class Design:
         h.update(repr((self.shape, self.seed_offset)).encode())
         h.update(np.ascontiguousarray(self.colors).tobytes())
         h.update(np.ascontiguousarray(self.finish).tobytes())
-        h.update(json.dumps([asdict(d) for d in self.details], sort_keys=True).encode())
+        h.update(json.dumps([plain(d) for d in self.details], sort_keys=True).encode())
         assert self.skin is not None
         if (self.skin != EMPTY).any():
             h.update(b"skin")
@@ -209,7 +226,7 @@ class Design:
             tmp.unlink(missing_ok=True)
         if json_path is not None:
             notes = {
-                "details": [asdict(d) for d in self.details],
+                "details": [plain(d) for d in self.details],
                 "regions": self.regions,
                 "log": self.log,
             }
@@ -245,6 +262,16 @@ class Placement:
     cells in y; with ``rot`` 90 or 270 it covers ``sz`` cells in x and ``sx`` cells in y. It
     is ``h`` cells tall. The rotation table is in ``bricksnap/catalog/__init__.py``. Use
     ``Catalog.footprint`` to get (w, d, h); do not recompute it by hand.
+
+    Sideways parts. With ``face`` other than "top" the part is turned so that its top points
+    out of that face of the model, and it is pushed onto the side stud of a brick that has
+    one (kind "side_stud") directly behind it. Only one-stud parts one plate thick can be
+    sideways, and their ``rot`` is 0. (x, y, z) is then the lowest cell of the column of
+    three cells it keeps clear: the three cells in front of the side-stud brick, so z is a
+    multiple of 3 and the brick is at (x, y) minus ``FACE_OUT[face]``, same z.
+    ``Catalog.footprint`` returns (1, 1, 3) for it. A part with face "top" is written to
+    files without the field, so files and fingerprints from before sideways parts existed
+    stay exactly as they were.
     """
 
     part: str  # catalogue id, e.g. "3001"
@@ -254,6 +281,7 @@ class Placement:
     z: int
     rot: int = 0  # degrees about the vertical axis: 0, 90, 180 or 270
     step: int = 0  # 1-based building step; 0 means not yet assigned
+    face: str = "top"  # one of FACES
 
 
 @dataclass
@@ -307,7 +335,7 @@ class Build:
             "shape": list(self.shape),
             "design_id": self.design_id,
             "notes": list(self.notes),
-            "parts": [asdict(p) for p in self.parts],
+            "parts": [plain(p) for p in self.parts],
             "report": self.report.to_json() if self.report else None,
         }
 
