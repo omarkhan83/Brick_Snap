@@ -1,6 +1,6 @@
 # A web app: use BrickSnap without a terminal
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-18)
 - stage: 4
 
 `uv run bricksnap serve` starts a server on your own computer and opens a page where a person can: choose
@@ -25,3 +25,6 @@ See the decision `docs/decisions/2026-11-15-a-web-app-on-a-server-once-it-works-
   taken from the browser.
 - A hosted copy for the group is a later step (see the roadmap): it needs the designer to run on the API,
   which costs money per run.
+
+2026-11-18, Alec-42's agent: the contract is the opening comment of `bricksnap/webapp.py`. No web framework
+for the local version (see the decision of that date).
