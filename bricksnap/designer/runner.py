@@ -25,7 +25,7 @@ returns exactly:
 Claude Code for stream-json output in print mode.) The user message is written to the
 process's standard input, not put on the command line.
 
-``run_designer(project, instruction=None, model="claude-opus-5-5", effort="high",
+``run_designer(project, instruction=None, model="claude-fable-5-2", effort="high",
 max_turns=40, timeout_s=1800) -> DesignerRun``
 - Runs from a new, empty temporary directory, so no CLAUDE.md or project file can be picked
   up. Writes the MCP config there: one server, "bricksnap", command ``sys.executable`` with
@@ -147,7 +147,7 @@ from typing import Any
 
 from bricksnap.project import Project
 
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODEL = "claude-fable-5-2"
 PROMPT_FILE = Path(__file__).parent / "prompt.md"
 DEFAULT_INSTRUCTION = (
     "Improve this model so that it looks designed rather than merely converted, "
