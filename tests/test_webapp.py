@@ -1849,7 +1849,11 @@ def test_browser_versions_can_be_compared_and_one_brought_back(
     phone = Tab(browser, running.url, width=390, height=844).open("p/pawn")
     try:
         phone.page.wait_for_selector("#versions .vcard")
-        assert phone.page.locator("#choose .pick-side").all_text_contents() == ["Top", "Bottom"]
+        # the choosers are drawn a moment after the strip: wait for them rather than assume
+        phone.page.wait_for_function(
+            "() => [...document.querySelectorAll('#choose .pick-side')].map(e => e.textContent)"
+            ".join() === 'Top,Bottom'"
+        )
         phone.no_sideways_scroll()
         phone.page.screenshot(path=str(ARTIFACTS / "versions-phone.png"), full_page=True)
         phone.assert_clean()
