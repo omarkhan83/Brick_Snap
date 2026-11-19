@@ -1,0 +1,62 @@
+SUMMARY: 58 parts of 24 kinds, no problems: every part is held, nothing overlaps, and it stands.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 1
+- line 2 is held by 1 stud of line 1
+- line 3 is held by 1 stud of line 1
+- line 4 is held by 1 stud of line 1
+- line 5 is held by 1 stud of line 1
+- line 6 is held by 2 studs of line 1
+- line 7 is held by 2 studs of line 1
+- line 8 is held by 2 studs of line 1
+- line 9 is held by 2 studs of line 1
+- line 10 is held by 4 studs of line 1
+- line 12 is held by 4 studs of line 2; 4 studs of line 3; 4 studs of line 4; 4 studs of line 5; 2 studs of line 6; 2 studs of line 7; 2 studs of line 8; 2 studs of line 9; 4 studs of line 10
+- line 13 is held by 6 studs of line 12
+- line 14 is held by 6 studs of line 12
+- line 15 is held by 4 studs of line 12
+- line 16 is held by 4 studs of line 12
+- line 17 is held by 8 studs of line 12
+- line 18 is held by 8 studs of line 12
+- line 19 is held by 1 stud of line 13; 1 stud of line 14; 4 studs of line 15
+- line 20 is held by 1 stud of line 13; 1 stud of line 14; 4 studs of line 16
+- line 21 is held by 4 studs of line 13
+- line 22 is held by 4 studs of line 14
+- line 23 is held by 2 studs of line 17; 2 studs of line 18
+- line 25 is held by 1 stud of line 23 (in a tube)
+- line 26 is held by 1 stud of line 25 (in a tube)
+- line 27 is held by 1 stud of line 26 (in a tube)
+- line 28 is held by 1 stud of line 27 (in a tube)
+- line 29 is held by 1 stud of line 28 (in a tube)
+- line 30 is held by 1 stud of line 29 (in a tube)
+- line 31 is held by 1 stud of line 30 (in a tube)
+- line 32 is held by 1 stud of line 31 (in a tube)
+- line 33 is held by 1 stud of line 32 (in a tube)
+- line 35 is held by 1 stud of line 33 (in a tube)
+- line 36 is held by 2 studs of line 35
+- line 37 is held by 2 studs of line 35
+- line 38 is held by 2 studs of line 37
+- line 39 is held by 2 studs of line 36
+- line 41 is held by 4 studs of line 36 (sideways)
+- line 42 is held by 12 studs of line 41 (sideways)
+- line 43 is held by 4 studs of line 42 (sideways)
+- line 44 is held by 4 studs of line 43 (sideways)
+- line 45 is held by 12 studs of line 44 (sideways)
+- line 46 is held by 4 studs of line 45 (sideways)
+- line 47 is held by 1 stud of line 45 (sideways, in a tube)
+- line 48 is held by 1 stud of line 45 (sideways, in a tube)
+- line 49 is held by 1 stud of line 45 (sideways, in a tube)
+- line 50 is held by 1 stud of line 45 (sideways, in a tube)
+- line 51 is held by 1 stud of line 45 (sideways, in a tube)
+- line 52 is held by 1 stud of line 45 (sideways, in a tube)
+- line 53 is held by 1 stud of line 45 (sideways, in a tube)
+- line 54 is held by 1 stud of line 45 (sideways, in a tube)
+- line 56 is held by 1 stud of line 17 (in a tube)
+- line 57 is held by 1 stud of line 56 (in a tube)
+- line 58 is held by 1 stud of line 57 (in a tube)
+- line 59 is held by 1 stud of line 58 (in a tube)
+- line 60 is held by 1 stud of line 18 (in a tube)
+- line 61 is held by 1 stud of line 60 (in a tube)
+- line 62 is held by 1 stud of line 61 (in a tube)
+- line 63 is held by 1 stud of line 62 (in a tube)
+- stands: its centre of mass (x 0, z -9) is over what touches the ground.

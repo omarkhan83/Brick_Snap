@@ -105,6 +105,60 @@ is the closest test of "an AI that builds what you scanned".
   hand to follow a curve is exactly the work the solver is good at and the AI is bad at.
 - So the two approaches are complements. The plan below keeps the solver as the tool for curved volume.
 
+## Experiment 3: with tools
+
+The same tasks as experiment 1, but now Fable 5.2 has a small workshop, built tonight from the parts
+library alone (`bricksnap/lab/` on the branch `wip/Alec-42-free-build`): find parts by description, read
+a part's card (size, studs, sockets, a picture), place a part by naming the stud it sits on, check the
+model, and look at it from any side. The checker names each problem with the line, the part and the
+place, and says how to fix it when it can.
+
+![The sunflower, built with tools](with-tools/flower.png)
+
+- **The sunflower: 58 parts of 24 kinds, and the checker finds nothing wrong**: every part is held,
+  nothing overlaps, and it stands. It took 47 steps and nine minutes; Claude Code reports $3.75 at list
+  prices. The model is `with-tools/flower.ldr` and the checker's full report is beside it.
+- It is a better design than the no-tools sunflower, because the AI searched: it found real petal plates
+  (two sizes, layered), three-leaf plant parts that lock into the stem, and a brick with four side studs
+  to hold the head, none of which it had used from memory. The pot tapers on inverted slopes.
+- The AI's own closing note lists what it would still improve (a taller pot, a hinge to tilt the head),
+  which is the raw material for a critic pass.
+- What the checker cannot yet confirm: clips, bars, pins and axles are listed as "not checked" and
+  counted as joined, and the strength of a joint is listed but not judged.
+
+## Experiment 4: more AI on the present system
+
+Before changing anything large, the question Alec asked first: on the grid BrickSnap has today, does it
+help to give the AI more of the work? Two ways, the same AI (Fable 5.2), the same three models:
+
+- **One designer**: one AI run touches up the conversion, as before.
+- **The studio**, built tonight: six runs, each with one job. Plan; lay out the main shapes from an empty
+  grid; refine and colour; surface and details; a critic who has not seen the work; fix what the critic
+  listed. Every pass is kept as a version.
+
+![The cat, each way and each pass](two-ways/cat.png)
+![The car](two-ways/car.png)
+![The duck](two-ways/duck.png)
+
+| Model | Plain conversion | One designer | Studio | The blind judge preferred |
+|---|---|---|---|---|
+| Cat | 130 parts | 139 parts, 5 minutes | 141 parts, 11 minutes, $5.63 | the studio, narrowly: tiled back, truer muzzle; the other has the better head and tail |
+| Car | 342 parts | 266 parts, 6 minutes | 214 parts, 10 minutes, $4.96 | the studio: smoother mirrors and bumper, number plate, fewer parts |
+| Duck | 401 parts | 404 parts, 4 minutes | 381 parts, 15 minutes, $7.13 | the one designer, "close to a coin toss": cleaner tail and bill, fewer weak spots |
+
+(Dollar figures are what Claude Code reports at list prices; on a subscription they are usage, not a
+bill. The one-designer runs' cost was not recorded.)
+
+- **Both are much better than the conversion**, and better than the designs of a few days ago. The
+  largest single gain tonight came from the AI model: Fable 5.2 as the one designer gives the car a
+  slanted glass windscreen, clean panels and round wheel hubs, and gives the duck round eyes on the sides
+  of its head, in one five-minute run.
+- **The studio is a modest gain for about three times the time**: cleaner surfaces and fewer parts on the
+  blocky models, no gain on the round one. The critic is the most useful pass; its lists were concrete
+  ("the windscreen is too upright: one sloped step, then a vertical pane").
+- **Neither changes what the model is made of.** Both still come out as stacked bricks with slopes,
+  because that is all the grid can express. The sunflower above is a different kind of object.
+
 ## What others have found
 
 All three are from the last two months, and all are open source. (Collected by a research agent that
@@ -181,11 +235,11 @@ few cents and a few dollars for 20 to 220 parts with one agent.
 
 ## Where this stands
 
-- Done: experiment 1 (above); the research; this proposal.
-- Done: experiment 2 (our samples from pictures).
-- Running: the same tasks with tools (find, attach, check, look); the cat, duck and car designed two
-  ways on the present grid (one designer, then the six-pass studio), for comparison.
-- Not started: more than one agent on one model; models above 200 parts.
+- Done tonight: the four experiments above; the studio and versions are in the product (`main`); the
+  workshop for free building is on a branch.
+- Running as this is written: the cat and the car built with tools.
+- Not started: more than one agent on one model; models above 200 parts; the solver as a fill tool inside
+  the workshop; a 3D view that can draw any part.
 
 ## Sources
 
