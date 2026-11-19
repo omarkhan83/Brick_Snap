@@ -173,6 +173,11 @@ Implementation notes
   stops in any other way is still marked failed.
 - A .gltf file whose data is kept in separate files (a buffer ``uri`` that is not a
   ``data:`` address) is refused at upload with a message saying to export it as .glb.
+- Downloads stay in step with the build: every job that changes the build writes the parts
+  list and the wanted list again, and the instruction booklet too when the project had one
+  (``App._refresh_downloads``), so a new model has them from the start and nobody orders
+  the parts of an older build. One that cannot be written again is removed, and the
+  progress says so. (Rebuilding with the command line does not do this.)
 - Pictures: every job that changes the build also writes renders/card.png
   (``pipeline.render_card``), the picture on the project's card; a project without one
   shows renders/compare.png. ``serve_app`` draws the missing cards in the background when
@@ -958,7 +963,40 @@ class App:
         render_card(project)
         job.say("Making the plain conversion, to show beside the design")
         rough_build(project)
+        self._refresh_downloads(job, project)
         return self._outcome(job, project, build)
+
+    def _refresh_downloads(self, job: Job, project: Project) -> None:
+        """Keep the files a person downloads in step with the build just made.
+
+        The parts list and the wanted list are written again, and so is the instruction
+        booklet when the project had one, so nobody orders the parts of an older build. A
+        file that cannot be written again is taken away (it would describe another build)
+        and the progress says so; the job itself carries on, because the build is fine.
+        """
+        from bricksnap.catalog import load_catalog
+        from bricksnap.export import write_exports
+        from bricksnap.instructions import make_instructions
+
+        def renew(files: tuple[str, ...], make: Callable[[], object], what: str) -> None:
+            try:
+                make()
+            except Exception as e:  # these files are extras: never fail the build for them
+                print(f"Could not write {what}: {type(e).__name__}: {e}", file=sys.stderr)
+                for name in files:
+                    with contextlib.suppress(OSError):
+                        (project.path / name).unlink()
+                job.say(f"Could not write {what} for this build; the older one was removed")
+
+        renew(
+            ("parts.csv", "wanted_list.xml"),
+            lambda: write_exports(project, load_catalog()),
+            "the parts list and the wanted list",
+        )
+        booklet = ("instructions.pdf", "instructions.html")
+        if any((project.path / name).is_file() for name in booklet):
+            job.say("Bringing the instruction booklet up to date")
+            renew(booklet, lambda: make_instructions(project), "the instruction booklet")
 
     def _outcome(self, job: Job, project: Project, build: Any) -> dict[str, Any]:
         ok = bool(build.report and build.report.ok)
@@ -1072,6 +1110,7 @@ class App:
             project = Project(project.path)
             rough_build(project)
             render_card(project)
+            self._refresh_downloads(job, project)
             build = load_build(project)
             out = self._outcome(job, project, build)
             out.update(
@@ -1097,6 +1136,7 @@ class App:
         render_compare(project)
         render_card(project)
         rough_build(project)
+        self._refresh_downloads(job, project)
         log = load_design(project).log
         out = self._outcome(job, project, build)
         out.update(

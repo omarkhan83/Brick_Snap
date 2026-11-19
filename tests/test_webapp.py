@@ -857,6 +857,56 @@ def test_export_and_instructions(running: Running, projects: Path) -> None:
     assert running.request("/p/pawn/files/parts.csv")[1]["content-type"].startswith("text/csv")
 
 
+def test_downloads_follow_the_build(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever changes the build writes the parts list and the wanted list again, and the
+    booklet too when there was one, so the files a person downloads are never those of an
+    older build."""
+    folder = projects / "pawn"
+    for name in ("parts.csv", "wanted_list.xml", "instructions.pdf", "instructions.html"):
+        (folder / name).unlink(missing_ok=True)
+    # a build with no booklet: the two lists appear, no booklet is made
+    job = running.wait(running.post("/api/p/pawn/build", {})[1]["job"])
+    assert job["state"] == "done", job
+    files = running.get_json("/api/p/pawn")["files"]
+    assert "parts.csv" in files and "wanted_list.xml" in files
+    assert "instructions.pdf" not in files and "instructions.html" not in files
+    # stale files from an older build are replaced, the booklet included once there is one
+    for name in ("parts.csv", "wanted_list.xml", "instructions.pdf", "instructions.html"):
+        (folder / name).write_text("from an older build")
+    job = running.wait(running.post("/api/p/pawn/build", {})[1]["job"])
+    assert job["state"] == "done", job
+    assert "Bringing the instruction booklet up to date" in job["progress"]
+    assert (folder / "parts.csv").read_text().startswith("Part,")
+    assert "<INVENTORY>" in (folder / "wanted_list.xml").read_text()
+    assert (folder / "instructions.pdf").read_bytes().startswith(b"%PDF")
+    assert "from an older build" not in (folder / "instructions.html").read_text()
+
+    # files that cannot be written again are removed, said in the progress, and the build stands
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise ValueError("no")
+
+    monkeypatch.setattr("bricksnap.export.write_exports", broken)
+    monkeypatch.setattr("bricksnap.instructions.make_instructions", broken)
+    job = running.wait(running.post("/api/p/pawn/build", {})[1]["job"])
+    assert job["state"] == "done", job
+    assert sum("the older one was removed" in line for line in job["progress"]) == 2
+    files = running.get_json("/api/p/pawn")["files"]
+    assert files == ["build.ldr", "renders/compare.png"]
+
+
+def test_a_new_model_has_its_lists_from_the_start(
+    running: Running, projects: Path, pawn_path: Path
+) -> None:
+    status, answer = running.upload(pawn_path.read_bytes())
+    assert status == 202, answer
+    job = running.wait(answer["job"])
+    assert job["state"] == "done", job
+    files = running.get_json(f"/api/p/{job['result']['project']}")["files"]
+    assert files == ["build.ldr", "parts.csv", "wanted_list.xml", "renders/compare.png"]
+
+
 def test_instructions_for_a_build_that_does_not_hold_fail_plainly(
     running: Running, projects: Path
 ) -> None:
