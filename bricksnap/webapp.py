@@ -218,6 +218,28 @@ STAGE 4 ADDITION TO THE CONTRACT: versions (``bricksnap.versions``)
 - Under ``files/``, ``versions/<NNNN>/build.json`` and ``versions/<NNNN>/card.png`` are
   served for a version the project's index lists, judged on the resolved path like the
   other files; nothing else in a version's folder (never its design files).
+
+STAGE 4 ADDITION TO THE CONTRACT: designing in passes (``bricksnap.designer.studio``)
+- ``/api/p/<project>/design`` with ``{"mode": "passes"}`` (and optional ``"rounds"``, 0 to
+  ``MAX_STUDIO_ROUNDS`` = 2, default the studio's 1) starts ``studio.run_studio`` with the
+  default passes, for a first design or to design a model again. ``"mode"`` may also be
+  ``"one"`` or left out (the one-designer way, as above); anything else is refused. A
+  ``request`` or a ``best_of`` other than 1 is refused with this mode. ``understood_runs``
+  must be ``studio_runs(rounds)``, the most AI runs it can start (4 passes plus 2 per round:
+  6 by default, 4 for 0 rounds, 8 for 2), otherwise it is refused as above.
+- It is a ``design`` job like the others (one AI job at a time, the project busy). The job
+  also gives ``passes``, the studio's passes in order, each ``{"pass", "job" (its words),
+  "state": "waiting" | "running" | "done" | "skipped" | "failed", "version"}`` (``passes``
+  is null for every other job). Progress lines come from ``cli.StudioProgress`` (the pass
+  starting, "Pass 2 kept as version 3", "The critic found 3 things to fix", "Put back
+  version 4 because ...") and, within a pass, the designer's own lines as above, all through
+  ``runner.redact``.
+- The studio keeps its own versions; the job keeps none. Afterwards the plain conversion is
+  made sure of and the downloads refreshed, when the project has a build made from its
+  design. A studio that stops fails the job with its own plain words and which versions the
+  passes made. While the studio runs the project may have no build at all (the outline
+  pass starts from an empty design): ``GET /api/p/<project>`` then says it is not built,
+  as for any project without a build.
 """
 
 from __future__ import annotations
@@ -247,6 +269,7 @@ from typing import Any, Protocol
 from urllib.parse import unquote, urlsplit
 
 from bricksnap.cli import (
+    StudioProgress,
     UserError,
     _system_error,
     adopt_versions,
@@ -286,6 +309,7 @@ MAX_REQUEST_CHARS = 2000
 DEFAULT_STUDS = 16
 MIN_STUDS, MAX_STUDS = 4, 96
 MAX_BEST_OF = 5
+MAX_STUDIO_ROUNDS = 2
 KEPT_JOBS = 200
 SAID_CHARS = 240
 
@@ -373,6 +397,9 @@ TOOL_WORDS = {
     "render": "The designer is looking at pictures of the model",
     "brief": "The designer is writing down its plan (the brief)",
     "rebuild": "The designer is rebuilding the bricks to check its work",
+    "measure": "The designer is measuring the bricks against the model",
+    "plan": "The designer is writing down its construction plan",
+    "critique": "The critic is writing down what it found",
 }
 NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five"}
 SOMETHING_WENT_WRONG = (
@@ -500,6 +527,7 @@ class Job:
     progress: list[str] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str | None = None
+    passes: list[dict[str, Any]] | None = None  # a studio job's passes, in order
 
     def say(self, line: str) -> None:
         self.progress.append(line)
@@ -516,7 +544,15 @@ class Job:
             "progress": list(self.progress),
             "result": self.result,
             "error": self.error,
+            "passes": None if self.passes is None else [dict(p) for p in self.passes],
         }
+
+
+def studio_runs(rounds: int) -> int:
+    """The most AI runs a studio job with ``rounds`` rounds of critic and fix can start."""
+    from bricksnap.designer import studio
+
+    return len(studio.DEFAULT_PASSES) + 2 * rounds
 
 
 def designer_progress(event: dict[str, Any]) -> list[str]:
@@ -1098,6 +1134,14 @@ class App:
         return self.start("build", name, work)
 
     def design(self, name: str, body: dict[str, Any]) -> Job:
+        mode = body.get("mode")
+        if mode == "passes":
+            return self.design_in_passes(name, body)
+        if mode not in (None, "one"):
+            raise Refused(
+                'Choose how the AI designs the model: "one" (one AI run that touches up the '
+                'conversion) or "passes" (it designs the model in passes).'
+            )
         request = body.get("request")
         if request is not None:
             if not isinstance(request, str):
@@ -1125,6 +1169,17 @@ class App:
                 f"Choose how many designs to make, a whole number from 1 to {MAX_BEST_OF}, not "
                 f"{best_of!r}."
             )
+        self._check_agreement(body, 1 if best_of == 1 else best_of + 1)
+        self.known(name)
+
+        def work(job: Job) -> dict[str, Any]:
+            return self._design(job, self.open(name), request, best_of)
+
+        return self.start("design", name, work, ai=True)
+
+    @staticmethod
+    def _check_agreement(body: dict[str, Any], runs: int) -> None:
+        """Refuse an AI job the person has not agreed to, for exactly ``runs`` AI runs."""
         if body.get("understood") is not True:
             raise Refused(
                 "The AI designer was not started. It sends pictures and a description of your "
@@ -1132,7 +1187,6 @@ class App:
                 "after you have read that and agreed. Use the AI designer button on the project "
                 "page and confirm there."
             )
-        runs = 1 if best_of == 1 else best_of + 1
         agreed = body.get("understood_runs")
         if not isinstance(agreed, int) or isinstance(agreed, bool) or agreed != runs:
             raise Refused(
@@ -1140,12 +1194,114 @@ class App:
                 "which is not the number you agreed to. Open the AI designer again, check how "
                 "many designs to try, and confirm."
             )
+
+    def design_in_passes(self, name: str, body: dict[str, Any]) -> Job:
+        """``{"mode": "passes", "rounds": 0 to 2}``: the studio designs the model in passes."""
+        from bricksnap.designer import studio
+
+        if body.get("request") is not None:
+            raise Refused(
+                "Designing in passes takes no request: it designs the whole model. Once it is "
+                "done, ask for one change in your own words."
+            )
+        if body.get("best_of") not in (None, 1):
+            raise Refused(
+                "Designing in passes makes one design, so it cannot be combined with trying "
+                "several designs. Every pass is kept as a version to compare instead."
+            )
+        rounds = body.get("rounds", studio.DEFAULT_ROUNDS)
+        if (
+            not isinstance(rounds, int)
+            or isinstance(rounds, bool)
+            or not (0 <= rounds <= MAX_STUDIO_ROUNDS)
+        ):
+            raise Refused(
+                "Choose how many rounds of critic and fix, a whole number from 0 to "
+                f"{MAX_STUDIO_ROUNDS}, not {rounds!r}."
+            )
+        self._check_agreement(body, studio_runs(rounds))
         self.known(name)
 
         def work(job: Job) -> dict[str, Any]:
-            return self._design(job, self.open(name), request, best_of)
+            return self._design_in_passes(job, self.open(name), rounds)
 
         return self.start("design", name, work, ai=True)
+
+    def _design_in_passes(self, job: Job, project: Project, rounds: int) -> dict[str, Any]:
+        """Run the studio, with its passes and versions shown as the job's progress. The
+        studio keeps its own versions; this keeps none."""
+        from bricksnap.designer import runner, studio
+        from bricksnap.pipeline import rough_build
+
+        load_design(project)  # fail now, clearly, if there is nothing to design
+        load_build(project)
+        names = [*studio.DEFAULT_PASSES, *(["critic", "fix"] * rounds)]
+        job.passes = [
+            {"pass": p, "job": studio.PASSES[p].job, "state": "waiting", "version": None}
+            for p in names
+        ]
+        if runner.has_brief(project):
+            job.say(
+                "This designs the model again, in passes. The model as it is now stays in the "
+                "list of versions"
+            )
+        else:
+            job.say("This is a first design of the model, in passes")
+        job.say(f"Starting up to {_plural(len(names), 'AI run')} one after another")
+        words = StudioProgress(project)
+
+        def hear(event: dict[str, Any]) -> None:
+            line = words.line(event)
+            if line is not None:
+                job.say(line)
+            kind, index = event.get("event"), event.get("index")
+            if kind in ("pass_started", "pass_ended") and isinstance(index, int):
+                entry = (
+                    job.passes[index - 1] if job.passes and 0 < index <= len(job.passes) else None
+                )
+                if entry is not None:
+                    if kind == "pass_started":
+                        entry["state"] = "running"
+                    elif event.get("skipped"):
+                        entry["state"] = "skipped"
+                    else:
+                        entry["state"] = "done" if event.get("ok") else "failed"
+                        entry["version"] = event.get("version")
+            if kind is None:
+                for said in designer_progress(event):
+                    job.say(said)
+
+        try:
+            result = studio.run_studio(project, on_event=hear, rounds=rounds)
+        except ValueError as e:  # checked before anything ran
+            raise JobFailed(str(e)) from e
+        project = Project(project.path)
+        made = [p.version for p in result.passes if p.version is not None]
+        build = None
+        if project.has_build() and project.build_is_current():
+            rough_build(project)  # the plain conversion stays beside it
+            self._refresh_downloads(job, project)
+            build = load_build(project)
+        if not result.ok:
+            if not made:
+                kept = "No pass made a new version."
+            elif len(made) == 1:
+                kept = f"What the passes made is kept as version {made[0]}."
+            else:
+                listed = ", ".join(str(n) for n in made[:-1]) + f" and {made[-1]}"
+                kept = f"What the passes made is kept as versions {listed}."
+            raise JobFailed(
+                f"{runner.redact(result.error or 'The passes stopped without saying why.')} "
+                f"{kept} You can look at every version in the list of versions."
+            )
+        if build is None:
+            raise JobFailed(
+                "The passes finished, but the model has no build that matches its design. "
+                'Press "Build the bricks again".'
+            )
+        out = self._outcome(job, project, build)
+        out.update(kind="passes", version=result.version, sessions=result.sessions, versions=made)
+        return out
 
     def _design(
         self, job: Job, project: Project, request: str | None, best_of: int

@@ -2,9 +2,9 @@
 
 Server tests talk HTTP to a real server on a free port. Browser tests (marked ``browser``)
 open the pages in headless Chromium and save screenshots to tests/artifacts/webapp-*.png.
-No test starts the real AI designer: ``runner.run_designer`` and ``judge.design_best_of``
-are replaced for every test, by a fake when a test needs one and otherwise by a stand-in
-that fails the test.
+No test starts the real AI designer: ``runner.run_designer``, ``judge.design_best_of`` and
+``studio.run_studio`` are replaced for every test, by a fake when a test needs one and
+otherwise by a stand-in that fails the test.
 """
 
 from __future__ import annotations
@@ -25,9 +25,10 @@ from typing import Any
 import numpy as np
 import pytest
 from PIL import Image
+from test_cli import FakeStudio
 
 from bricksnap import pipeline, render, webapp
-from bricksnap.designer import judge, runner
+from bricksnap.designer import judge, runner, studio
 from bricksnap.designer.judge import BestOf
 from bricksnap.designer.runner import DesignerRun
 from bricksnap.pipeline import create_project, rebuild, render_card, render_compare, rough_build
@@ -232,6 +233,8 @@ def no_real_designer() -> Iterator[None]:
         mp.setattr(judge, "design_best_of", never_start)
         mp.setattr(judge, "run_judge", never_start)
         mp.setattr(runner, "run_session", never_start)
+        mp.setattr(studio, "run_studio", never_start)
+        mp.setattr(studio, "run_pass", never_start)
         yield
 
 
@@ -1859,3 +1862,255 @@ def test_browser_versions_can_be_compared_and_one_brought_back(
         phone.assert_clean()
     finally:
         phone.close()
+
+
+# ---- designing in passes (the studio) ------------------------------------------------------
+
+PASSES_AGREED = {"mode": "passes", "understood": True, "understood_runs": 6}
+
+
+class Holds:
+    """``FakeStudio(hold=...)``: stops the studio at the start of the named passes until the
+    test opens that pass's gate."""
+
+    def __init__(self, *names: str) -> None:
+        self.gates = {name: Gate() for name in names}
+
+    def __call__(self, name: str) -> None:
+        if name in self.gates:
+            self.gates[name].wait()
+
+
+@pytest.mark.parametrize(("rounds", "runs"), [(None, 6), (0, 4), (1, 6), (2, 8)])
+def test_designing_in_passes_needs_agreement_to_its_number_of_runs(
+    running: Running, rounds: int | None, runs: int
+) -> None:
+    body: dict[str, Any] = {"mode": "passes", "understood": True}
+    if rounds is not None:
+        body["rounds"] = rounds
+    assert webapp.studio_runs(1 if rounds is None else rounds) == runs
+    for wrong in (runs - 1, runs + 1, 1, True, str(runs)):
+        status, data = running.post("/api/p/pawn/design", {**body, "understood_runs": wrong})
+        assert status == 400, wrong
+        assert f"this would start {runs} AI runs, which is not the number" in data["error"]
+    status, data = running.post("/api/p/pawn/design", {**body, "understood": False})
+    assert status == 400 and "your own Claude Code login" in data["error"]
+    assert running.app.jobs == {}
+
+
+@pytest.mark.parametrize(
+    ("body", "words"),
+    [
+        ({"rounds": 3}, "from 0 to 2, not 3"),
+        ({"rounds": "1"}, "from 0 to 2"),
+        ({"rounds": True}, "from 0 to 2"),
+        ({"request": "add a red collar"}, "takes no request"),
+        ({"best_of": 3}, "cannot be combined with trying several designs"),
+        ({"mode": "studio"}, "Choose how the AI designs the model"),
+    ],
+)
+def test_designing_in_passes_is_checked(running: Running, body: dict, words: str) -> None:
+    status, data = running.post("/api/p/pawn/design", {**PASSES_AGREED, **body})
+    assert status == 400 and words in data["error"], data
+    assert running.app.jobs == {}
+
+
+def test_designing_in_passes_runs_the_studio(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch, remembered_rebuild: None
+) -> None:
+    fake = FakeStudio()
+    monkeypatch.setattr(studio, "run_studio", fake)
+    folder = projects / "pawn"
+    (folder / "parts.csv").write_text("from an older build")
+    status, answer = running.post("/api/p/pawn/design", PASSES_AGREED)
+    assert status == 202
+    job = running.wait(answer["job"])
+    assert job["state"] == "done", job
+    assert job["kind"] == "design" and fake.calls[0]["rounds"] == 1
+    assert "passes" not in fake.calls[0] and "wish" not in fake.calls[0]
+    progress = job["progress"]
+    for line in (
+        "This is a first design of the model, in passes",
+        "Starting up to 6 AI runs one after another",
+        "Pass 1 of 6: studying the model and planning it",
+        "Pass 1: the brief and the construction plan are written",
+        "Pass 2 of 6: laying out the main shapes",
+        "The designer has started",
+        "The designer is looking at pictures of the model",
+        "The designer changed the design (2 edits)",
+        "Pass 2 kept as version 2",
+        "The critic found 3 things to fix",
+        "Pass 6 kept as version 5",
+    ):
+        assert line in progress, line
+    assert progress.index("Pass 2 of 6: laying out the main shapes") < progress.index(
+        "Pass 2 kept as version 2"
+    )
+    assert [(p["pass"], p["state"], p["version"]) for p in job["passes"]] == [
+        ("plan", "done", None),
+        ("outline", "done", 2),
+        ("refine", "done", 3),
+        ("surface", "done", 4),
+        ("critic", "done", None),
+        ("fix", "done", 5),
+    ]
+    assert job["passes"][1]["job"] == "laying out the main shapes"
+    assert job["result"]["kind"] == "passes" and job["result"]["versions"] == [2, 3, 4, 5]
+    assert job["result"]["valid"] is True and job["result"]["sessions"] == 6
+    # the studio kept its versions; the job kept none of its own
+    assert not any(line.startswith("Kept as version") for line in progress)
+    info = running.get_json("/api/p/pawn")
+    assert [v["n"] for v in info["versions"]] == [1, *fake.kept] == [1, 2, 3, 4, 5]
+    assert info["current_version"] == 5 and info["brief"]["object"] == "A chess pawn."
+    assert (folder / "parts.csv").read_text().startswith("Part,")  # the downloads follow
+    assert (folder / "build.rough.json").is_file()  # the plain conversion is still there
+    assert running.app.ai_job is None
+    # the other jobs say nothing of passes
+    assert running.wait(running.post("/api/p/pawn/export", {})[1]["job"])["passes"] is None
+
+
+def test_rounds_are_passed_on_and_a_satisfied_critic_ends_them(
+    running: Running, monkeypatch: pytest.MonkeyPatch, remembered_rebuild: None
+) -> None:
+    fake = FakeStudio(critic_good=True)
+    monkeypatch.setattr(studio, "run_studio", fake)
+    body = {**PASSES_AGREED, "rounds": 2, "understood_runs": 8}
+    job = running.wait(running.post("/api/p/pawn/design", body)[1]["job"])
+    assert job["state"] == "done", job
+    assert fake.calls[0]["rounds"] == 2
+    assert [p["state"] for p in job["passes"]][4:] == ["done", "skipped", "skipped", "skipped"]
+    assert "The critic found nothing to fix" in job["progress"]
+    assert "Pass 6 of 8 was not needed: the critic was satisfied" in job["progress"]
+
+
+def test_a_studio_that_stops_fails_the_job_and_says_what_was_kept(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch, remembered_rebuild: None
+) -> None:
+    from bricksnap import versions
+
+    monkeypatch.setattr(studio, "run_studio", FakeStudio(fail_at="surface"))
+    job = running.wait(running.post("/api/p/pawn/design", PASSES_AGREED)[1]["job"])
+    assert job["state"] == "failed"
+    assert job["error"].startswith(
+        "The surface pass did not succeed: The pass used all its turns (40) before it finished."
+    )
+    assert "put back to version 3, the last one that held together." in job["error"]
+    assert "What the passes made is kept as versions 2 and 3." in job["error"]
+    assert "Pass 4 stopped: The pass used all its turns (40) before it finished" in job["progress"]
+    assert "Put back version 3 because the surface pass did not succeed" in job["progress"]
+    assert [p["state"] for p in job["passes"]] == ["done"] * 3 + ["failed"] + ["waiting"] * 2
+    project = Project(projects / "pawn")
+    assert versions.current(project) == 3 and project.build_is_current()
+    assert running.app.ai_job is None
+
+
+def test_the_project_can_be_read_while_the_studio_has_no_build(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch, remembered_rebuild: None
+) -> None:
+    holds = Holds("outline")
+    monkeypatch.setattr(studio, "run_studio", FakeStudio(hold=holds))
+    status, answer = running.post("/api/p/pawn/design", PASSES_AGREED)
+    assert status == 202
+    gate = holds.gates["outline"]
+    try:
+        assert gate.reached.wait(20)
+        assert not (projects / "pawn" / "build.json").exists()
+        info = running.get_json("/api/p/pawn")
+        assert info["parts"] is None and info["verdict"] == "Not built into bricks yet."
+        assert info["current_version"] == 1 and info["current"] is False
+        assert [p["state"] for p in info["job"]["passes"]][:3] == ["done", "running", "waiting"]
+        files = running.get_json("/p/pawn/project-files.json")
+        assert "build.json" not in files["files"] and files["current"] == 1
+        assert running.request("/p/pawn/files/versions/0001/build.json")[0] == 200
+        assert running.post("/api/p/pawn/build", {})[0] == 409  # busy, as with any design
+    finally:
+        gate.open.set()
+    assert running.wait(answer["job"])["state"] == "done"
+
+
+@pytest.mark.browser
+def test_browser_designing_in_passes(
+    browser: Any,
+    running: Running,
+    projects: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    remembered_rebuild: None,
+) -> None:
+    """The confirmation offers two ways for a first design; changing the way takes the
+    agreement back. While the passes run, the job box lists them with the finished ones
+    ticked, the strip gains each version as it is kept, and the 3D view shows the last
+    version while the model has no build. Afterwards it can be designed again in passes."""
+    holds = Holds("outline", "surface")
+    monkeypatch.setattr(studio, "run_studio", FakeStudio(hold=holds))
+    tab = Tab(browser, running.url).open("p/pawn")
+    try:
+        page = tab.page
+        page.wait_for_function("window.__bricksnap && window.__bricksnap.ready === true")
+        page.locator("#aiOpen").click()
+        ways = tab.text("#aiWays")
+        assert "Touch up the conversion" in ways and "One AI run, a few minutes." in ways
+        assert "Design it in passes" in ways and "Up to 6 AI runs, usually" in ways
+        assert page.locator("#wayOne").is_checked() and page.locator("#bestOfField").is_visible()
+        page.locator("#aiUnderstood").check()
+        page.locator("label[for='wayPasses']").click()
+        assert not page.locator("#aiUnderstood").is_checked()  # the agreement is asked again
+        assert page.locator("#aiStart").is_disabled()
+        assert page.locator("#bestOfField").is_hidden()
+        assert "up to 6 AI runs" in tab.text("#aiRuns")
+        page.locator("#aiUnderstood").check()
+        page.locator("label[for='wayOne']").click()
+        assert not page.locator("#aiUnderstood").is_checked()
+        page.locator("label[for='wayPasses']").click()
+        page.screenshot(path=str(ARTIFACTS / "studio-confirm.png"))
+        page.locator("#aiUnderstood").check()
+        sent: list[Any] = []
+        page.on("request", lambda r: r.method == "POST" and sent.append(r.post_data_json))
+        page.locator("#aiStart").click()
+
+        # the outline pass: no build for a while, and the 3D view shows the last version
+        assert holds.gates["outline"].reached.wait(20)
+        assert sent == [{"mode": "passes", "understood": True, "understood_runs": 6}]
+        page.wait_for_selector("#appJob ol.passes li.running")
+        assert tab.text("#appJob h3") == "Working: Pass 2 of 6: laying out the main shapes"
+        page.evaluate("() => window.__bricksnap.pollNow()")
+        seen = page.evaluate(
+            "() => ({parts: window.__bricksnap.partCount, error: window.__bricksnap.error,"
+            " notice: document.querySelector('#notice').textContent})"
+        )
+        assert seen["parts"] > 0 and seen["error"] is None, seen
+        assert "not been built" not in seen["notice"]
+        page.screenshot(path=str(ARTIFACTS / "studio-no-build.png"), full_page=True)
+        holds.gates["outline"].open.set()
+
+        # later: the finished passes ticked, and the strip holds each version kept so far
+        assert holds.gates["surface"].reached.wait(20)
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#appJob ol.passes li')]"
+            ".map(l => l.dataset.state).join() === 'done,done,done,running,waiting,waiting'"
+        )
+        assert tab.text("#appJob ol.passes li:nth-child(2) .mark") == "✓"
+        assert "kept as version 2" in tab.text("#appJob ol.passes li:nth-child(2)")
+        page.wait_for_selector("#versions .vcard[data-n='3']")
+        assert tab.text("#versions .vcard[data-n='2'] .vlabel") == studio.OUTLINE.label
+        page.screenshot(path=str(ARTIFACTS / "studio-running.png"))
+        holds.gates["surface"].open.set()
+
+        page.wait_for_selector("#appJob .job.done")
+        page.wait_for_selector("#versions .vcard[data-n='5'] .vnow")
+        page.wait_for_selector("#aiPassesOpen")  # it has a brief now
+        page.screenshot(path=str(ARTIFACTS / "studio-done.png"))
+        page.locator("#aiPassesOpen").click()
+        assert page.locator("#aiWays").is_hidden() and page.locator("#bestOfField").is_hidden()
+        assert "designs the model again, in passes" in tab.text("#aiWhat")
+        assert "stays in the list of versions" in tab.text("#aiKeep")
+        page.screenshot(path=str(ARTIFACTS / "studio-again.png"))
+        page.keyboard.press("Escape")
+        assert page.locator("#aiConfirm").is_hidden()
+        # while there was no build, the viewer looked for build.json and did not find it
+        tab.failed = [u for u in tab.failed if not re.search(r"/files/build\.json\?", u)]
+        tab.errors = [e for e in tab.errors if "404 (Not Found)" not in e]
+        tab.assert_clean()
+    finally:
+        for gate in holds.gates.values():
+            gate.open.set()
+        tab.close()

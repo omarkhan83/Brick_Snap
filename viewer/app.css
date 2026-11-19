@@ -212,6 +212,35 @@ details.more[open] summary { margin-bottom: 10px; }
 .confirm .quote { font-weight: 800; overflow-wrap: anywhere; }
 .confirm select { align-self: flex-start; max-width: 100%; font: 700 16px var(--font); padding: 6px 8px; border: 3px solid var(--ink); border-radius: 10px; background: #fff; }
 .confirm .check { margin: 10px 0 12px; font-weight: 700; }
+.confirm .field[hidden], .confirm li[hidden], .ways[hidden] { display: none; }
+/* The two ways of designing, for a first design: one AI run, or the studio's passes. */
+.ways { border: 0; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ways legend { font-weight: 800; font-size: 17px; margin: 0 0 6px; padding: 0; }
+.way {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 2px solid var(--ink); border-radius: 10px; background: #fff;
+  padding: 8px 10px; cursor: pointer; line-height: 1.4;
+}
+.way:has(input:checked) { background: #fffbe6; outline: 3px solid var(--blue); outline-offset: 1px; }
+.way input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--blue); }
+.way strong { display: block; font-size: 16px; }
+.way .wayline { display: block; font-size: 15px; }
+/* "Design it again in passes": a link in the line above the box for a change. */
+button.linklike {
+  background: none; border: 0; box-shadow: none; padding: 0;
+  font: 700 16px var(--font); color: var(--blue); text-decoration: underline; cursor: pointer;
+}
+button.linklike:hover, button.linklike:active { transform: none; box-shadow: none; }
+button.linklike:disabled { background: none; box-shadow: none; color: #777; cursor: default; }
+/* A studio job's passes, in order, the finished ones ticked. */
+.job ol.passes { list-style: none; margin: 8px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.job ol.passes li { display: flex; gap: 8px; align-items: baseline; line-height: 1.35; }
+.job ol.passes .mark { width: 1.2em; flex: none; text-align: center; font-weight: 800; }
+.job ol.passes .pstate { color: var(--muted); font-size: 14px; }
+.job ol.passes li.done .mark { color: var(--green); }
+.job ol.passes li.running { font-weight: 800; }
+.job ol.passes li.failed .mark { color: var(--red); }
+.job ol.passes li.waiting, .job ol.passes li.skipped { color: var(--muted); }
 
 @media (max-width: 900px) {
   .home-grid { grid-template-columns: minmax(0, 1fr); }

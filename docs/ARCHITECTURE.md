@@ -295,7 +295,8 @@ bricksnap/
   viewserver.py   the small local server behind `bricksnap view`
   webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads
   designer/       prompt.md, tools.py, mcp_server.py, runner.py, parity.py; the judge: judge.py,
-                  judge_prompt.md, judge_server.py
+                  judge_prompt.md, judge_server.py; the studio (design in passes): studio.py,
+                  studio_tools.py, studio_server.py, prompts/
 viewer/           build-free web pages: the 3D viewer, and the web app's home page and action bar
 tests/            unit tests and acceptance tests
 samples/          test models (with their licences) and example projects

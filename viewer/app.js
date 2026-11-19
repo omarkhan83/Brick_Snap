@@ -109,6 +109,23 @@ const DONE_TITLE = {
   restore: 'The earlier version is back',
 };
 
+const PASS_MARKS = { done: '✓', running: '▶', skipped: '–', failed: '✗', waiting: '' };
+const PASS_STATES = { done: 'done', running: 'working on it now', skipped: 'not needed', failed: 'stopped', waiting: 'still to come' };
+
+/** A studio job's passes in order, the finished ones ticked. */
+function passList(passes) {
+  const items = passes.map((p, i) => {
+    const state = PASS_STATES[p.state] ? p.state : 'waiting';
+    const kept = Number.isInteger(p.version) ? `, kept as version ${p.version}` : '';
+    return el('li', { className: `pass ${state}`, dataset: { state } }, [
+      el('span', { className: 'mark', 'aria-hidden': 'true', text: PASS_MARKS[state] }),
+      el('span', { text: `${i + 1}. ${String(p.job || p.pass || '')}` }),
+      el('span', { className: 'pstate', text: ` (${PASS_STATES[state]}${kept})` }),
+    ]);
+  });
+  return el('ol', { className: 'passes', 'aria-label': 'The passes, in order' }, items);
+}
+
 /** One job's box: what is happening, newest progress first, and what to do if it failed. */
 export class JobView {
   constructor(parent, { onDone = null, nextStep = null } = {}) {
@@ -178,8 +195,11 @@ export class JobView {
     this.box.className = `job ${running ? '' : job.state}`.trim();
     this.box.dataset.state = job.state;
     const parts = [];
+    const passes = Array.isArray(job.passes) ? job.passes : null;
     if (running) {
-      const what = job.what ? job.what[0].toUpperCase() + job.what.slice(1) : 'Working';
+      let what = job.what ? job.what[0].toUpperCase() + job.what.slice(1) : 'Working';
+      const now = passes ? passes.findIndex((p) => p.state === 'running') : -1;
+      if (now >= 0) what = `Pass ${now + 1} of ${passes.length}: ${passes[now].job}`;
       parts.push(el('h3', {}, [el('span', { className: 'spinner', 'aria-hidden': 'true' }), el('span', { text: `Working: ${what}` })]));
       if (job.started) parts.push(el('p', { className: 'when', text: `Started ${ago(job.started)}.` }));
       parts.push(
@@ -196,6 +216,7 @@ export class JobView {
       const todo = WHAT_TO_DO[job.kind];
       if (todo) parts.push(el('p', { className: 'todo', text: `What to do: ${todo}` }));
     }
+    if (passes && passes.length) parts.push(passList(passes));
     const lines = Array.isArray(job.progress) ? job.progress.slice().reverse() : [];
     if (lines.length) {
       parts.push(el('ul', { className: 'progress', 'aria-label': 'Progress, newest first' }, lines.map((t) => el('li', { text: String(t) }))));
@@ -223,6 +244,10 @@ const DOWNLOADS = {
 };
 
 const MINUTES_PER_RUN = [3, 6];
+// Designing in passes (the studio): its AI runs at most (4 passes, then a critic and a fix),
+// and roughly how long the whole of it takes, in minutes.
+const STUDIO_RUNS = 6;
+const STUDIO_MINUTES = [10, 25]; // measured on three models with Fable 5.2: 8 to 14 minutes
 
 function initActions(project) {
   const main = document.querySelector('main');
@@ -254,10 +279,37 @@ function initActions(project) {
   const confirmWhat = el('li', { id: 'aiWhat' });
   const confirmRuns = el('li', { id: 'aiRuns' });
   const confirmTime = el('li', { id: 'aiTime' });
+  const confirmKeep = el('li', { id: 'aiKeep', hidden: true, text: 'The model as it is now stays in the list of versions, so you can always go back to it.' });
   let pendingRequest = null;
+  let way = 'one'; // 'one': touch up the conversion in one AI run; 'passes': the studio
+
+  const wayOne = el('input', { type: 'radio', name: 'aiWay', id: 'wayOne', value: 'one', checked: true });
+  const wayPasses = el('input', { type: 'radio', name: 'aiWay', id: 'wayPasses', value: 'passes' });
+  const wayBox = el('fieldset', { className: 'ways', id: 'aiWays' }, [
+    el('legend', { text: 'How should the AI design it?' }),
+    el('label', { className: 'way', for: 'wayOne' }, [
+      wayOne,
+      el('span', {}, [
+        el('strong', { text: 'Touch up the conversion' }),
+        el('span', { className: 'wayline', text: 'One AI run, a few minutes. It improves how the bricks you see now look.' }),
+      ]),
+    ]),
+    el('label', { className: 'way', for: 'wayPasses' }, [
+      wayPasses,
+      el('span', {}, [
+        el('strong', { text: 'Design it in passes' }),
+        el('span', {
+          className: 'wayline',
+          text: `The AI plans it, lays out the shapes, refines them, finishes the surface, then a critic checks it and it fixes what the critic found. Up to ${STUDIO_RUNS} AI runs, usually ${STUDIO_MINUTES[0]} to ${STUDIO_MINUTES[1]} minutes.`,
+        }),
+      ]),
+    ]),
+  ]);
+  const bestOfField = el('div', { className: 'field', id: 'bestOfField' }, [el('label', { for: 'bestOf', text: 'How many designs to try' }), bestOf]);
 
   confirmBox.append(
     el('h3', { id: 'aiConfirmTitle', text: 'Before the AI designer starts' }),
+    wayBox,
     el('ul', {}, [
       confirmWhat,
       el('li', {
@@ -266,8 +318,9 @@ function initActions(project) {
       el('li', { text: 'It uses your own Claude Code login, so it counts towards your Claude subscription.' }),
       confirmRuns,
       confirmTime,
+      confirmKeep,
     ]),
-    el('div', { className: 'field' }, [el('label', { for: 'bestOf', text: 'How many designs to try' }), bestOf]),
+    bestOfField,
     el('label', { className: 'check' }, [understood, el('span', { text: 'I have read this and want to start the AI designer.' })]),
     el('div', { className: 'row' }, [startBtn, cancelBtn]),
   );
@@ -380,7 +433,12 @@ function initActions(project) {
       input.onkeydown = (e) => {
         if (e.key === 'Enter') go();
       };
-      parts.push(el('p', { text: 'Want something changed? Ask the AI designer for it in your own words.' }));
+      parts.push(
+        el('p', {}, [
+          document.createTextNode('Want something changed? Ask the AI designer for it in your own words. Or '),
+          el('button', { type: 'button', className: 'linklike', id: 'aiPassesOpen', text: 'design it again in passes…', onclick: () => openConfirm(null, 'passes') }),
+        ]),
+      );
       parts.push(el('div', { className: 'ask' }, [input, ask]));
     }
     // keep a typed request across refreshes
@@ -467,6 +525,12 @@ function initActions(project) {
 
   // ---- the AI confirmation ----
   function describeRuns() {
+    bestOfField.hidden = way === 'passes';
+    if (way === 'passes') {
+      confirmRuns.textContent = `It starts up to ${STUDIO_RUNS} AI runs, one after another: one for each pass, and fewer when the critic finds nothing to fix. Each pass that changes the model is kept as a version, and you see it in the list of versions as soon as it is made.`;
+      confirmTime.textContent = `It usually takes ${STUDIO_MINUTES[0]} to ${STUDIO_MINUTES[1]} minutes. For part of that time the model has no bricks yet; the 3D view keeps showing the last version. You can leave this page while it works.`;
+      return;
+    }
     const n = Number(bestOf.value);
     confirmRuns.textContent =
       n === 1
@@ -478,12 +542,22 @@ function initActions(project) {
         : `Each run takes a few minutes, so expect about ${MINUTES_PER_RUN[0] * (n + 1)} to ${MINUTES_PER_RUN[1] * (n + 1)} minutes in all. Your project is only changed at the very end. You can leave this page while it works.`;
   }
 
-  function openConfirm(request) {
+  function openConfirm(request, mode = null) {
     if (busy()) return;
     pendingRequest = request;
     say('');
     understood.checked = false;
-    if (request) {
+    // A first design offers both ways; a request is always one run; "design it again in
+    // passes" is only the passes.
+    const first = !request && !mode && !(info && info.brief);
+    way = mode === 'passes' ? 'passes' : 'one';
+    wayOne.checked = way === 'one';
+    wayPasses.checked = way === 'passes';
+    wayBox.hidden = !first;
+    confirmKeep.hidden = mode !== 'passes';
+    if (mode === 'passes') {
+      confirmWhat.textContent = 'This designs the model again, in passes: the AI plans it, lays out the shapes, refines them, finishes the surface, then a critic checks it and it fixes what the critic found.';
+    } else if (request) {
       confirmWhat.replaceChildren(
         document.createTextNode('Your request, as the designer will get it: '),
         el('span', { className: 'quote', id: 'aiQuote', text: `“${request}”` }),
@@ -501,6 +575,16 @@ function initActions(project) {
     understood.focus();
   }
 
+  const changeWay = () => {
+    // the way is part of what the person agreed to: ask again
+    way = wayPasses.checked ? 'passes' : 'one';
+    understood.checked = false;
+    describeRuns();
+    updateButtons();
+  };
+  wayOne.onchange = changeWay;
+  wayPasses.onchange = changeWay;
+
   bestOf.onchange = () => {
     // the number of AI runs is part of what the person agreed to: ask again
     understood.checked = false;
@@ -510,7 +594,7 @@ function initActions(project) {
   understood.onchange = updateButtons;
   function closeConfirm() {
     confirmBox.hidden = true;
-    const opener = nextStep.querySelector('#aiOpen, #askBtn');
+    const opener = nextStep.querySelector('#aiOpen, #askBtn, #aiPassesOpen');
     if (opener) opener.focus();
   }
   cancelBtn.onclick = closeConfirm;
@@ -519,6 +603,11 @@ function initActions(project) {
   });
   startBtn.onclick = async () => {
     if (!understood.checked) return;
+    if (way === 'passes') {
+      confirmBox.hidden = true;
+      await start('design', { mode: 'passes', understood: true, understood_runs: STUDIO_RUNS });
+      return;
+    }
     const n = Number(bestOf.value);
     const body = { understood: true, understood_runs: n === 1 ? 1 : n + 1 };
     if (pendingRequest) body.request = pendingRequest;

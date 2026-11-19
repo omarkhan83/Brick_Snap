@@ -231,6 +231,30 @@ STAGE 4 ADDITION TO THE CONTRACT: versions (``bricksnap.versions``)
   comparison picture) still belong to the build before until they are made again, with
   the commands that make them. Exit code 0 when the restored build holds together, 1 when
   it does not; a number that is not a version is exit code 2.
+
+STAGE 4 ADDITION TO THE CONTRACT: the studio (``bricksnap.designer.studio``)
+- ``design PROJECT --studio [--passes plan,outline,surface] [--rounds N] [--wish TEXT]``
+  designs the model in passes with ``studio.run_studio`` (``--model`` and ``--effort`` are
+  passed on). ``--passes``, ``--rounds`` (0 to 3) and ``--wish`` go only with ``--studio``.
+  ``--studio`` takes no REQUEST or ``--instruction`` (the message says to give a wish, or to
+  type a change afterwards, which works on the studio's result because it leaves a brief),
+  and no ``--best-of``. All of this is checked before the project is opened (exit code 2,
+  nothing starts); so are unknown pass names, an empty wish, and passes the studio would
+  refuse. A project with no design or no build gets ``Project``'s own message (exit code
+  2), and one without a plan and brief must include the plan pass.
+- Before starting it lists the passes, says how many AI sessions it starts at most
+  (``len`` of the studio's sequence), the same words as ``design`` about what is sent off
+  the computer, that every pass is kept as a version, and roughly how long it takes
+  (``STUDIO_MINUTES_PER_SESSION`` per session).
+- While it runs: one line per pass start (the event's ``words``) and one per pass end
+  ("Pass 2 kept as version 3.", "The critic found 3 things to fix.", "Pass 3 stopped: ..."),
+  one when a version is put back, all from ``StudioProgress`` (shared with the web app),
+  and one "-> tool" line per tool call of each session.
+- Afterwards: whether it finished, the brief, the final build's verdict and short report,
+  the versions this run kept as ``versions`` lists them, that the parts list, the wanted
+  list and the booklet are not made by the studio (with the commands that make them), the
+  files and what to do next. The studio keeps its own versions; the command keeps none.
+  Exit code 0 when the studio finished and the final build holds together, else 1.
 """
 
 from __future__ import annotations
@@ -1113,6 +1137,16 @@ def _print_edit_summary(
 def cmd_design(args: argparse.Namespace) -> int:
     from bricksnap.designer.runner import EDIT, TOOL_PREFIX, run_designer, run_kind
 
+    if args.studio:
+        return _design_studio(args)
+    given = [
+        f"--{name}" for name in ("passes", "rounds", "wish") if getattr(args, name) is not None
+    ]
+    if given:
+        raise UserError(
+            f"{' and '.join(given)} only go with --studio, which designs the model in passes. "
+            f"For example: {RUN} design {shlex.quote(args.project)} --studio"
+        )
     request = _request(args)
     best_of = _best_of(args)
     if best_of > 1 or args.judge_again:
@@ -1326,6 +1360,262 @@ def _design_best_of(args: argparse.Namespace, request: str | None, n: int) -> in
     _print_outputs(project, project.renders_dir / "compare.png")
     _print_next(project, ok)
     return 0 if ok else 1
+
+
+STUDIO_MINUTES_PER_SESSION = (2, 4)  # measured: a pass takes half a minute to five minutes
+"""Roughly how long one session of the studio takes, said before it starts."""
+
+
+class StudioProgress:
+    """Plain sentences for the studio's own events (``studio.run_studio``'s ``on_event``),
+    shared with the web app: "Pass 2 of 6: laying out the main shapes", "Pass 2 kept as
+    version 3", "The critic found 3 things to fix", "Put back version 4 because ...". The
+    sentences have no full stop; the AI sessions' own stream events give None."""
+
+    def __init__(self, project: Project) -> None:
+        self.path = project.path
+        self.critics = 0  # critic reports given so far: the next one is critique-<n>.json
+
+    def line(self, event: dict[str, Any]) -> str | None:
+        from bricksnap.designer.runner import redact
+
+        kind = event.get("event")
+        index, name = event.get("index"), event.get("pass")
+        if kind == "pass_started":
+            return redact(str(event.get("words") or f"Pass {index}: {name}"))
+        if kind == "pass_ended":
+            if event.get("skipped"):
+                return f"Pass {index} of {event.get('of')} was not needed: the critic was satisfied"
+            if not event.get("ok"):
+                why = redact(str(event.get("error") or "it did not say why")).rstrip(".")
+                return f"Pass {index} stopped: {why}"
+            if event.get("version") is not None:
+                return f"Pass {index} kept as version {event['version']}"
+            if name == "critic":
+                self.critics += 1
+                return self._critique()
+            if name == "plan":
+                return f"Pass {index}: the brief and the construction plan are written"
+            return f"Pass {index} changed nothing, so no new version was kept"
+        if kind == "restored":
+            why = redact(str(event.get("why") or "")).split(":")[0].strip().rstrip(".")
+            because = f" because {why[:1].lower()}{why[1:]}" if why else ""
+            return f"Put back version {event.get('version')}{because}"
+        return None
+
+    def _critique(self) -> str:
+        from bricksnap.designer.studio_tools import STUDIO_DIR
+
+        try:
+            report = json.loads(
+                (self.path / STUDIO_DIR / f"critique-{self.critics}.json").read_text("utf-8")
+            )
+        except (OSError, ValueError):
+            return "The critic has given its report"
+        problems = report.get("problems") if isinstance(report, dict) else None
+        if not isinstance(report, dict) or report.get("verdict") == "good" or not problems:
+            return "The critic found nothing to fix"
+        n = len(problems) if isinstance(problems, list) else 1
+        return f"The critic found {_plural(n, 'thing')} to fix"
+
+
+def _tool_names(event: dict[str, Any]) -> list[str]:
+    """The tools an AI session calls in one stream event, as "apply_ops (3 operations)"."""
+    from bricksnap.designer.runner import TOOL_PREFIX, StreamParser
+
+    if event.get("type") != "assistant":
+        return []
+    names = []
+    for item in StreamParser._content(event):
+        if item.get("type") == "tool_use":
+            name = str(item.get("name", "")).removeprefix(TOOL_PREFIX)
+            ops = (item.get("input") or {}).get("ops") if name == "apply_ops" else None
+            names.append(
+                name + (f" ({_plural(len(ops), 'operation')})" if isinstance(ops, list) else "")
+            )
+    return names
+
+
+def _studio_takes_no_request(project: str) -> str:
+    ref = shlex.quote(project)
+    return (
+        "--studio designs the whole model in passes and takes no request. To steer it, "
+        f'give a wish: {RUN} design {ref} --studio --wish "make it red". To change one '
+        "thing afterwards, type the change on its own; it works on the studio's result, "
+        f'which leaves a brief: {RUN} design {ref} "add a red collar"'
+    )
+
+
+def _studio_choice(args: argparse.Namespace) -> tuple[list[str] | None, int, int]:
+    """(passes, rounds, the most AI sessions they can start) from ``design --studio``'s
+    options, checked before anything is opened or started."""
+    from bricksnap.designer import studio
+
+    ref = shlex.quote(args.project)
+    if args.request is not None or args.instruction is not None:
+        raise UserError(_studio_takes_no_request(args.project))
+    if args.best_of is not None or args.judge_again:
+        raise UserError(
+            "--studio and --best-of cannot be used together: the studio designs the model "
+            "once, in passes, and keeps every pass as a version, which you can compare with "
+            f"'{RUN} versions {ref}'. Use one or the other."
+        )
+    passes = None
+    if args.passes is not None:
+        passes = [p.strip() for p in args.passes.split(",") if p.strip()]
+        unknown = [p for p in passes if p not in studio.PASSES]
+        if not passes or unknown:
+            raise UserError(
+                f"--passes takes the names of passes, separated by commas, from: "
+                f"{', '.join(studio.PASSES)}"
+                + (f" ({', '.join(repr(p) for p in unknown)} is not one)" if unknown else "")
+                + f". For example: {RUN} design {ref} --studio --passes plan,outline,surface"
+            )
+    rounds = studio.DEFAULT_ROUNDS
+    if args.rounds is not None:
+        try:
+            rounds = int(args.rounds)
+        except ValueError:
+            rounds = -1
+        if not 0 <= rounds <= studio.MAX_ROUNDS:
+            raise UserError(
+                f"--rounds takes how many rounds of critic and fix, a whole number from 0 to "
+                f"{studio.MAX_ROUNDS}, not {args.rounds!r}."
+            )
+    if args.wish is not None and not args.wish.strip():
+        raise UserError(
+            f"The wish is empty. Type it in quotes, for example: {RUN} design {ref} --studio "
+            '--wish "make it red"'
+        )
+    try:
+        sessions = len(studio._resolve(passes, rounds))
+    except ValueError as e:
+        raise UserError(str(e)) from e
+    return passes, rounds, sessions
+
+
+def _design_studio(args: argparse.Namespace) -> int:
+    """``design PROJECT --studio``: the studio designs the model in passes."""
+    from bricksnap import versions
+    from bricksnap.designer import studio
+    from bricksnap.designer.runner import has_brief, redact
+    from bricksnap.designer.studio_tools import load_plan
+
+    passes, rounds, sessions = _studio_choice(args)
+    project = open_project(args.project)
+    load_design(project)  # fail now, clearly, if there is nothing to design
+    load_build(project)  # and if it was never built
+    names = list(passes or studio.DEFAULT_PASSES)
+    if "plan" not in names and (load_plan(project) is None or not has_brief(project)):
+        raise UserError(
+            "This project has no construction plan and brief to build from, so the passes "
+            f"must start with the plan pass. For example: {RUN} design {_ref(project)} --studio"
+        )
+    before = max((v.n for v in versions.versions(project)), default=0)
+    options: dict[str, Any] = {"passes": passes, "rounds": rounds}
+    if args.wish is not None:
+        options["wish"] = args.wish.strip()
+    if args.model is not None:
+        options["model"] = args.model
+    if args.effort is not None:
+        options["effort"] = args.effort
+
+    print(f'Starting the AI studio for "{project.name}": the AI designs the model in passes.')
+    jobs = [f"{n}. {studio.PASSES[p].job}" for n, p in enumerate(names, start=1)]
+    print("The passes, in order: " + "; ".join(jobs) + ".")
+    if rounds:
+        print(
+            f"Then {_plural(rounds, 'round')} of a critic who looks at it with fresh eyes, and a "
+            "fix of what the critic found (no fix when the critic is satisfied)."
+        )
+    if args.wish is not None:
+        print(f'Your wish, which the plan includes: "{args.wish.strip()}".')
+    if "plan" in names and has_brief(project):
+        print(
+            "The model already has a brief; the plan pass writes a new one. The model as it "
+            "is now stays in the list of versions."
+        )
+    low, high = (m * sessions for m in STUDIO_MINUTES_PER_SESSION)
+    print(
+        f"This starts at most {_plural(sessions, 'AI session')}, one after another. Each sends "
+        "pictures of the model and a description of it (its size, colours and parts) to the "
+        "AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything "
+        "off your computer."
+    )
+    print(
+        "Every pass that changes the model is kept as a version; if a pass fails, the last "
+        "version that held together is put back."
+        + (
+            " The outline pass starts from an empty design, so for a while the model has no bricks."
+            if "outline" in names
+            else ""
+        )
+    )
+    print(
+        f"Expect about {low} to {high} minutes in all. Press Ctrl+C to stop it; the versions "
+        "kept so far stay."
+    )
+    print()
+    sys.stdout.flush()
+
+    words = StudioProgress(project)
+
+    def progress(event: dict[str, Any]) -> None:
+        line = words.line(event)
+        if line is not None:
+            indent = "" if event.get("event") == "pass_started" else "  "
+            print(f"{indent}{line}{'' if line.endswith('.') else '.'}", flush=True)
+        for name in _tool_names(event):
+            print(f"    -> {name}", flush=True)
+
+    result = studio.run_studio(project, on_event=progress, **options)
+
+    project = Project(project.path)
+    print()
+    if result.ok:
+        print(f"The studio finished after {_plural(result.sessions, 'AI session')}.")
+    else:
+        print(f"The studio stopped: {redact(result.error) or 'it did not say why.'}")
+    _print_brief(project)
+    ok = False
+    if project.has_build():
+        build = load_build(project)
+        if not any(note.strip() for note in build.notes):
+            print()  # the notes start with an empty line of their own
+        _print_verdict(build, project)
+        ok = bool(build.report and build.report.ok)
+    else:
+        print()
+        print("The model has no build now, because no version that held together was left.")
+    made = [v for v in versions.versions(project) if v.n > before]
+    print()
+    if made:
+        print("Kept as versions by this run:")
+        now = versions.current(project)
+        for v in made:
+            _print_version(v, now)
+        print(f"'{RUN} versions {_ref(project)}' lists them all and brings any one back.")
+    else:
+        print("This run kept no new version.")
+    if project.has_build():
+        ref = _ref(project)
+        print()
+        stale = any(_is_file(project.path / f) for f in ("parts.csv", "instructions.pdf"))
+        print(
+            "The studio does not make the parts list, the wanted list or the building "
+            "instructions"
+            + (" (the ones in the folder are from before it)" if stale else "")
+            + ". Make them for this model with:"
+        )
+        print(f"  {RUN} export {ref}")
+        print(f"  {RUN} instructions {ref}")
+        _print_outputs(project, project.renders_dir / "compare.png")
+    records = project.path / "designer"
+    if _is_dir(records) and any(records.glob("*.jsonl")):
+        print()
+        print(f"A full record of each session is in {_show(records)}")
+    _print_next(project, ok)
+    return 0 if result.ok and ok else 1
 
 
 def _print_ranking(project: Project, result: Any, folder: str) -> None:
@@ -1660,6 +1950,19 @@ def keep_present(project: Project, say: Any = None) -> None:
         keep_version(project, "manual", rebuild_label(project, load_build(project)), say=say)
 
 
+def _print_version(v: Any, now: int | None) -> None:
+    """One version as ``versions PROJECT`` lists it."""
+    mark = "  <- current" if v.n == now else ""
+    holds = "holds together" if v.valid else "does NOT hold together"
+    print(f"  {v.n:>3}. {v.label}{mark}")
+    print(
+        f"       {_when(v.created)} · {KIND_WORDS.get(v.kind, v.kind)} · "
+        f"{_plural(v.parts, 'part')} · {holds}"
+    )
+    if v.note and v.note != v.label:
+        print(f"       {_shorten(v.note, 200)}")
+
+
 def cmd_versions(args: argparse.Namespace) -> int:
     from bricksnap import versions
 
@@ -1678,15 +1981,7 @@ def cmd_versions(args: argparse.Namespace) -> int:
     now = versions.current(project)
     print(f'Versions of "{project.name}", oldest first:')
     for v in found:
-        mark = "  <- current" if v.n == now else ""
-        holds = "holds together" if v.valid else "does NOT hold together"
-        print(f"  {v.n:>3}. {v.label}{mark}")
-        print(
-            f"       {_when(v.created)} · {KIND_WORDS.get(v.kind, v.kind)} · "
-            f"{_plural(v.parts, 'part')} · {holds}"
-        )
-        if v.note and v.note != v.label:
-            print(f"       {_shorten(v.note, 200)}")
+        _print_version(v, now)
     others = [v.n for v in found if v.n != now]
     if others:
         print()
@@ -1969,6 +2264,25 @@ def _parser() -> _Parser:
         "AI runs",
     )
     p.add_argument("--judge-again", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument(
+        "--studio",
+        action="store_true",
+        help="design it in passes instead: the AI plans it, lays out the shapes, refines, "
+        "finishes the surface, then a critic checks it and it fixes what the critic found "
+        "(up to 6 AI sessions; each pass is kept as a version)",
+    )
+    p.add_argument(
+        "--passes",
+        metavar="LIST",
+        help="with --studio: which passes, in order, separated by commas (default: "
+        "plan,outline,refine,surface)",
+    )
+    p.add_argument(
+        "--rounds",
+        metavar="N",
+        help="with --studio: rounds of critic and fix after the passes, 0 to 3 (default: 1)",
+    )
+    p.add_argument("--wish", metavar="TEXT", help="with --studio: a wish for the design, in quotes")
     p.set_defaults(func=cmd_design)
 
     p = sub.add_parser(
@@ -2036,6 +2350,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args, extras = parser.parse_known_args(argv)
         if extras:
             if getattr(args, "func", None) is cmd_design and _unquoted_request(extras):
+                if args.studio:
+                    raise UserError(_studio_takes_no_request(args.project))
                 raise UserError(_quote_your_request(args, argv, extras))
             parser.error(f"unrecognized arguments: {' '.join(extras)}")
     except UserError as e:

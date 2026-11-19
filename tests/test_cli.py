@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -2280,3 +2281,237 @@ def test_every_change_is_kept_as_a_version_and_can_be_brought_back(
 
     code, _, err = run(capsys, "versions", "pawn", "--restore", "99")
     assert code == 2 and "has no version 99 (its versions: 1, 2, 3)" in err
+
+
+# ---- stage 4: design PROJECT --studio --------------------------------------------------------
+
+
+class FakeStudio:
+    """Stands in for ``studio.run_studio``: plays its passes as the real one reports them,
+    without an AI. Each pass sends the studio's own events and a session's tool calls; the
+    plan writes a brief, the critic its report, and every pass that changes the model paints
+    it, builds it and keeps it as a version. The outline pass removes the build first, as
+    the real one starts from an empty design. ``hold(name)`` is called at the start of each
+    pass (in the outline pass while there is no build), ``fail_at`` names a pass that fails
+    and makes the studio put back the last version that held. Also used by test_webapp.py."""
+
+    def __init__(
+        self,
+        *,
+        fail_at: str | None = None,
+        critic_good: bool = False,
+        hold: Any = None,
+        capsys: Any = None,
+    ) -> None:
+        self.fail_at = fail_at
+        self.critic_good = critic_good
+        self.hold = hold
+        self.capsys = capsys
+        self.calls: list[dict[str, Any]] = []
+        self.said_before_start = ""
+        self.kept: list[int] = []
+
+    def __call__(self, project: Project, **options: Any) -> Any:
+        from bricksnap import pipeline, versions
+        from bricksnap.design import apply_ops
+        from bricksnap.designer import studio
+        from bricksnap.designer.runner import TOOL_PREFIX
+
+        if self.capsys is not None:
+            self.said_before_start = self.capsys.readouterr().out
+        self.calls.append(options)
+        tell = options.get("on_event") or (lambda event: None)
+        rounds = options.get("rounds", studio.DEFAULT_ROUNDS)
+        names = [*(options.get("passes") or studio.DEFAULT_PASSES), *["critic", "fix"] * rounds]
+        result = studio.StudioRun()
+        if not project.build_is_current():
+            pipeline.rebuild(project)
+        result.start_version = versions.record(project, "converted", "Before the studio")
+        stop = False
+        critiques = 0
+        for index, name in enumerate(names, start=1):
+            where = {"pass": name, "index": index, "of": len(names)}
+            p = studio.PASSES[name]
+            if stop:
+                result.passes.append(studio.PassResult(name, ok=True, skipped=True))
+                tell({"event": "pass_ended", **where, "ok": True, "skipped": True,
+                      "version": None, "error": ""})  # fmt: skip
+                continue
+            tell({"event": "pass_started", **where, "job": p.job,
+                  "words": f"Pass {index} of {len(names)}: {p.job}"})  # fmt: skip
+            result.sessions += 1
+            tell({"type": "system", "subtype": "init", "tools": []})
+            item = {"type": "tool_use", "name": TOOL_PREFIX + "render", "input": {}}
+            tell({"type": "assistant", "message": {"content": [item]}})
+            if name == "outline":
+                project.build_path.unlink()
+            if self.hold is not None:
+                self.hold(name)
+            if name == self.fail_at:
+                error = "The pass used all its turns (40) before it finished."
+                result.passes.append(studio.PassResult(name, error=error))
+                tell({"event": "pass_ended", **where, "ok": False, "skipped": False,
+                      "version": None, "error": error})  # fmt: skip
+                result.error = f"The {name} pass did not succeed: {error}"
+                held = [v.n for v in versions.versions(project) if v.valid]
+                if held:
+                    versions.restore(project, held[-1])
+                    result.restored = held[-1]
+                    result.error += (
+                        f" The project was put back to version {held[-1]}, the last one that "
+                        "held together."
+                    )
+                    tell({"event": "restored", "version": held[-1], "why": result.error})
+                break
+            version = None
+            if name == "plan":
+                project.meta["brief"] = {"object": "A chess pawn.", "features": ["a round head"]}
+                project.save_meta()
+            elif name == "critic":
+                critiques += 1
+                report = (
+                    {"verdict": "good", "summary": "Fine.", "problems": []}
+                    if self.critic_good
+                    else {"verdict": "problems", "summary": "Plain.", "problems": [{}, {}, {}]}
+                )
+                folder = project.path / "studio"
+                folder.mkdir(exist_ok=True)
+                (folder / f"critique-{critiques}.json").write_text(json.dumps(report))
+                stop = self.critic_good
+            else:
+                colour = (4, 1, 14, 2, 15, 0)[(index - 1) % 6]
+                box = {"type": "box", "min": [0, 0, 0], "max": [9, 9, 2 + index]}
+                design = project.load_design()
+                apply_ops(design, [{"op": "paint", "shape": box, "color": colour}], load_catalog())
+                project.save_design(design)
+                tell({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "name": TOOL_PREFIX + "apply_ops",
+                     "input": {"ops": [{}, {}]}}]}})  # fmt: skip
+                pipeline.rebuild(project)
+                pipeline.render_card(project)
+                version = versions.record(project, "pass", p.label)
+                self.kept.append(version)
+            result.passes.append(studio.PassResult(name, ok=True, version=version))
+            tell({"event": "pass_ended", **where, "ok": True, "skipped": False,
+                  "version": version, "error": ""})  # fmt: skip
+        else:
+            result.ok = True
+        result.version = versions.current(project)
+        tell({"event": "studio_done", "ok": result.ok, "version": result.version,
+              "sessions": result.sessions})  # fmt: skip
+        return result
+
+
+def test_studio_says_what_it_sends_then_reports_each_pass(capsys, in_projects, monkeypatch):
+    from bricksnap import versions
+
+    fake = FakeStudio(capsys=capsys)
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", fake)
+    (in_projects / "parts.csv").write_text("from before")
+    code, out, err = run(capsys, "design", "pawn", "--studio")
+    assert code == 0, out + err
+    before = fake.said_before_start
+    assert 'Starting the AI studio for "pawn"' in before
+    assert "This starts at most 6 AI sessions, one after another." in before
+    assert "AI provider, Anthropic" in before and "Nothing else in BrickSnap sends" in before
+    assert "1. studying the model and planning it; 2. laying out the main shapes" in before
+    assert "Then 1 round of a critic" in before
+    assert "Expect about 12 to 24 minutes" in before
+    assert fake.calls[0]["passes"] is None and fake.calls[0]["rounds"] == 1
+    assert "wish" not in fake.calls[0]
+    for line in (
+        "Pass 1 of 6: studying the model and planning it.\n",
+        "  Pass 1: the brief and the construction plan are written.\n",
+        "Pass 2 of 6: laying out the main shapes.\n",
+        "    -> render\n",
+        "    -> apply_ops (2 operations)\n",
+        "  Pass 2 kept as version 2.\n",
+        "  The critic found 3 things to fix.\n",
+        "  Pass 6 kept as version 5.\n",
+        "The studio finished after 6 AI sessions.\n",
+        "The designer's brief:\n",
+        "The build is valid afterwards:\n",
+        "Kept as versions by this run:\n",
+        "    5. Fix: the critic's points  <- current\n",
+        "AI design pass · ",
+        "(the ones in the folder are from before it)",
+        "  uv run bricksnap export pawn\n",
+        "  uv run bricksnap instructions pawn\n",
+        'uv run bricksnap design pawn "make the tail longer"',
+    ):
+        assert line in out, line
+    kept = versions.versions(Project(in_projects))
+    # the studio keeps its own versions; the command adds none of its own
+    assert [v.n for v in kept] == [1, *fake.kept] == [1, 2, 3, 4, 5]
+    assert "    1. Before the studio\n" in out  # the model as it was, kept by the studio
+
+
+def test_studio_passes_its_options_on(capsys, in_projects, monkeypatch):
+    fake = FakeStudio(capsys=capsys, critic_good=True)
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", fake)
+    argv = ["design", "pawn", "--studio", "--passes", "plan,outline", "--rounds", "2"]
+    code, out, _ = run(capsys, *argv, "--wish", " make it red ", "--model", "m", "--effort", "low")
+    assert code == 0, out
+    assert fake.calls[0] == {
+        "passes": ["plan", "outline"],
+        "rounds": 2,
+        "wish": "make it red",
+        "model": "m",
+        "effort": "low",
+        "on_event": fake.calls[0]["on_event"],
+    }
+    assert "at most 6 AI sessions" in fake.said_before_start
+    assert 'Your wish, which the plan includes: "make it red".' in fake.said_before_start
+    assert "The critic found nothing to fix." in out
+    assert out.count("was not needed: the critic was satisfied.") == 3
+
+
+@pytest.mark.parametrize(
+    ("extra", "words"),
+    [
+        (["make it red"], "takes no request"),
+        (["--instruction", "make it red"], "takes no request"),
+        (["--best-of", "2"], "--studio and --best-of cannot be used together"),
+        (["--passes", "plan,polish"], "('polish' is not one)"),
+        (["--passes", ","], "--passes takes the names of passes"),
+        (["--passes", "plan,fix"], "A fix pass needs a critic pass before it."),
+        (["--rounds", "4"], "a whole number from 0 to 3, not '4'"),
+        (["--rounds", "one"], "a whole number from 0 to 3"),
+        (["--wish", "  "], "The wish is empty."),
+    ],
+)
+def test_studio_refuses_what_does_not_go_with_it(capsys, in_projects, monkeypatch, extra, words):
+    fake = FakeStudio()
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", fake)
+    code, out, err = run(capsys, "design", "pawn", "--studio", *extra)
+    assert code == 2 and words in err, err
+    assert fake.calls == [] and "sends pictures" not in out
+
+
+def test_studio_options_need_studio(capsys, in_projects, monkeypatch):
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", FakeStudio())
+    code, _, err = run(capsys, "design", "pawn", "--rounds", "2", "--wish", "red")
+    assert code == 2 and "--rounds and --wish only go with --studio" in err
+
+
+def test_studio_needs_a_built_project_and_a_plan(capsys, bare_pawn, in_projects, monkeypatch):
+    fake = FakeStudio()
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", fake)
+    code, out, err = run(capsys, "design", str(bare_pawn), "--studio")
+    assert code == 2 and "has not been built yet" in err
+    code, out, err = run(capsys, "design", "pawn", "--studio", "--passes", "outline,refine")
+    assert code == 2 and "must start with the plan pass" in err
+    assert fake.calls == [] and "sends pictures" not in out
+
+
+def test_a_studio_pass_that_fails_says_what_was_put_back(capsys, in_projects, monkeypatch):
+    from bricksnap import versions
+
+    monkeypatch.setattr("bricksnap.designer.studio.run_studio", FakeStudio(fail_at="refine"))
+    code, out, _ = run(capsys, "design", "pawn", "--studio")
+    assert code == 1
+    assert "  Pass 3 stopped: The pass used all its turns (40) before it finished.\n" in out
+    assert "  Put back version 2 because the refine pass did not succeed.\n" in out
+    assert "The studio stopped: The refine pass did not succeed" in out
+    assert "    2. Outline: the main shapes laid out  <- current\n" in out
+    assert versions.current(Project(in_projects)) == 2

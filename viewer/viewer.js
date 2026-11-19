@@ -20,8 +20,10 @@
 // Versions (bricksnap/versions.py): when /project-files.json lists versions, two choosers say
 // what each view shows. The left view ("rough" in the code) shows the plain conversion or any
 // version, the right view ("designed") any version; the current version is drawn from
-// build.json itself, so it follows a rebuild live. The step slider, the header, the brief and
-// the right-hand title follow the right view. Without versions the page is as before.
+// build.json itself, so it follows a rebuild live. While there is no build.json at all (the
+// studio starts from an empty design for a while), the current version is drawn from its own
+// copy instead. The step slider, the header, the brief and the right-hand title follow the
+// right view. Without versions the page is as before.
 //
 // Look inside: a clipping plane on the model's materials (never the ground or grid) cuts both
 // views open along one axis; at 0 nothing is cut.
@@ -1859,7 +1861,12 @@ async function refresh() {
   state.versions = listed;
   state.current = files && Number.isInteger(files.current) && versionByN(files.current) ? files.current : null;
   chooseSources();
-  const rightText = sources.right === 'live' ? text : await versionText(sources.right);
+  let rightText = sources.right === 'live' ? text : await versionText(sources.right);
+  // No build.json for a while (the studio starts from an empty design): show the version in
+  // use rather than "not built yet".
+  if (rightText === null && sources.right === 'live' && state.current !== null) {
+    rightText = await versionText(state.current);
+  }
   let roughText = null;
   if (sources.left === 'rough') roughText = await fetchText(`${PROJECT_URL}/build.rough.json`);
   else if (sources.left !== null) roughText = await versionText(sources.left);
