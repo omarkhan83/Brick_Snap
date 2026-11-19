@@ -51,3 +51,26 @@ BrickLink Studio 2.26.10 on Windows. Answers so far:
 
 Not yet looked at: the pawn and the duck (for the duck, whether the slopes face the right way in Studio;
 they do in LeoCAD), Studio's collision and stability checks (question 3), and the wanted list (question 4).
+
+2026-11-18, Alec-42's agent: the pawn and the duck are now checked too, and so are the three current
+showcase builds. Studio opens a file named on its command line (`Studio.exe "C:\path\file.ldr"`, when
+Studio is not already running), so an agent on a computer with Studio can do questions 1 and 2 without
+anyone clicking: start it that way, wait about 45 seconds, and take a picture of the window. Results in
+Studio 2.26.10, each compared with the file it was given:
+
+| File | Parts in the file | Parts Studio counts | Steps in the file | Steps Studio lists |
+|---|---|---|---|---|
+| pawn, bricks and plates | 294 | 294 | 58 | 58 |
+| duck with slopes | 633 | 633 | 83 | 83 |
+| `samples/projects/cat-showcase` | 116 | 116 | 29 | 29 |
+| `samples/projects/duck-showcase` | 530 | 530 | 82 | 82 |
+| `samples/projects/car-showcase` | 244 | 244 | 45 | 45 |
+
+All five open without an error message and look like our own pictures: colours right (the car's windows
+are see-through blue), the duck's slopes facing outwards and down as in LeoCAD, tiles smooth, nothing
+floating or missing. Studio names every part in its step list ("Slope 30 1 x 1 x 2/3", "Tile 1 x 2",
+"Plate 2 x 3"), so it recognises them as its own parts and not as unknown shapes. Questions 1 and 2 are
+answered: yes and yes. The pictures are on Alec's computer in `C:\Users\AlecR\BrickSnap\Results`.
+
+Still needs a person, because both mean pressing buttons inside Studio: question 3 (press Stability, and
+look for parts drawn see-through, which is how Studio shows a collision) and question 4 (the wanted list).
