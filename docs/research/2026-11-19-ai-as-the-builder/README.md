@@ -71,6 +71,40 @@ What the pictures show:
 - **It takes thought, not tools.** One attempt took between four and twenty minutes of the AI's time;
   Fable's car took the longest and is the best of the six.
 
+## Experiment 2: our own sample models, from pictures
+
+The same one-page instructions, plus a picture of one of our sample models from five sides with a grid on
+it (`from-pictures/reference-*.png`), and one sentence: build this. Still no checker and one attempt. This
+is the closest test of "an AI that builds what you scanned".
+
+| Model | By | Parts | Kinds | Our pipeline today |
+|---|---|---|---|---|
+| Blocky cat | Fable 5.2 | 100 | 28 | 130 parts |
+| Blocky cat | Opus 5.5 | 92 | 27 | |
+| Rubber duck | Fable 5.2 | 151 | 23 | 401 parts |
+| Rubber duck | Opus 5.5 | 170 | 17 | |
+| Car | Fable 5.2 | 121 | 32 | 342 parts |
+| Car | Opus 5.5 | 89 | 27 | |
+
+![The cat we showed](from-pictures/reference-cat.png)
+![Fable's cat](from-pictures/fable-cat.png)
+![The car we showed](from-pictures/reference-car.png)
+![Fable's car](from-pictures/fable-car.png)
+![Opus's car](from-pictures/opus-car.png)
+![The duck we showed](from-pictures/reference-duck.png)
+![Fable's duck](from-pictures/fable-duck.png)
+![Opus's duck](from-pictures/opus-duck.png)
+
+- **Blocky and mechanical things: the AI's build is clearly better than ours.** Fable's cat is the cat in
+  the picture with a tiled back, eyes and inner ears on side-stud bricks, and whiskers made of Technic
+  pins. Both cars have a chassis, bumpers, real windscreens, lights and wheels on axles, at about a third
+  of the parts our pipeline uses, because one shaped part does the work of dozens of small plates.
+- **Round, organic things: a different answer, not a better one.** Fable's duck is a chunky, charming
+  LEGO duck at 151 parts, with inverted slopes under its belly and round eyes; ours at 401 parts follows
+  the real curve far more closely. Opus's duck is a stepped pyramid. Placing hundreds of small slopes by
+  hand to follow a curve is exactly the work the solver is good at and the AI is bad at.
+- So the two approaches are complements. The plan below keeps the solver as the tool for curved volume.
+
 ## What others have found
 
 All three are from the last two months, and all are open source. (Collected by a research agent that
@@ -148,8 +182,9 @@ few cents and a few dollars for 20 to 220 parts with one agent.
 ## Where this stands
 
 - Done: experiment 1 (above); the research; this proposal.
-- Running: the same three tasks with tools (find, attach, check, look); building our own sample duck, cat
-  and car from pictures; the multi-pass design on the present grid, for comparison.
+- Done: experiment 2 (our samples from pictures).
+- Running: the same tasks with tools (find, attach, check, look); the cat, duck and car designed two
+  ways on the present grid (one designer, then the six-pass studio), for comparison.
 - Not started: more than one agent on one model; models above 200 parts.
 
 ## Sources
