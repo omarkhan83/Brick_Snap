@@ -11,8 +11,9 @@ Files, inside the project folder:
                            "versions": [entry, ...]}, oldest first
     versions/0001/         design.npz, design.json: the Design as it was
                            build.json: its checked Build
-                           card.png: one clean picture (``pipeline.render_card``), when it
-                           could be drawn
+                           card.png: one clean picture of this build, drawn when the
+                           version is kept (``pipeline.render_card``, which also refreshes
+                           renders/card.png); left out when it could not be drawn
 An entry: ``{"n", "kind", "label", "note", "created" (UTC, ISO 8601), "parts", "valid",
 "design_id", "brief"}``. ``brief`` is the designer's brief as it stood (None before any AI
 design); ``design_id`` is ``Design.fingerprint()``.
@@ -200,7 +201,10 @@ def record(project: Project, kind: str, label: str, note: str = "") -> int:
         design.save(staging / "design.npz", staging / "design.json")
         shutil.copyfile(project.build_path, staging / "build.json")
         card = project.renders_dir / "card.png"
-        if card.is_file():
+        with contextlib.suppress(Exception):  # a version without its picture is still a version
+            from bricksnap.pipeline import render_card
+
+            card = render_card(project)  # drawn now: an older card may show another build
             shutil.copyfile(card, staging / "card.png")
         os.rename(staging, _folder(project, n))
     finally:

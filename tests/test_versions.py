@@ -194,3 +194,16 @@ def test_the_brief_is_read_from_disk_not_from_a_project_opened_earlier(pawn):
     assert not on_disk.get("brief") and on_disk["extra"] == "written meanwhile"
     versions.restore(stale, 2)
     assert Project(pawn.path).meta["brief"] == BRIEF and stale.meta["brief"] == BRIEF
+
+
+def test_a_version_gets_a_fresh_picture_even_when_an_old_one_lies_about(pawn):
+    """The command line builds without drawing the card, so the card in renders/ may be of
+    an earlier build, or missing."""
+    card = pawn.renders_dir / "card.png"
+    card.unlink()
+    versions.record(pawn, "converted", "First")
+    first = (versions.version_dir(pawn, 1) / "card.png").read_bytes()
+    assert first.startswith(b"\x89PNG") and card.read_bytes() == first
+    repaint(pawn)  # rebuilds; the card in renders/ is now the old build's
+    versions.record(pawn, "manual", "Red base")
+    assert (versions.version_dir(pawn, 2) / "card.png").read_bytes() != first
