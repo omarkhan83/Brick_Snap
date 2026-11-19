@@ -134,7 +134,7 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
 ## Verifying a change
 
 1. Run all three; all must pass:
-   - `uv run pytest` (about four minutes)
+   - `uv run pytest` (about six minutes; a proposal to run it in parallel is open)
    - `uv run ruff check`
    - `uv run ty check`
 2. If the change affects what a user sees (the viewer page, a picture, an exported file), look at the result
@@ -146,7 +146,7 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
    your user what it reports against the saved scorecard, `samples/scorecard.json`. Every model must still
    build with no loose parts. Save a new scorecard (`--save`) in the same commit only when the numbers and
    the pictures show an improvement.
-   Also run `uv run pytest -m thorough` (about two minutes): the slow sweeps that the everyday run leaves
+   Also run `uv run pytest -m thorough` (about three minutes): the slow sweeps that the everyday run leaves
    out, such as every sample model at three sizes, long random runs, and speed checks on big models. The
    lead's agent runs them again before closing a stage.
 4. A change to documents only needs no checks beyond making sure the files it mentions exist.
@@ -176,9 +176,15 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   open or start BrickSnap, run it in the background, give them the address it prints, and stop it when
   they are done. Its pages and the 3D viewer (`uv run bricksnap view <project>`) are in `viewer/`, with
   no build step.
-- **The AI design step** (`uv run bricksnap design <project>`, or the designer button in the web app)
-  runs through the user's own Claude Code login and uses their subscription. Never start it unless your
-  user asks. The tests that would start it are skipped unless asked for by name.
+- **The AI design step** (`uv run bricksnap design <project>`, with `--studio` for the design in passes,
+  or the designer button in the web app) runs through the user's own Claude Code login and uses their
+  subscription. Never start it unless your user asks. The tests that would start it are skipped unless
+  asked for by name.
+- **Versions.** Every job or command that changes a model keeps its design and build as a numbered
+  version (`uv run bricksnap versions <project>`; the strip of versions in the web app). Nothing a user
+  made is lost by trying something.
+- **Research** is in `docs/research/`, one folder per question, with the experiments' own files. Read
+  `docs/research/2026-11-19-ai-as-the-builder/README.md` before working on how the AI designs or builds.
 - **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
   still opens by double-click. It is not developed further: do not fix or extend it.
 - `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in

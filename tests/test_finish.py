@@ -1922,7 +1922,9 @@ UNCHANGED_AT_16 = {"bottle": "49bd6a50cd03b78f", "cat": "dce7b135fb28f6a2"}
 MERGED_AT_16 = {"bottle": "d7473b1923c89b46", "cat": "1b564f62cb6b60be"}
 
 
-@pytest.mark.parametrize("studs", [pytest.param(12, marks=pytest.mark.thorough), 16])
+# every sample is a thorough sweep; the pawn test below is its quick representative
+@pytest.mark.thorough
+@pytest.mark.parametrize("studs", [12, 16])
 def test_every_sample_is_no_less_sturdy_after_finishing(catalog, samples, monkeypatch, studs):
     for name, (design, build) in samples[studs].items():
         _, after, _ = run(design, catalog, build)  # run checks the rule, among the rest
@@ -2213,6 +2215,7 @@ def test_merging_needs_a_part_the_pass_made(catalog):
     assert finish(build, design, catalog).parts == build.parts
 
 
+@pytest.mark.thorough
 def test_merging_on_the_samples(catalog, samples, monkeypatch):
     """At 16 studs merging takes the duck under 450 parts (503 before it) and the eleven
     samples from 2,809 to about 2,400, moving no tile, slope or detail part, and leaving no
@@ -2418,6 +2421,7 @@ def test_an_inverted_slope_that_would_cut_parts_into_pieces_is_not_placed(catalo
     assert "cut the parts around it into more pieces" in " ".join(after.notes)
 
 
+@pytest.mark.thorough
 def test_inverted_slopes_never_add_a_weak_spot_on_the_samples(catalog, samples):
     """Counted as the checks count them, no sample has a heavier weak spot or more of them
     than with no underside marked sloped; the duck, the teapot and the pawn get inverted
