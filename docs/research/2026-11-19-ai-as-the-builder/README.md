@@ -114,10 +114,16 @@ model, and look at it from any side. The checker names each problem with the lin
 place, and says how to fix it when it can.
 
 ![The sunflower, built with tools](with-tools/flower.png)
+![The cat, built with tools](with-tools/cat.png)
 
 - **The sunflower: 58 parts of 24 kinds, and the checker finds nothing wrong**: every part is held,
   nothing overlaps, and it stands. It took 47 steps and nine minutes; Claude Code reports $3.75 at list
   prices. The model is `with-tools/flower.ldr` and the checker's full report is beside it.
+- **The cat: 78 parts of 35 kinds, and again the checker finds nothing wrong.** 45 steps, twelve and a
+  half minutes, $4.35 at list prices (`with-tools/cat.ldr`). An orange tabby with a white bib, green round
+  eyes on side-stud bricks, a pink nose, white horn pieces as whiskers, a red collar with a bell, round
+  bricks as front legs and a ringed tail of curved slopes wrapped round its side. The no-tools cat had
+  ears floating above its head; this one's are held.
 - It is a better design than the no-tools sunflower, because the AI searched: it found real petal plates
   (two sizes, layered), three-leaf plant parts that lock into the stem, and a brick with four side studs
   to hold the head, none of which it had used from memory. The pot tapers on inverted slopes.

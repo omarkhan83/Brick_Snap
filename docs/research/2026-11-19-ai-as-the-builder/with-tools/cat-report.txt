@@ -1,0 +1,80 @@
+SUMMARY: 78 parts of 35 kinds, no problems: every part is held, nothing overlaps, and it stands.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 1, line 2, line 3
+- line 4 is held by 16 studs of line 1
+- line 5 is held by 4 studs of line 1; 2 studs of line 2
+- line 6 is held by 4 studs of line 1; 2 studs of line 2; 3 studs of line 3
+- line 7 is held by 1 stud of line 3
+- line 14 is held by 1 stud of line 72
+- line 15 is held by 1 stud of line 73
+- line 16 is held by 1 stud of line 74
+- line 17 is held by 2 studs of line 5
+- line 18 is held by 2 studs of line 6
+- line 19 is held by 2 studs of line 6
+- line 20 is held by 1 stud of line 6; 1 stud of line 7
+- line 22 is held by 4 studs of line 70
+- line 23 is held by 4 studs of line 71
+- line 24 is held by 4 studs of line 22
+- line 25 is held by 4 studs of line 23
+- line 26 is held by 8 studs of line 4; 4 studs of line 5
+- line 27 is held by 8 studs of line 4; 4 studs of line 6
+- line 29 is held by 4 studs of line 26
+- line 30 is held by 4 studs of line 26
+- line 32 is held by 4 studs of line 27
+- line 33 is held by 4 studs of line 27
+- line 34 is held by 4 studs of line 26
+- line 36 is held by 4 studs of line 24; 4 studs of line 25
+- line 37 is held by 1 stud of line 29; 1 stud of line 30; 2 studs of line 34
+- line 40 is held by 1 stud of line 36
+- line 41 is held by 2 studs of line 36
+- line 42 is held by 1 stud of line 36
+- line 44 is held by 1 stud of line 40; 2 studs of line 41; 1 stud of line 42; 2 studs of line 97; 4 studs of line 98; 2 studs of line 99
+- line 46 is held by 2 studs of line 44
+- line 47 is held by 2 studs of line 44
+- line 48 is held by 2 studs of line 44
+- line 49 is held by 2 studs of line 44
+- line 50 is held by 2 studs of line 44
+- line 51 is held by 6 studs of line 44
+- line 53 is held by 1 stud of line 46
+- line 54 is held by 1 stud of line 46
+- line 55 is held by 2 studs of line 50
+- line 56 is held by 1 stud of line 48
+- line 57 is held by 1 stud of line 48
+- line 58 is held by 2 studs of line 46; 2 studs of line 47; 2 studs of line 48; 2 studs of line 49; 4 studs of line 51
+- line 59 is held by 2 studs of line 47; 2 studs of line 49; 2 studs of line 51
+- line 61 is held by 1 stud of line 53; 1 stud of line 54; 2 studs of line 55; 1 stud of line 56; 1 stud of line 57; 12 studs of line 58; 6 studs of line 59
+- line 66 is held by 2 studs of line 61
+- line 68 is held by 2 studs of line 61
+- line 70 is held by 4 studs of line 1
+- line 71 is held by 4 studs of line 1
+- line 72 is held by 2 studs of line 1
+- line 73 is held by 2 studs of line 1
+- line 74 is held by 2 studs of line 2
+- line 75 is held by 2 studs of line 61
+- line 76 is held by 2 studs of line 61
+- line 77 is held by 1 stud of line 75
+- line 78 is held by 1 stud of line 76
+- line 79 is held by 2 studs of line 61
+- line 80 is held by 2 studs of line 61
+- line 81 is held by 2 studs of line 61
+- line 82 is held by 2 studs of line 61
+- line 83 is held by 2 studs of line 82
+- line 84 is held by 1 stud of line 54 (sideways, in a tube)
+- line 85 is held by 1 stud of line 56 (sideways, in a tube)
+- line 86 is held by 2 studs of line 50 (sideways)
+- line 87 is held by 2 studs of line 41 (sideways)
+- line 88 is held by 2 studs of line 86 (sideways)
+- line 89 is held by 1 stud of line 86 (sideways)
+- line 90 is held by 1 stud of line 86 (sideways)
+- line 91 is held by 1 stud of line 87 (sideways, in a tube)
+- line 92 is held by 1 stud of line 88 (sideways, in a tube)
+- line 93 is held by 4 studs of line 27
+- line 94 is held by 1 stud of line 29; 1 stud of line 32
+- line 95 is held by 2 studs of line 34; 2 studs of line 93
+- line 96 is held by 1 stud of line 30; 1 stud of line 33
+- line 97 is held by 1 stud of line 37; 1 stud of line 94
+- line 98 is held by 2 studs of line 37; 2 studs of line 95
+- line 99 is held by 1 stud of line 37; 1 stud of line 96
+- line 100 is held by 2 studs of line 61
+- stands: its centre of mass (x 3, z 13) is over what touches the ground.
