@@ -44,27 +44,32 @@ attempt. The answers were drawn with LeoCAD, a free program that knows the real 
 |---|---|---|---|---|
 | A sitting cat, about 80 parts | Fable 5.2 | 75 | 25 | none |
 | A sitting cat, about 80 parts | Opus 5.5 | 81 | 24 | none |
+| A small sports car with turning wheels, arches, windscreen, seat and steering wheel, about 110 parts | Fable 5.2 | 101 | 31 | none |
 | A small sports car with turning wheels, arches, windscreen, seat and steering wheel, about 110 parts | Opus 5.5 | 97 | 33 | none |
 | A potted flower in the Botanicals style, about 60 parts | Fable 5.2 | 59 | 14 | none |
 | A potted flower in the Botanicals style, about 60 parts | Opus 5.5 | 59 | 13 | none |
 
 ![Fable's cat](no-tools/fable-cat.png)
 ![Opus's cat](no-tools/opus-cat.png)
+![Fable's car](no-tools/fable-car.png)
 ![Opus's car](no-tools/opus-car.png)
 ![Fable's sunflower](no-tools/fable-flower.png)
 ![Opus's daisy](no-tools/opus-flower.png)
 
 What the pictures show:
 
-- **Recall is not the problem.** Across 371 parts of 62 different kinds, every file name is a real part, and
+- **Recall is not the problem.** Across 472 parts of 67 different kinds, every file name is a real part, and
   they are the right parts: wheel rims and tyres on wheel-holder plates, wheel arches, a windscreen, seats
   and a steering wheel; leaf plates and flower plates; a 6 x 6 round plate held upright on bricks with
   studs on their sides; a jumper plate to centre a nose; inverted slopes to widen a head.
 - **The intent is there.** These look like things a person designed: the cat has a collar with a bell,
-  the sunflower faces you. Our own pipeline cannot make any of them, because it only knows about fifty
+  the sunflower faces you, Fable's car has a racing stripe over a curved bonnet, arches over its wheels,
+  a framed windscreen, head and tail lights and a number plate. Our own pipeline cannot make any of them, because it only knows about fifty
   basic parts and only stacks them.
 - **Position is the problem.** The cat's ear tips float above its head; parts at the back of the car hang
   in the air; some neighbours overlap. Nothing told the AI so, and it had one attempt.
+- **It takes thought, not tools.** One attempt took between four and twenty minutes of the AI's time;
+  Fable's car took the longest and is the best of the six.
 
 ## What others have found
 
