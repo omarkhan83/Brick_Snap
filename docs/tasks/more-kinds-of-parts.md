@@ -1,6 +1,6 @@
 # More kinds of parts: undersides, curves, round columns, tapers
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-19)
 - stage: 4
 
 Alec, after trying the web app: "use different blocks rather than the simple ones". The finishing pass
@@ -27,3 +27,8 @@ the rounded models with no model weaker, and LeoCAD and Studio draw the results 
 Each new part needs: its row in the parts table (`bricksnap/catalog/SOURCES.md` says how the table is
 made), which way it faces for each turn, where it can go, and what it does to the parts around it. The
 finishing pass's contract (the opening comment of `bricksnap/finish.py`) says exactly what a swap may do.
+
+2026-11-19, Alec-42's agent: started with item 1, inverted slopes under overhangs, on the branch
+`wip/Alec-42-undersides`. The pictures and the 3D viewer can already draw an inverted slope; what is
+missing is the finishing pass placing one and the conversion marking where the model's underside slants.
+
