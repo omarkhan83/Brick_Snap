@@ -1,7 +1,8 @@
-// BrickSnap web app: the home page. The projects as cards, newest first, and the form that
-// makes a new one from a model file. Text from the server goes in with textContent.
+// BrickSnap web app: the home page. The projects as cards, newest first, the form that
+// makes a new one from a model file, and the experimental form that lets the AI build one
+// from parts (a "free build"). Text from the server goes in with textContent.
 
-import { JobView, NOT_ANSWERING, TOKEN, appState, el, getJson, plural, refusal, sleep } from './app.js';
+import { JobView, NOT_ANSWERING, TOKEN, appState, el, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const MAX_UPLOAD_MB = 60;
 const SUFFIXES = ['.stl', '.obj', '.glb', '.gltf', '.3mf', '.ply'];
@@ -32,14 +33,31 @@ showSize();
 // ---- the list ----
 
 function card(p) {
+  const free = p.kind === 'free';
   const pic = el('div', { className: 'pic' });
   if (p.picture) {
-    pic.append(el('img', { src: p.picture, alt: `Picture of ${p.name}: the model beside its bricks`, loading: 'lazy' }));
+    const alt = free ? `Picture of ${p.name}, built by the AI from parts` : `Picture of ${p.name}: the model beside its bricks`;
+    pic.append(el('img', { src: p.picture, alt, loading: 'lazy' }));
   } else {
-    pic.append(el('span', { className: 'none', text: 'No picture yet' }));
+    pic.append(el('span', { className: 'none', text: p.job ? 'The AI is building it…' : 'No picture yet' }));
   }
   const badges = el('div', { className: 'badges' });
   if (p.job) badges.append(el('span', { className: 'badge busy', text: 'Working on it…' }));
+  if (free) {
+    if (p.problem) badges.append(el('span', { className: 'badge bad', text: 'Damaged' }));
+    else if (p.valid === true) badges.append(el('span', { className: 'badge ok', text: 'Checked: no problems' }));
+    else if (typeof p.problems === 'number' && p.problems > 0) badges.append(el('span', { className: 'badge bad', text: plural(p.problems, 'problem') }));
+    else if (!p.job) badges.append(el('span', { className: 'badge', text: 'Not built yet' }));
+    badges.append(el('span', { className: 'badge exp', text: 'Experimental' }));
+    const body = el('div', { className: 'body' }, [
+      el('h3', { className: 'pname', text: p.name }),
+      el('p', { className: 'facts', text: [typeof p.parts === 'number' ? plural(p.parts, 'part') : null, 'Built by the AI, part by part'].filter(Boolean).join(' · ') }),
+      p.problem ? el('p', { className: 'facts', text: p.problem }) : null,
+      badges,
+    ]);
+    const link = el('a', { className: 'open', href: `/p/${encodeURIComponent(p.project)}` }, [pic, body]);
+    return el('li', { className: 'pcard free', dataset: { project: p.project, kind: 'free' } }, [link]);
+  }
   if (p.problem) badges.append(el('span', { className: 'badge bad', text: 'Damaged' }));
   else if (p.valid === true) badges.append(el('span', { className: 'badge ok', text: 'Holds together' }));
   else if (p.valid === false) badges.append(el('span', { className: 'badge bad', text: 'Needs work' }));
@@ -72,8 +90,10 @@ function showProjects(list) {
   // A new model that is being made (started here or before this page was opened).
   for (const job of list.jobs) {
     if (job.kind === 'new' && !followed.has(job.id) && !uploading) followNew(job.id);
+    if (job.kind === 'free' && !followed.has(job.id) && !freeSending) followFree(job.id);
   }
   anyActive = list.jobs.length > 0;
+  showReferences(list.projects);
 }
 
 async function loadProjects() {
@@ -177,6 +197,152 @@ form.addEventListener('submit', (e) => {
     problem(NOT_ANSWERING);
   };
   xhr.send(data);
+});
+
+// ---- letting the AI build one from parts (experimental) ----
+
+const freeForm = $('freeForm');
+const freeWords = $('freeWords');
+const freeParts = $('freeParts');
+const freeRef = $('freeRef');
+const freeConfirm = $('freeConfirm');
+const freeUnderstood = $('freeUnderstood');
+const freeStart = $('freeStart');
+const freeGo = $('freeGo');
+const freeMsg = $('freeMsg');
+const freeJobs = $('freeJobs');
+let freeSending = false;
+
+function showParts() {
+  const n = Number(freeParts.value);
+  $('freePartsOut').textContent = `${n} parts`;
+  $('freePartsHint').textContent =
+    n <= 60 ? 'A small model.' : n <= 140 ? 'A medium model, like a small set.' : 'A big model: the AI takes longer, and may run out of checks.';
+}
+freeParts.addEventListener('input', showParts);
+showParts();
+
+/** The chooser of ordinary models the AI may be shown, kept up to date with the list. */
+let shownRefs = '';
+function showReferences(projects) {
+  const usable = projects.filter((p) => p.kind !== 'free' && !p.problem && typeof p.parts === 'number');
+  const key = JSON.stringify(usable.map((p) => [p.project, p.name]));
+  if (key === shownRefs) return;
+  shownRefs = key;
+  const chosen = freeRef.value;
+  freeRef.replaceChildren(
+    el('option', { value: '', text: 'No, just from my words' }),
+    ...usable.map((p) => el('option', { value: p.project, text: p.name })),
+  );
+  freeRef.value = usable.some((p) => p.project === chosen) ? chosen : '';
+}
+
+function freeProblem(text) {
+  freeMsg.textContent = text;
+  appState.message = text;
+}
+
+function describeFree() {
+  const words = freeWords.value.trim();
+  $('freeWhat').replaceChildren(
+    document.createTextNode('What the AI will build: '),
+    el('span', { className: 'quote', id: 'freeQuote', text: `“${words}”` }),
+    document.createTextNode(`, about ${freeParts.value} parts.`),
+  );
+  const ref = freeRef.value ? freeRef.options[freeRef.selectedIndex].text : '';
+  $('freeSends').textContent = ref
+    ? `It sends the words you typed and pictures of “${ref}” from five sides to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.`
+    : 'It sends the words you typed to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.';
+}
+
+function closeFree() {
+  freeConfirm.hidden = true;
+  freeUnderstood.checked = false;
+  freeStart.disabled = true;
+}
+
+// Whatever changes what would be sent takes the agreement back.
+for (const input of [freeWords, freeParts, freeRef]) {
+  input.addEventListener('input', () => {
+    if (!freeConfirm.hidden) {
+      freeUnderstood.checked = false;
+      freeStart.disabled = true;
+      describeFree();
+    }
+  });
+}
+
+freeForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  freeProblem('');
+  if (!freeWords.value.trim()) {
+    freeProblem('Say what to build first, for example “a small red fire truck”.');
+    freeWords.focus();
+    return;
+  }
+  describeFree();
+  freeUnderstood.checked = false;
+  freeStart.disabled = true;
+  freeConfirm.hidden = false;
+  freeConfirm.scrollIntoView({ block: 'nearest' });
+  freeUnderstood.focus();
+});
+freeUnderstood.addEventListener('change', () => {
+  freeStart.disabled = !freeUnderstood.checked || freeSending;
+});
+$('freeCancel').addEventListener('click', () => {
+  closeFree();
+  freeGo.focus();
+});
+freeConfirm.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeFree();
+    freeGo.focus();
+  }
+});
+
+function freeOpenButton(job) {
+  const project = job.result && job.result.project ? job.result.project : job.project;
+  if (!project || (job.state !== 'done' && !(job.result && job.result.project))) return null;
+  const link = el('a', { className: 'button primary', href: `/p/${encodeURIComponent(project)}`, text: 'See what the AI built' });
+  return el('div', { className: 'next' }, [link]);
+}
+
+function followFree(id, view = null) {
+  followed.add(id);
+  const v = view || new JobView(freeJobs, { nextStep: freeOpenButton, onDone: () => loadProjects() });
+  v.follow(id);
+}
+
+freeStart.addEventListener('click', async () => {
+  if (!freeUnderstood.checked || freeSending) return;
+  const body = {
+    words: freeWords.value.trim(),
+    parts: Number(freeParts.value),
+    understood: true,
+    understood_runs: 1,
+  };
+  const name = $('freeName').value.trim();
+  if (name) body.name = name;
+  if (freeRef.value) body.reference = freeRef.value;
+  freeSending = true;
+  freeStart.disabled = true;
+  freeGo.disabled = true;
+  const answer = await postJson('/api/free', body);
+  freeSending = false;
+  freeGo.disabled = false;
+  if (answer.status === 202 && answer.data && answer.data.job) {
+    closeFree();
+    freeForm.reset();
+    showParts();
+    const view = new JobView(freeJobs, { nextStep: freeOpenButton, onDone: () => loadProjects() });
+    followFree(answer.data.job, view);
+    view.box.scrollIntoView({ block: 'nearest' });
+    loadProjects();
+  } else {
+    freeStart.disabled = !freeUnderstood.checked;
+    freeProblem(refusal(answer));
+  }
 });
 
 // ---- start ----

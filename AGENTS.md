@@ -183,6 +183,11 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
 - **Versions.** Every job or command that changes a model keeps its design and build as a numbered
   version (`uv run bricksnap versions <project>`; the strip of versions in the web app). Nothing a user
   made is lost by trying something.
+- **Free builds** (experimental) are a second kind of model: `uv run bricksnap make "a sitting cat"`, or
+  "Describe it and let the AI build it" in the web app. The AI builds from the whole parts library with
+  the tools in `bricksnap/lab/`, and a checker stands in for the solver. It is an AI run like the design
+  step: never start one unless your user asks. It needs LeoCAD in `~/.cache/bricksnap/leocad/`; without it
+  the feature says so and the rest works.
 - **Research** is in `docs/research/`, one folder per question, with the experiments' own files. Read
   `docs/research/2026-11-19-ai-as-the-builder/README.md` before working on how the AI designs or builds.
 - **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
@@ -190,6 +195,7 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
 - `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in
   `samples/projects/`.
 
-Things that must stay true are listed in `docs/ARCHITECTURE.md`. The three that matter most: the AI never
-places parts directly; every part and colour comes from the parts table; nothing leaves the user's computer
-except through the AI design step.
+Things that must stay true are listed in `docs/ARCHITECTURE.md`. The three that matter most: in an
+ordinary model the AI never places parts directly, and every part and colour comes from the parts table
+(a free build is the stated exception, and is checked instead); and nothing leaves the user's computer
+except through an AI run the user started.

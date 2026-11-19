@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="bricksnap-token" content="BRICKSNAP_TOKEN">
+<title>Built by the AI - BrickSnap</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/viewer/style.css">
+<link rel="stylesheet" href="/viewer/app.css">
+</head>
+<body class="home free-page">
+<header class="top">
+  <div class="bar">
+    <div class="titles">
+      <span class="kicker">BrickSnap · Built by the AI, part by part <span class="badge exp">Experimental</span></span>
+      <h1 id="freeName">Loading…</h1>
+    </div>
+  </div>
+</header>
+
+<main class="free-main">
+  <section id="freeActions" class="card actions free-actions" aria-labelledby="nextTitle">
+    <div class="topline">
+      <a href="/" id="backHome">← All your models</a>
+    </div>
+    <h2 id="nextTitle">What next?</h2>
+    <div id="nextStep" class="next-step"><p>Loading…</p></div>
+    <div id="changeConfirm" class="confirm" hidden role="dialog" aria-labelledby="changeConfirmTitle">
+      <h3 id="changeConfirmTitle">Before the AI changes the model</h3>
+      <ul>
+        <li id="changeWhat"></li>
+        <li>It sends the words you typed, and the words the model was first built from, to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.</li>
+        <li>It uses your own Claude Code login, so it counts towards your Claude subscription.</li>
+        <li>It is one AI run, starting from the model as it is now. It usually takes ten to twenty minutes; you can leave this page while it works.</li>
+        <li>The model as it is now stays in the list of runs below, so you can always bring it back.</li>
+        <li>This is experimental. Parts joined by clips, bars, pins and axles are counted as joined without proof, and nothing judges yet how strong a joint is.</li>
+      </ul>
+      <label class="check"><input id="changeUnderstood" type="checkbox"> <span>I have read this and want the AI to make the change.</span></label>
+      <div class="row">
+        <button id="changeStart" type="button" class="primary" disabled>Start the change</button>
+        <button id="changeCancel" type="button" class="quiet">Cancel</button>
+      </div>
+    </div>
+    <p id="actMsg" class="actmsg" role="alert"></p>
+    <div id="appJob"></div>
+  </section>
+
+  <div class="free-grid">
+    <section class="card turncard" aria-labelledby="turnTitle">
+      <h2 id="turnTitle" class="sr-only">The model</h2>
+      <p id="asked" class="asked" hidden></p>
+      <div id="turnBox" class="turnbox" tabindex="0" aria-label="The model. Use the left and right arrow keys to turn it.">
+        <img id="turn" alt="" hidden>
+        <p id="noPicture" class="none" hidden></p>
+      </div>
+      <div id="turnControls" class="turnrow">
+        <button id="turnLeft" type="button" class="quiet" aria-label="Turn left">◀</button>
+        <div class="slider">
+          <label for="turnSlider">Turn the model</label>
+          <input id="turnSlider" type="range" min="0" max="11" step="1" value="0">
+        </div>
+        <button id="turnRight" type="button" class="quiet" aria-label="Turn right">▶</button>
+      </div>
+      <p id="turnSays" class="hint">Drag the slider, or use the arrow keys.</p>
+    </section>
+
+    <div class="free-side">
+      <section class="card checker" aria-labelledby="checkTitle">
+        <h2 id="checkTitle">What the checker says</h2>
+        <div id="chips" class="badges"></div>
+        <p id="checkSummary" class="lead"></p>
+        <p class="hint-line">The checker makes sure every part is held by studs, nothing overlaps and the model stands. It counts parts joined by clips, bars, pins and axles as joined without proof, and does not judge how strong a joint is.</p>
+        <details id="reportBox" class="more report-box">
+          <summary>The checker's full report</summary>
+          <pre id="report"></pre>
+        </details>
+      </section>
+
+      <section id="downloadsCard" class="card downloads-card" aria-labelledby="dlTitle">
+        <h2 id="dlTitle">Download</h2>
+        <div id="downloads" class="downloads"></div>
+      </section>
+    </div>
+  </div>
+
+  <section id="notesCard" class="card notes-card" aria-labelledby="notesTitle" hidden>
+    <h2 id="notesTitle">What the AI says it built</h2>
+    <div id="aiNotes" class="ainotes"></div>
+  </section>
+
+  <section id="runsCard" class="card runs-card" aria-labelledby="runsTitle" hidden>
+    <h2 id="runsTitle">Runs</h2>
+    <p class="hint-line">Each time the AI built or changed the model is kept here. Bring an earlier one back with “Use this one”.</p>
+    <ol id="runs" class="runs"></ol>
+  </section>
+
+  <section class="card more-card">
+    <div class="more-actions">
+      <h3>More</h3>
+      <button id="actDelete" type="button" class="danger">Move to the bin</button>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p id="trademark">LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.</p>
+</footer>
+
+<script type="module" src="/viewer/free.js"></script>
+</body>
+</html>

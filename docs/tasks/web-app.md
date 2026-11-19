@@ -44,3 +44,12 @@ Left before this task is done:
 - **Starting it without a terminal.** Today an agent or a person types the command. A double-click
   starter for Windows and macOS would remove that; not built yet.
 - A job cannot be stopped from the page once started.
+
+2026-11-19, Alec-42's agent: added since: versions with two choosers and "Look inside"; "Design it in
+passes"; and the experimental "Describe it and let the AI build it", with its own page for such models
+(a model to turn, the checker's verdict, the AI's notes, downloads, asking for a change, earlier runs).
+Alec tried the first version on 19 November and found the app "pretty good" and the results not good
+enough, which is what the rest of that night's work answered. Still left: someone who was not involved
+tries it; a double-click starter in the repository (Alec has his own in `C:\Users\AlecR\BrickSnap`); a
+job cannot be stopped from the page.
+

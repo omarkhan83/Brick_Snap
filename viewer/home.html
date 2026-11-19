@@ -59,6 +59,57 @@
       <div id="newJobs"></div>
     </section>
 
+    <section id="free" class="card start free-start" aria-labelledby="freeTitle">
+      <h2 id="freeTitle">Or describe it and let the AI build it <span class="badge exp">Experimental</span></h2>
+      <p class="lead">No file needed. The AI builds the model itself, part by part, from the whole LEGO® parts library (wheels, leaves, wings, windscreens), checking and looking at its work as it goes.</p>
+      <form id="freeForm" novalidate>
+        <div class="field">
+          <label for="freeWords">1. What should it build?</label>
+          <textarea id="freeWords" name="words" rows="2" maxlength="2000" autocomplete="off" placeholder="For example: a small red fire truck, or a sunflower in a pot"></textarea>
+        </div>
+        <div class="field">
+          <label for="freeParts">2. About how many parts?</label>
+          <div class="size-row">
+            <input id="freeParts" name="parts" type="range" min="20" max="300" step="10" value="80">
+            <output id="freePartsOut" for="freeParts">80 parts</output>
+          </div>
+          <p class="hint" id="freePartsHint">A small model. More parts take the AI longer.</p>
+        </div>
+        <details class="more" id="freeMore">
+          <summary>More choices</summary>
+          <div class="field">
+            <label for="freeRef">Make it look like one of my models (you can leave this)</label>
+            <select id="freeRef" name="reference">
+              <option value="">No, just from my words</option>
+            </select>
+            <p class="hint">The AI is then also shown pictures of that model's 3D shape from five sides.</p>
+          </div>
+          <div class="field">
+            <label for="freeName">Name (you can leave this empty)</label>
+            <input id="freeName" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The first few words are used">
+          </div>
+        </details>
+        <button id="freeGo" type="submit" class="primary">Let the AI build it…</button>
+        <div id="freeConfirm" class="confirm" hidden role="dialog" aria-labelledby="freeConfirmTitle">
+          <h3 id="freeConfirmTitle">Before the AI starts building</h3>
+          <ul>
+            <li id="freeWhat"></li>
+            <li id="freeSends"></li>
+            <li>It uses your own Claude Code login, so it counts towards your Claude subscription.</li>
+            <li>It is one AI run. It usually takes ten to twenty minutes; you can leave this page while it works.</li>
+            <li id="freeCaveat">This is experimental. A checker makes sure every part is held by studs, nothing overlaps and the model stands. But parts joined by clips, bars, pins and axles are counted as joined without proof, and nothing judges yet how strong a joint is.</li>
+          </ul>
+          <label class="check"><input id="freeUnderstood" type="checkbox"> <span>I have read this and want the AI to build it.</span></label>
+          <div class="row">
+            <button id="freeStart" type="button" class="primary" disabled>Start building</button>
+            <button id="freeCancel" type="button" class="quiet">Cancel</button>
+          </div>
+        </div>
+        <p id="freeMsg" class="formmsg" role="alert"></p>
+      </form>
+      <div id="freeJobs"></div>
+    </section>
+
     <section id="models" class="card models" aria-labelledby="modelsTitle">
       <h2 id="modelsTitle">Your models</h2>
       <p id="empty" class="empty-note" hidden>No models yet. Choose a 3D model file in “Make a new model” to make your first one.</p>

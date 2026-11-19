@@ -88,8 +88,9 @@ Safety. This server acts for whoever can reach it, so:
   inside ``projects_dir`` and nowhere else; ``.trash`` and anything starting with a dot is
   never served.
 - Text from files, from the person and from the AI goes into pages with ``textContent``.
-- Nothing is fetched from the internet by the pages. Only the design action sends anything
-  off this computer, and only through the clean-room runner.
+- Nothing is fetched from the internet by the pages. Only the design action (and the
+  experimental AI builder below) sends anything off this computer, and only through the
+  clean-room runner.
 
 The pages
 - Plain JavaScript modules and CSS in ``viewer/`` beside the viewer's own (no build step, no
@@ -240,6 +241,54 @@ STAGE 4 ADDITION TO THE CONTRACT: designing in passes (``bricksnap.designer.stud
   passes made. While the studio runs the project may have no build at all (the outline
   pass starts from an empty design): ``GET /api/p/<project>`` then says it is not built,
   as for any project without a build.
+
+EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricksnap.lab``)
+- A second kind of project, a free build (``bricksnap.lab.freebuild``, whose contract says
+  what one is on disk): an AI session builds the model itself, part by part, from the whole
+  LDraw parts library. It lives in the same projects folder; ``kind`` tells the two apart
+  ("model" for one made from a 3D file, "free" for a free build). The pages call it "Built
+  by the AI, part by part" and mark it experimental wherever it appears.
+- ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 300, default 80),
+  "reference"? (the folder name of an ordinary project with a 3D model, whose pictures from
+  five sides the AI is shown), "understood": true, "understood_runs": 1}``. Answers
+  ``{"job", "project"}`` (202). ``POST /api/p/<project>/change`` for a free build:
+  ``{"words", "understood": true, "understood_runs": 1}``: one AI session starting from the
+  current model. Both are AI jobs (kinds "free" and "change") under the rules above: token,
+  Origin and Host; one AI job for the whole server; one job per project; refused without
+  the agreement (the same refusal for a wrong ``understood_runs``). The words are untrusted
+  text: at most ``MAX_REQUEST_CHARS``, control characters removed, only ever shown as text.
+  A name is cut to ``MAX_NAME_CHARS``; the folder name is chosen by the server as for an
+  upload. When LeoCAD, xvfb-run or the parts library is missing, the request is refused
+  with ``freebuild.missing``'s plain message and nothing starts.
+- Progress lines come from ``freebuild.Progress`` (the builder looking for parts, placing
+  parts with the count so far, each check and what it found, what it says, through
+  ``runner.redact``). A failed run says why in plain words and keeps what it made as a run
+  (``freebuild.build``).
+- ``POST /api/p/<project>/use`` ``{"run": n}``: a job ("use") that makes run n the current
+  model again (``freebuild.restore``); the other runs stay. ``delete`` moves a free build
+  to the bin as any other project.
+- Actions that make no sense for a free build (build, design, export, instructions,
+  restore) refuse it with a plain message (``NOT_FOR_FREE``), before anything starts; change
+  and use refuse an ordinary project (``FREE_ONLY``).
+- ``GET /api/projects``: a free build's card has ``kind`` "free", ``name``, ``parts``,
+  ``valid`` (the checker found no problems), ``problems``, ``unchecked`` (joints it could
+  not confirm), ``checked`` (its one-line summary), ``picture`` (pictures/card.png),
+  ``updated`` (project.json's time), ``job`` and ``problem``; ``studs`` is null. Ordinary
+  cards gain ``kind`` "model".
+- ``GET /api/p/<project>`` for a free build: the card, plus ``words``, ``parts_wanted``,
+  ``reference``, ``kinds``, ``summary``, ``report`` (the checker's full report), ``notes``
+  (the AI's closing words, redacted when kept), ``current_run``, ``runs`` (oldest first,
+  each ``{"n", "kind", "words", "created", "ok", "error", "has_model", "parts", "kinds",
+  "summary", "clean", "problems", "unchecked", "seconds", "picture"}``), ``turntable`` (the
+  addresses of the twelve views round the model), ``sheet``, ``picture_problem``, ``files``
+  (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``.
+- The page ``/p/<project>`` of a free build is ``viewer/free.html`` (with ``free.js``), not
+  the 3D viewer, which cannot draw these parts; ``project-files.json`` is not found for it.
+- Files: for a free build, ``files/`` serves only model.ldr, parts.csv, report.txt,
+  ``pictures/card.png``, ``pictures/sheet.png``, ``pictures/turn-NN.png`` and
+  ``runs/<NNNN>/pictures/card.png`` for a run its project.json lists, judged on the
+  resolved path as above. Never the runs' work folders, transcripts, calls.jsonl or
+  anything ending ``.jsonl``.
 """
 
 from __future__ import annotations
@@ -282,6 +331,7 @@ from bricksnap.cli import (
     open_project,
     rebuild_label,
 )
+from bricksnap.lab import freebuild
 from bricksnap.project import Project, ProjectError, slug
 from bricksnap.types import SeedError
 from bricksnap.versions import VERSIONS_DIR
@@ -374,7 +424,27 @@ NOT_FOUND_PAGE = """<!doctype html>
 </body>
 </html>
 """
-ACTIONS = ("build", "design", "export", "instructions", "delete", "restore")
+ACTIONS = ("build", "design", "export", "instructions", "delete", "restore", "change", "use")
+FREE_JOBS = ("free", "change")
+FREE_FILES = frozenset({"model.ldr", "parts.csv", "report.txt"})
+"""The files of a free-build project the pages may fetch, besides its pictures."""
+_FREE_PICTURE = re.compile(r"pictures/(?:card|sheet|turn-[0-9]{2})\.png")
+_FREE_RUN_CARD = re.compile(r"runs/([0-9]{4,})/pictures/card\.png")
+NOT_FOR_FREE = (
+    "This model was built by the AI from parts (an experimental kind of model), so {what} "
+    'does not apply to it. Use "Ask for a change" on its page instead.'
+)
+FREE_ONLY = (
+    "This model was made from a 3D file, so it cannot be changed this way. Use the AI "
+    "designer on its page instead."
+)
+NOT_FOR_FREE_WORDS = {
+    "build": "building the bricks again",
+    "design": "the AI designer",
+    "export": "making the parts list this way",
+    "instructions": "making building instructions",
+    "restore": "going back to a version",
+}
 APP_TYPES = {
     **CONTENT_TYPES,
     ".pdf": "application/pdf",
@@ -391,6 +461,9 @@ JOB_LABELS = {
     "export": "writing the parts list and the LDraw file",
     "instructions": "making the building instructions",
     "restore": "going back to an earlier version",
+    "free": "the AI is building a new model from parts",
+    "change": "the AI is changing the model it built",
+    "use": "bringing back an earlier run",
 }
 TOOL_WORDS = {
     "describe": "The designer is looking at the model",
@@ -426,6 +499,8 @@ def plain_message(error: BaseException) -> str | None:
     """The message for a mistake a person can fix, as the page shows it, or None for a fault."""
     if isinstance(error, Refused):
         return error.message
+    if isinstance(error, freebuild.FreeBuildError):
+        return str(error)
     if isinstance(error, (SeedError, ProjectError, UserError, JobFailed)):
         return for_the_page(str(error))
     if isinstance(error, OSError):
@@ -484,12 +559,30 @@ def served_file(folder: Path, inner: str) -> Path | None:
         return None
     if rel.lower().endswith(".jsonl"):
         return None
+    if freebuild.is_free(folder):
+        return served_free_file(folder, target, rel)
     if rel in SERVED_FILES or _SERVED_PICTURE.fullmatch(rel):
         return target
     kept = _SERVED_VERSION.fullmatch(rel)
     if kept is None or kept.group(1) != f"{int(kept.group(1)):04d}":
         return None
     return target if int(kept.group(1)) in {v["n"] for v in version_list(folder)} else None
+
+
+def served_free_file(folder: Path, target: Path, rel: str) -> Path | None:
+    """For a free-build project: the model, the parts list, the report and the pictures, and
+    the card of a run its project.json lists. Nothing else (never a run's work folder)."""
+    if rel in FREE_FILES or _FREE_PICTURE.fullmatch(rel):
+        return target
+    kept = _FREE_RUN_CARD.fullmatch(rel)
+    if kept is None or kept.group(1) != f"{int(kept.group(1)):04d}":
+        return None
+    try:
+        runs = freebuild.read_meta(folder).get("runs") or []
+    except freebuild.FreeBuildError:
+        return None
+    listed = {r.get("n") for r in runs if isinstance(r, dict)}
+    return target if int(kept.group(1)) in listed else None
 
 
 def version_list(folder: Path) -> list[dict[str, Any]]:
@@ -768,6 +861,20 @@ class App:
             )
         return folder
 
+    def ordinary(self, name: str, action: str) -> Path:
+        """The folder of ordinary project ``name``; a free build is refused plainly."""
+        folder = self.known(name)
+        if freebuild.is_free(folder):
+            raise Refused(NOT_FOR_FREE.format(what=NOT_FOR_FREE_WORDS.get(action, "that")))
+        return folder
+
+    def free(self, name: str) -> Path:
+        """The folder of free-build project ``name``; an ordinary project is refused."""
+        folder = self.known(name)
+        if not freebuild.is_free(folder):
+            raise Refused(FREE_ONLY)
+        return folder
+
     def open(self, name: str) -> Project:
         """Open project ``name`` for a job (this puts back an interrupted best-of run)."""
         return open_project(str(self.known(name)))
@@ -775,8 +882,11 @@ class App:
     def summary(self, folder: Path) -> dict[str, Any]:
         """A project's card for the home page, read without trusting its files."""
         name = folder.name
+        if freebuild.is_free(folder):
+            return self.free_summary(folder)
         card: dict[str, Any] = {
             "project": name,
+            "kind": "model",
             "name": name,
             "studs": None,
             "parts": None,
@@ -820,6 +930,117 @@ class App:
         card["updated"] = max(times, default=0.0)
         return card
 
+    def free_summary(self, folder: Path) -> dict[str, Any]:
+        """A free-build project's card: as an ordinary one's, with ``kind`` "free", what the
+        checker said (``checked``, ``problems``, ``unchecked``) and no studs."""
+        name = folder.name
+        card: dict[str, Any] = {
+            "project": name,
+            "kind": "free",
+            "name": name,
+            "studs": None,
+            "parts": None,
+            "valid": None,
+            "problems": None,
+            "unchecked": None,
+            "checked": "",
+            "picture": None,
+            "updated": 0.0,
+            "job": self.busy.get(name),
+            "problem": None,
+        }
+        try:
+            card["updated"] = (folder / "project.json").stat().st_mtime
+            info = freebuild.describe(folder)
+        except (OSError, freebuild.FreeBuildError):
+            card["problem"] = "This project's file project.json is damaged and cannot be read."
+            return card
+        card.update(
+            name=info["name"],
+            parts=info["parts"],
+            valid=info["clean"],
+            problems=info["problems"],
+            unchecked=info["unchecked"],
+            checked=info["summary"],
+        )
+        with contextlib.suppress(OSError):
+            path = folder / "pictures" / "card.png"
+            if path.is_file():
+                card["picture"] = f"/p/{name}/files/pictures/card.png?v={path.stat().st_mtime_ns}"
+        return card
+
+    def free_info(self, folder: Path) -> dict[str, Any]:
+        """``GET /api/p/<project>`` for a free-build project."""
+        name = folder.name
+        info = self.free_summary(folder)
+        about: dict[str, Any]
+        try:
+            about = freebuild.describe(folder)
+        except freebuild.FreeBuildError as e:
+            about = {"runs": [], "turntable": [], "files": []}
+            info["problem"] = str(e)
+
+        def url(rel: str | None) -> str | None:
+            if not rel:
+                return None
+            try:
+                stamp = (folder / rel).stat().st_mtime_ns
+            except OSError:
+                return None
+            return f"/p/{name}/files/{rel}?v={stamp}"
+
+        runs = []
+        for run in about.get("runs", []):
+            n = run.get("n")
+            if not isinstance(n, int):
+                continue
+            card = f"runs/{n:04d}/pictures/card.png"
+            runs.append(
+                {
+                    **{
+                        k: run.get(k)
+                        for k in (
+                            "n",
+                            "kind",
+                            "words",
+                            "created",
+                            "ok",
+                            "error",
+                            "has_model",
+                            "parts",
+                            "kinds",
+                            "summary",
+                            "clean",
+                            "problems",
+                            "unchecked",
+                            "seconds",
+                        )
+                    },
+                    "picture": url(card),
+                }
+            )
+        info.update(
+            words=about.get("words", ""),
+            parts_wanted=about.get("parts_wanted"),
+            reference=about.get("reference"),
+            kinds=about.get("kinds"),
+            summary=about.get("summary", ""),
+            report=about.get("report", ""),
+            notes=about.get("notes", ""),
+            current_run=about.get("current_run"),
+            runs=runs,
+            turntable=[u for u in (url(rel) for rel in about.get("turntable", [])) if u],
+            sheet=url(str(about.get("sheet") or "")),
+            picture_problem=about.get("picture_problem"),
+            files={rel: url(rel) for rel in about.get("files", [])},
+            bin=str(self.shown_root / TRASH_DIR),
+        )
+        job_id = info["job"]
+        with self.lock:
+            job = self.jobs.get(job_id) if job_id else None
+            info["job"] = job.to_json() if job else None
+        return info
+
     def list_projects(self) -> dict[str, Any]:
         cards = []
         with contextlib.suppress(OSError):
@@ -856,6 +1077,8 @@ class App:
         folder = self.project_dir(name)
         if folder is None:
             raise Refused(f"There is no project called {name!r} here.", HTTPStatus.NOT_FOUND)
+        if freebuild.is_free(folder):
+            return self.free_info(folder)
         info = self.summary(folder)
         info["notes"], info["brief"], info["current"], info["verdict"] = [], None, False, ""
         with contextlib.suppress(OSError, ValueError, AttributeError):
@@ -939,6 +1162,13 @@ class App:
             running = self.jobs.get(self.busy.get(project, ""))
             if running is not None and not (reserved and running.id == job_id):
                 raise Refused(self.busy_message(running), HTTPStatus.CONFLICT)
+            if ai and self.ai_job is not None and self.jobs[self.ai_job].kind in FREE_JOBS:
+                other = self.jobs[self.ai_job]
+                raise Refused(
+                    f'The AI is already building "{other.project}" from parts. Only one AI job '
+                    "runs at a time; wait for it to finish, then try again.",
+                    HTTPStatus.CONFLICT,
+                )
             if ai and self.ai_job is not None:
                 other = self.jobs[self.ai_job]
                 raise Refused(
@@ -1126,7 +1356,7 @@ class App:
         return {"project": project.path.name, "parts": len(build.parts), "valid": ok}
 
     def build(self, name: str) -> Job:
-        self.known(name)  # a plain refusal now if it is not there
+        self.ordinary(name, "build")  # a plain refusal now if it is not there
 
         def work(job: Job) -> dict[str, Any]:
             return self._build(job, self.open(name))
@@ -1169,8 +1399,8 @@ class App:
                 f"Choose how many designs to make, a whole number from 1 to {MAX_BEST_OF}, not "
                 f"{best_of!r}."
             )
+        self.ordinary(name, "design")
         self._check_agreement(body, 1 if best_of == 1 else best_of + 1)
-        self.known(name)
 
         def work(job: Job) -> dict[str, Any]:
             return self._design(job, self.open(name), request, best_of)
@@ -1219,8 +1449,8 @@ class App:
                 "Choose how many rounds of critic and fix, a whole number from 0 to "
                 f"{MAX_STUDIO_ROUNDS}, not {rounds!r}."
             )
+        self.ordinary(name, "design")
         self._check_agreement(body, studio_runs(rounds))
-        self.known(name)
 
         def work(job: Job) -> dict[str, Any]:
             return self._design_in_passes(job, self.open(name), rounds)
@@ -1396,7 +1626,7 @@ class App:
         return out
 
     def export(self, name: str) -> Job:
-        self.known(name)
+        self.ordinary(name, "export")
 
         def work(job: Job) -> dict[str, Any]:
             return self._export(job, self.open(name))
@@ -1465,7 +1695,7 @@ class App:
         }
 
     def instructions(self, name: str) -> Job:
-        self.known(name)
+        self.ordinary(name, "instructions")
 
         def work(job: Job) -> dict[str, Any]:
             from bricksnap.instructions import make_instructions
@@ -1491,7 +1721,7 @@ class App:
         number = body.get("version")
         if not isinstance(number, int) or isinstance(number, bool) or number < 1:
             raise Refused("Choose which version to go back to, by its number.")
-        self.known(name)
+        self.ordinary(name, "restore")
 
         def work(job: Job) -> dict[str, Any]:
             return self._restore(job, self.open(name), number)
@@ -1521,6 +1751,134 @@ class App:
         out = self._outcome(job, project, build)
         out["version"] = n
         return out
+
+    # ---- models the AI builds from parts (experimental) --------------------------------------
+
+    @staticmethod
+    def _free_agreement(body: dict[str, Any]) -> None:
+        """Refuse an AI build the person has not agreed to (one AI run)."""
+        agreed = body.get("understood_runs")
+        if (
+            body.get("understood") is not True
+            or not isinstance(agreed, int)
+            or isinstance(agreed, bool)
+            or agreed != 1
+        ):
+            raise Refused(
+                "The AI builder was not started. It sends the words you typed (and, when you "
+                "chose a model to look like, pictures of it) to the AI provider, starts one AI "
+                "run and uses your own Claude Code login, so it starts only after you have read "
+                "that and agreed. Read the box above the start button and tick it."
+            )
+
+    @staticmethod
+    def _free_words(body: dict[str, Any], key: str, example: str) -> str:
+        words = body.get(key)
+        if not isinstance(words, str) or not words.strip():
+            raise Refused(f'Say in words what you want, for example "{example}".')
+        if len(words) > MAX_REQUEST_CHARS:
+            raise Refused(
+                f"That is too long. Keep it under {MAX_REQUEST_CHARS:,} characters; a sentence "
+                "or two works best."
+            )
+        return freebuild.clean(words, MAX_REQUEST_CHARS)
+
+    @staticmethod
+    def _free_ready() -> None:
+        problem = freebuild.missing()
+        if problem:
+            raise Refused(problem)
+
+    def new_free(self, body: dict[str, Any]) -> Job:
+        """``POST /api/free``: a new model the AI builds from parts, from the person's words."""
+        words = self._free_words(body, "words", "a small red fire truck")
+        name = body.get("name")
+        if name is not None and not isinstance(name, str):
+            raise Refused("The name must be text.")
+        name = clean_text(name or "", MAX_NAME_CHARS)
+        parts = body.get("parts", freebuild.DEFAULT_PARTS)
+        if (
+            not isinstance(parts, int)
+            or isinstance(parts, bool)
+            or not freebuild.MIN_PARTS <= parts <= freebuild.MAX_PARTS
+        ):
+            raise Refused(
+                f"Choose about how many parts, a whole number from {freebuild.MIN_PARTS} to "
+                f"{freebuild.MAX_PARTS}."
+            )
+        reference = body.get("reference")
+        ref_folder = None
+        if reference is not None:
+            if not isinstance(reference, str):
+                raise Refused("Choose the model to look like from the list.")
+            ref_folder = self.ordinary(reference, "reference")
+            if not (ref_folder / "design.npz").is_file():
+                raise Refused(f'"{reference}" has no 3D model to show the AI. Choose another.')
+        self._free_agreement(body)
+        self._free_ready()
+        job_id = secrets.token_hex(8)
+        folder = self.reserve(name or freebuild.name_from(words), job_id)
+
+        def work(job: Job) -> dict[str, Any]:
+            path = freebuild.create(
+                self.root, words, name=name or None, parts=parts, reference=reference, folder=folder
+            )
+            references = []
+            if ref_folder is not None:
+                job.say("Drawing the model to look like from five sides, to show the AI")
+                references.append(freebuild.reference_sheet(ref_folder, path / "reference.png"))
+            return self._free_run(job, path, None, references)
+
+        try:
+            return self.start("free", folder, work, ai=True, job_id=job_id, reserved=True)
+        except BaseException:
+            self.release(folder, job_id)
+            raise
+
+    def change(self, name: str, body: dict[str, Any]) -> Job:
+        """``POST /api/p/<project>/change``: the AI changes a model it built, in words."""
+        words = self._free_words(body, "words", "make the roof blue")
+        self.free(name)
+        self._free_agreement(body)
+        self._free_ready()
+
+        def work(job: Job) -> dict[str, Any]:
+            return self._free_run(job, self.free(name), words, [])
+
+        return self.start("change", name, work, ai=True)
+
+    def _free_run(
+        self, job: Job, folder: Path, words: str | None, references: list[Path]
+    ) -> dict[str, Any]:
+        if words is None:
+            job.say("This is a new model: the AI builds it part by part from the parts library")
+        else:
+            job.say(f'This is one change to the model: "{_short(words, 200)}"')
+        job.say("One AI run; it usually takes ten to twenty minutes")
+        entry = freebuild.build(folder, words, on_say=job.say, references=references)
+        verdict = entry.get("summary") or "not checked"
+        job.say(f"Done: {verdict}")
+        return {
+            "project": folder.name,
+            "run": entry["n"],
+            "parts": entry["parts"],
+            "clean": entry["clean"],
+            "summary": entry.get("summary") or "",
+        }
+
+    def use(self, name: str, body: dict[str, Any]) -> Job:
+        """``POST /api/p/<project>/use``: ``{"run": n}`` brings back an earlier run."""
+        n = body.get("run")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise Refused("Choose which run to bring back, by its number.")
+        self.free(name)
+
+        def work(job: Job) -> dict[str, Any]:
+            entry = freebuild.restore(self.free(name), n)
+            job.say(f"Run {n} is the model shown now; the other runs are still in the list")
+            return {"project": name, "run": n, "parts": entry.get("parts")}
+
+        return self.start("use", name, work)
 
     def delete(self, name: str) -> dict[str, Any]:
         """Move the project's folder into ``.trash``; nothing is deleted outright."""
@@ -1596,6 +1954,23 @@ def project_page(name: str, token: str) -> bytes:
         if html.count(old) != 1:
             raise RuntimeError(f"viewer/index.html must hold {old} exactly once")
         html = html.replace(old, new)
+    return html.encode("utf-8")
+
+
+def free_page(name: str, token: str, folder: Path) -> bytes:
+    """viewer/free.html for free-build project ``name`` (a slug), with the address of the
+    turntable's first picture on ``<body>`` so it shows at once."""
+    html = _read_page("free.html")
+    for old in (TOKEN_PLACEHOLDER, "<body"):
+        if html.count(old) != 1:
+            raise RuntimeError(f"viewer/free.html must hold {old} exactly once")
+    attrs = f'data-project="{name}"'
+    frames = freebuild.turn_frames(folder)
+    if frames:
+        with contextlib.suppress(OSError):
+            stamp = (folder / frames[0]).stat().st_mtime_ns
+            attrs += f' data-first="/p/{name}/files/{frames[0]}?v={stamp}"'
+    html = html.replace(TOKEN_PLACEHOLDER, token).replace("<body", f"<body {attrs}")
     return html.encode("utf-8")
 
 
@@ -1712,10 +2087,15 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._send(HTTPStatus.NOT_FOUND, CONTENT_TYPES[".html"], page, body)
             elif folder is None:
                 self._not_found(body)
+            elif sub == "" and freebuild.is_free(folder):
+                page = free_page(name, app.token, folder)
+                self._send(HTTPStatus.OK, CONTENT_TYPES[".html"], page, body)
             elif sub == "":
                 self._send(
                     HTTPStatus.OK, CONTENT_TYPES[".html"], project_page(name, app.token), body
                 )
+            elif sub == "project-files.json" and freebuild.is_free(folder):
+                self._not_found(body)
             elif sub == "project-files.json":
                 self._send(HTTPStatus.OK, CONTENT_TYPES[".json"], project_files(folder), body)
             elif sub.startswith("files/"):
@@ -1817,6 +2197,10 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             if path == "/api/projects":
                 self._json(HTTPStatus.ACCEPTED, {"job": self._upload().id})
                 return
+            if path == "/api/free":
+                job = app.new_free(self._read_json())
+                self._json(HTTPStatus.ACCEPTED, {"job": job.id, "project": job.project})
+                return
             if path is not None and path.startswith("/api/p/"):
                 name, _, action = path[len("/api/p/") :].partition("/")
                 if action in ACTIONS and SLUG_RE.fullmatch(name):
@@ -1828,6 +2212,10 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         job = app.design(name, body)
                     elif action == "restore":
                         job = app.restore(name, body)
+                    elif action == "change":
+                        job = app.change(name, body)
+                    elif action == "use":
+                        job = app.use(name, body)
                     else:
                         job = getattr(app, action)(name)
                     self._json(HTTPStatus.ACCEPTED, {"job": job.id})

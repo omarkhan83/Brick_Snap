@@ -31,6 +31,7 @@ from bricksnap import pipeline, render, webapp
 from bricksnap.designer import judge, runner, studio
 from bricksnap.designer.judge import BestOf
 from bricksnap.designer.runner import DesignerRun
+from bricksnap.lab import run as lab_run
 from bricksnap.pipeline import create_project, rebuild, render_card, render_compare, rough_build
 from bricksnap.project import Project, ProjectError
 from bricksnap.webapp import Refused, make_app_server, read_form, serve_app
@@ -235,6 +236,7 @@ def no_real_designer() -> Iterator[None]:
         mp.setattr(runner, "run_session", never_start)
         mp.setattr(studio, "run_studio", never_start)
         mp.setattr(studio, "run_pass", never_start)
+        mp.setattr(lab_run, "build", never_start)  # the AI builder from parts (experimental)
         yield
 
 

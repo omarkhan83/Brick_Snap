@@ -98,6 +98,9 @@ const WHAT_TO_DO = {
   instructions:
     'Instructions can only be made for bricks that hold together. Ask the AI designer to fix the model, or build it again, then try once more.',
   restore: 'Your model was left as it was. Reload the page and try again.',
+  free: 'Whatever the AI built before it stopped is kept with the model, if it built anything. Check that Claude Code is installed and signed in on this computer, then try again.',
+  change: 'Your model is safe: the earlier runs are all kept, and you can bring any of them back from the list. You can ask again.',
+  use: 'Your model was left as it was. Reload the page and try again.',
 };
 
 const DONE_TITLE = {
@@ -107,6 +110,9 @@ const DONE_TITLE = {
   export: 'The parts list and LDraw file are ready',
   instructions: 'The building instructions are ready',
   restore: 'The earlier version is back',
+  free: 'The AI has built your model',
+  change: 'The AI has made the change',
+  use: 'The earlier run is back',
 };
 
 const PASS_MARKS = { done: '✓', running: '▶', skipped: '–', failed: '✗', waiting: '' };
@@ -691,5 +697,6 @@ function initActions(project) {
   })();
 }
 
+// The 3D viewer's page carries data-project; a free build's page (free.js) does not use this bar.
 const PROJECT = document.body.dataset.project;
-if (PROJECT) initActions(PROJECT);
+if (PROJECT && !document.body.classList.contains('free-page')) initActions(PROJECT);

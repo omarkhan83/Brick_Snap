@@ -242,13 +242,96 @@ button.linklike:disabled { background: none; box-shadow: none; color: #777; curs
 .job ol.passes li.failed .mark { color: var(--red); }
 .job ol.passes li.waiting, .job ol.passes li.skipped { color: var(--muted); }
 
+/* ---- models the AI builds from parts (experimental): the home page's second form ---- */
+.home-grid .free-start { grid-column: 2; grid-row: 2; }
+.home-grid .models { grid-row: 1 / span 2; }
+.home-grid.empty .free-start { grid-column: 1; grid-row: auto; }
+.free-start { background: #fbf7ff; }
+.free-start h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.badge.exp { background: #efe4ff; color: #3d1f73; border-color: #3d1f73; }
+.kicker .badge.exp { font-size: 11px; letter-spacing: .04em; vertical-align: 1px; margin-left: 6px; }
+.field textarea {
+  font: 16px var(--font);
+  padding: 8px 10px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+.field select { font: 700 16px var(--font); padding: 6px 8px; border: 3px solid var(--ink); border-radius: 10px; background: #fff; max-width: 100%; }
+.field textarea:focus-visible, .field select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.free-start .confirm { margin: 14px 0 0; }
+.pcard.free .pic { background: #fff; }
+
+/* ---- a free build's own page (free.html) ---- */
+body.free-page main { gap: 18px; }
+.free-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+.free-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.turncard { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.turnbox {
+  aspect-ratio: 4 / 3;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.turnbox:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.turnbox img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.turnbox img[hidden], .turnbox .none[hidden], .turnrow[hidden], #turnSays[hidden], .card[hidden], .report-box[hidden] { display: none; }
+.turnbox .none { color: var(--muted); font-weight: 700; padding: 16px; text-align: center; line-height: 1.4; }
+.turnrow { display: flex; align-items: flex-end; gap: 10px; }
+.turnrow button { padding: 6px 14px; flex: none; }
+.turncard .hint { margin: 0; }
+.checker h2, .downloads-card h2, .notes-card h2, .runs-card h2 { margin: 0 0 8px; }
+.checker .badges { margin: 0 0 10px; }
+.checker .lead { font-weight: 700; }
+.report-box { margin: 10px 0 0; }
+.checker .hint-line { margin: 0 0 4px; }
+.asked { margin: 0; font-size: 15px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
+.asked[hidden] { display: none; }
+.report-box pre {
+  margin: 0; padding: 10px; max-height: 420px; overflow: auto;
+  background: #f6f6f6; border: 2px solid #ccc; border-radius: 8px;
+  font-size: 13px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.downloads-card .downloads { margin: 0; }
+.ainotes { line-height: 1.5; font-size: 16px; overflow-wrap: anywhere; max-width: 80ch; }
+.ainotes p { margin: 0 0 10px; }
+.ainotes ul { margin: 0 0 10px; padding-left: 22px; }
+.ainotes li { margin: 4px 0; }
+.runs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.run {
+  display: flex; align-items: center; gap: 12px;
+  border: 2px solid var(--ink); border-radius: 10px; background: #fff; padding: 6px 10px 6px 6px;
+  min-width: 0;
+}
+.run.now { background: #fffbe6; }
+.run img, .run .vnopic {
+  width: 96px; height: 72px; flex: none; object-fit: contain; display: block;
+  border: 2px solid var(--ink); border-radius: 6px; background: #fff;
+}
+.run .vtext { gap: 2px; }
+.run .rwords { font-size: 14px; overflow-wrap: anywhere; }
+.run .vfacts { white-space: normal; }
+.run .usebtn { padding: 5px 12px; font-size: 15px; box-shadow: 2px 2px 0 var(--ink); flex: none; }
+.more-card .more-actions { margin: 0; padding: 0; border: 0; }
+
 @media (max-width: 900px) {
   .home-grid { grid-template-columns: minmax(0, 1fr); }
-  .home-grid .start, .home-grid .models { grid-column: 1; grid-row: auto; }
+  .home-grid .start, .home-grid .models, .home-grid .free-start { grid-column: 1; grid-row: auto; }
+  .free-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
+  .run { flex-wrap: wrap; }
+  .run .vtext { flex: 1 1 160px; }
   .vlist { flex-basis: 100%; }
   .vcard { width: 240px; }
   .ask button, .confirm .row button { flex: 1 1 auto; }
 }
+.more-card .more-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.more-card .more-actions h3 { margin: 0; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.more-card .more-actions button { padding: 6px 12px; font-size: 14px; box-shadow: 2px 2px 0 var(--ink); }

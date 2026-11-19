@@ -44,6 +44,34 @@ there are no tracebacks for mistakes a user can make.
 
 PROJECT is a path to a project folder; a bare name is looked up under ./projects/.
 
+EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricksnap.lab``)
+
+    bricksnap make "WORDS" [--name NAME] [--parts N] [--reference PROJECT] [--model ID]
+                   [--dir projects]
+        A new free-build project (``bricksnap.lab.freebuild``): one AI session builds the
+        model WORDS describe from the whole LDraw parts library, about N parts (20 to 300,
+        default 80). With --reference, the AI is also shown that ordinary project's 3D model
+        from five sides (``freebuild.reference_sheet``). Before starting it says what is
+        sent off the computer (the words, and the reference pictures when there are any),
+        that it is one AI run using the person's Claude Code login, usually ten to twenty
+        minutes with Fable 5.2, and that it is experimental and what the checker does not
+        prove. Progress is printed in plain sentences (``freebuild.Progress``); at the end,
+        the checker's summary, where the model and parts list are, and the AI's notes.
+        0 when the checker found no problems, 1 when it found some or the run failed (the
+        message says why and what was kept), 2 for a mistake (no words, --parts out of range,
+        a reference that is not an ordinary project with a 3D model).
+    bricksnap make --change PROJECT "WORDS" [--model ID]
+        The same, starting from that free-build project's current model, with WORDS as one
+        change; the result is kept as a new run.
+    bricksnap make --import SOURCE [--name NAME] [--dir projects] ["WORDS"]
+        No AI: keep a finished lab run folder (``python -m bricksnap.lab.run --out ...``) or
+        an .ldr file (with ``<stem>-report.txt`` beside it) as a new free-build project,
+        with its pictures (``freebuild.import_run``).
+    If LeoCAD, xvfb-run or the parts library is missing, a new build or a change says what
+    is missing and where to put it (``freebuild.missing``), starts nothing and returns 2.
+    Every other command refuses a free-build project plainly (``free_build_refusal``), and
+    ``make --change`` refuses an ordinary one.
+
 STAGE 2 ADDITIONS TO THE CONTRACT
 
 - ``export PROJECT``: also writes ``parts.csv`` and ``wanted_list.xml`` through
@@ -373,6 +401,8 @@ def open_project(ref: str) -> Project:
                 raise damaged from e
             if not isinstance(project.meta, dict):
                 raise damaged
+            if project.meta.get("kind") == "free":
+                raise UserError(free_build_refusal(ref))
             return project
     if _is_dir(given):
         raise ProjectError(
@@ -2081,6 +2111,155 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+FREE_EXPERIMENTAL = (
+    "This is experimental. The checker makes sure every part is held by studs, nothing "
+    "overlaps and the model stands, but it counts parts joined by clips, bars, pins and axles "
+    "as joined without proof, and nothing yet judges how strong a joint is."
+)
+
+
+def free_build_refusal(ref: str) -> str:
+    """What every command for ordinary projects says about a free-build project."""
+    return (
+        f"{ref} is a model the AI built from parts (an experimental kind of model), so this "
+        "command does not apply to it. Open it with the web app, or ask for a change with: "
+        f'{RUN} make --change {shlex.quote(ref)} "what to change"'
+    )
+
+
+def _free_project(ref: str) -> Path:
+    """The folder of free-build project PROJECT (a path, or a name under ./projects)."""
+    from bricksnap.lab import freebuild
+
+    given = Path(ref)
+    candidates = [given]
+    if not given.is_absolute() and len(given.parts) == 1:
+        candidates += [Path("projects") / ref, Path("projects") / slug(ref)]
+    for candidate in candidates:
+        if _is_file(candidate / "project.json"):
+            if not freebuild.is_free(candidate):
+                raise UserError(
+                    f"{ref} is a model made from a 3D file, not one the AI built from parts. "
+                    f"Ask the AI designer for a change instead: {RUN} design {shlex.quote(ref)} "
+                    '"what to change"'
+                )
+            return candidate
+    raise UserError(f"There is no model called {ref!r} (looked for {_show(given)}).")
+
+
+def cmd_make(args: argparse.Namespace) -> int:
+    """``make``: the AI builds a model itself from the whole parts library (experimental)."""
+    from bricksnap.lab import freebuild
+
+    try:
+        return _make(args)
+    except freebuild.FreeBuildError as e:  # a mistake the person can fix, said plainly
+        raise UserError(str(e)) from None
+
+
+def _make(args: argparse.Namespace) -> int:
+    from bricksnap.lab import freebuild
+
+    words = (args.words or "").strip()
+    if args.import_from:
+        if args.change or args.parts is not None or args.reference or args.model:
+            raise UserError("--import goes only with --name, --dir and the words (optional).")
+        folder = freebuild.import_run(
+            Path(args.dir), Path(args.import_from), name=args.name, words=words or None
+        )
+        return _made(folder, imported=True)
+    if args.change:
+        if args.name or args.parts is not None or args.reference:
+            raise UserError("--name, --parts and --reference go only with a new model.")
+        if not words:
+            raise UserError(
+                f"Say what to change, in quotes: {RUN} make --change {shlex.quote(args.change)} "
+                '"make the roof blue"'
+            )
+        folder = _free_project(args.change)
+    elif not words:
+        raise UserError(f'Say what to build, in quotes: {RUN} make "a small red fire truck"')
+    parts = freebuild.DEFAULT_PARTS if args.parts is None else args.parts
+    if not freebuild.MIN_PARTS <= parts <= freebuild.MAX_PARTS:
+        raise UserError(
+            f"--parts must be a whole number from {freebuild.MIN_PARTS} to "
+            f"{freebuild.MAX_PARTS}, not {parts}."
+        )
+    reference = open_project(args.reference) if args.reference else None
+    if reference is not None and not reference.has_design():
+        raise UserError(f"{args.reference} has no 3D model to show the AI.")
+    problem = freebuild.missing()
+    if problem:
+        raise UserError(problem)
+    if args.change:
+        meta = freebuild.read_meta(folder)
+        if args.model:
+            meta["model"] = args.model
+            freebuild.save_meta(folder, meta)
+        name = str(meta.get("name") or folder.name)
+        print(f'Asking the AI to change "{name}": "{freebuild.clean(words, 200)}".')
+        sent = "the words you typed (and the words the model was first built from)"
+    else:
+        folder = freebuild.create(
+            Path(args.dir),
+            words,
+            name=args.name,
+            parts=parts,
+            reference=reference.path.name if reference else None,
+            model=args.model,
+        )
+        name = str(freebuild.read_meta(folder).get("name"))
+        print(f'The AI will build "{name}" from parts, about {parts} of them.')
+        sent = "the words you typed"
+    references = []
+    if reference is not None:
+        references.append(freebuild.reference_sheet(reference.path, folder / "reference.png"))
+        sent += f" and pictures of the 3D model of {reference.name}"
+    print(
+        f"This sends {sent} to the AI provider, Anthropic, through Claude Code. Nothing else in "
+        "BrickSnap sends anything off your computer."
+    )
+    print(
+        "It is one AI run that uses your own Claude Code login, usually ten to twenty minutes "
+        "with Fable 5.2. Press Ctrl+C to stop it."
+    )
+    print(FREE_EXPERIMENTAL)
+    print()
+    sys.stdout.flush()
+
+    def say(line: str) -> None:
+        print(f"  {line}", flush=True)
+
+    try:
+        freebuild.build(folder, words if args.change else None, on_say=say, references=references)
+    except freebuild.FreeBuildError as e:
+        print()
+        print(f"The AI build did not work: {e}")
+        print(f"The project is {_show(folder)}.")
+        return 1
+    return _made(folder)
+
+
+def _made(folder: Path, imported: bool = False) -> int:
+    from bricksnap.lab import freebuild
+
+    info = freebuild.describe(folder)
+    print()
+    what = "Kept" if imported else "Built"
+    print(f'{what} "{info["name"]}": {info["summary"] or "not checked"}')
+    if info["picture_problem"]:
+        print(info["picture_problem"])
+    print(f"The model is {_show(folder / 'model.ldr')} (it opens in BrickLink Studio).")
+    print(f"The parts list is {_show(folder / 'parts.csv')}.")
+    if info["notes"] and not imported:
+        print()
+        print("What the AI says about it:")
+        print(info["notes"])
+    print()
+    print(f"See it turn round in the web app: {RUN} serve")
+    return 0 if info["clean"] else 1
+
+
 # ---- argument parsing ---------------------------------------------------------------------
 
 
@@ -2284,6 +2463,53 @@ def _parser() -> _Parser:
     )
     p.add_argument("--wish", metavar="TEXT", help="with --studio: a wish for the design, in quotes")
     p.set_defaults(func=cmd_design)
+
+    p = sub.add_parser(
+        "make",
+        help="EXPERIMENTAL: describe a model and let the AI build it from parts (sends data "
+        "to the AI)",
+        description=(
+            "Experimental: the AI builds a model itself, part by part, from the whole LDraw "
+            "parts library, checks it and looks at it, in one run of ten to twenty minutes. "
+            "It sends the words you type (and, with --reference, pictures of that model) to "
+            "the AI provider. Needs LeoCAD and its parts library on this computer."
+        ),
+    )
+    p.add_argument(
+        "words",
+        metavar="WORDS",
+        nargs="?",
+        help='what to build, in quotes, such as "a small red fire truck" (with --change: '
+        "what to change)",
+    )
+    p.add_argument("--name", help="a name for the model (default: its first few words)")
+    p.add_argument(
+        "--parts", type=int, metavar="N", help="about how many parts, 20 to 300 (default: 80)"
+    )
+    p.add_argument(
+        "--reference",
+        metavar="PROJECT",
+        help="show the AI pictures of this project's 3D model, to make it look like it",
+    )
+    p.add_argument("--model", metavar="ID", help="which AI model to use (default: Fable 5.2)")
+    p.add_argument(
+        "--change",
+        metavar="PROJECT",
+        help="change a model the AI built before, starting from it, as WORDS say",
+    )
+    p.add_argument(
+        "--import",
+        dest="import_from",
+        metavar="SOURCE",
+        help="no AI: keep a finished lab run folder, or an .ldr file, as a new model",
+    )
+    p.add_argument(
+        "--dir",
+        default="projects",
+        metavar="FOLDER",
+        help="the folder to put a new model in (default: projects)",
+    )
+    p.set_defaults(func=cmd_make)
 
     p = sub.add_parser(
         "versions",
