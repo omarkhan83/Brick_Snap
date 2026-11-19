@@ -1,0 +1,125 @@
+SUMMARY: 137 parts of 32 kinds, no problems: every part is held, nothing overlaps, and it stands. (13 joints not checked)
+
+NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):
+- line 70 (4488.dat) and line 97 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 70 (4488.dat) and line 101 (56890.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 71 (4488.dat) and line 98 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 71 (4488.dat) and line 102 (56890.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 72 (4488.dat) and line 99 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 72 (4488.dat) and line 103 (56890.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 73 (4488.dat) and line 100 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 73 (4488.dat) and line 104 (56890.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 97 (6014b.dat) and line 101 (56890.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 98 (6014b.dat) and line 102 (56890.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 99 (6014b.dat) and line 103 (56890.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 100 (6014b.dat) and line 104 (56890.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- Lines 58, 59, 64, 65, 66, 67, 70, 71, 72, 73, 88, 89 and 121 more are joined to what stands on the ground only through those joints.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 101, line 102, line 103, line 104
+- line 88 is held by 2 studs of line 93
+- line 89 is held by 2 studs of line 94
+- line 90 is held by 2 studs of line 95
+- line 91 is held by 2 studs of line 96
+- line 93 is held by 4 studs of line 70
+- line 94 is held by 4 studs of line 71
+- line 95 is held by 4 studs of line 72
+- line 96 is held by 4 studs of line 73
+- line 107 is held by 1 stud of line 58; 1 stud of line 59
+- line 108 is held by 1 stud of line 88; 1 stud of line 89; 4 studs of line 107
+- line 109 is held by 6 studs of line 108
+- line 110 is held by 2 studs of line 58; 2 studs of line 59; 2 studs of line 93; 2 studs of line 94
+- line 111 is held by 1 stud of line 58; 1 stud of line 59
+- line 112 is held by 1 stud of line 88; 1 stud of line 89; 4 studs of line 111
+- line 113 is held by 6 studs of line 112
+- line 118 is held by 1 stud of line 58; 1 stud of line 59
+- line 119 is held by 1 stud of line 90; 1 stud of line 91; 4 studs of line 118
+- line 120 is held by 6 studs of line 119
+- line 121 is held by 2 studs of line 58; 2 studs of line 59; 2 studs of line 95; 2 studs of line 96
+- line 122 is held by 1 stud of line 58; 1 stud of line 59
+- line 123 is held by 1 stud of line 90; 1 stud of line 91; 4 studs of line 122
+- line 124 is held by 6 studs of line 123
+- line 127 is held by 1 stud of line 88; 1 stud of line 89; 6 studs of line 109; 8 studs of line 215
+- line 128 is held by 8 studs of line 110
+- line 129 is held by 1 stud of line 88; 1 stud of line 89; 6 studs of line 113; 8 studs of line 220
+- line 130 is held by 24 studs of line 220; 8 studs of line 221
+- line 131 is held by 1 stud of line 90; 1 stud of line 91; 6 studs of line 120
+- line 132 is held by 8 studs of line 121
+- line 133 is held by 1 stud of line 90; 1 stud of line 91; 6 studs of line 124; 8 studs of line 230
+- line 134 is held by 8 studs of line 230
+- line 138 is held by 4 studs of line 127
+- line 139 is held by 4 studs of line 88; 4 studs of line 89; 8 studs of line 127; 8 studs of line 128; 16 studs of line 129; 24 studs of line 130
+- line 140 is held by 4 studs of line 90; 4 studs of line 91; 8 studs of line 130; 8 studs of line 131; 8 studs of line 132; 16 studs of line 133
+- line 143 is held by 4 studs of line 134
+- line 145 is held by 4 studs of line 138; 8 studs of line 139; 2 studs of line 165; 2 studs of line 166
+- line 146 is held by 56 studs of line 139; 8 studs of line 140
+- line 147 is held by 40 studs of line 140; 4 studs of line 143; 2 studs of line 167; 2 studs of line 168
+- line 149 is held by 4 studs of line 145; 4 studs of line 146
+- line 150 is held by 4 studs of line 145; 4 studs of line 146
+- line 151 is held by 4 studs of line 145; 4 studs of line 146
+- line 152 is held by 4 studs of line 145; 4 studs of line 146
+- line 153 is held by 8 studs of line 147
+- line 154 is held by 8 studs of line 147
+- line 155 is held by 8 studs of line 147
+- line 156 is held by 8 studs of line 147
+- line 157 is held by 36 studs of line 146; 12 studs of line 147
+- line 158 is held by 1 stud of line 146
+- line 159 is held by 1 stud of line 146
+- line 160 is held by 1 stud of line 146
+- line 161 is held by 1 stud of line 146
+- line 162 is held by 4 studs of line 146; 2 studs of line 147
+- line 163 is held by 4 studs of line 146; 2 studs of line 147
+- line 165 is held by 2 studs of line 127
+- line 166 is held by 2 studs of line 127
+- line 167 is held by 2 studs of line 134
+- line 168 is held by 2 studs of line 134
+- line 173 is held by 4 studs of line 157
+- line 176 is held by 2 studs of line 157
+- line 177 is held by 2 studs of line 157
+- line 180 is held by 2 studs of line 157
+- line 181 is held by 2 studs of line 157
+- line 190 is held by 2 studs of line 176
+- line 191 is held by 2 studs of line 177
+- line 195 is held by 2 studs of line 190; 2 studs of line 191; 2 studs of line 204; 2 studs of line 205; 2 studs of line 244; 2 studs of line 245; 2 studs of line 246; 1 stud of line 247; 1 stud of line 248
+- line 196 is held by 1 stud of line 180; 1 stud of line 181; 2 studs of line 242; 2 studs of line 243
+- line 197 is held by 6 studs of line 195
+- line 198 is held by 6 studs of line 195; 2 studs of line 196
+- line 199 is held by 6 studs of line 195; 2 studs of line 196
+- line 200 is held by 6 studs of line 195; 2 studs of line 196
+- line 202 is held by 4 studs of line 157
+- line 203 is held by 4 studs of line 157
+- line 204 is held by 2 studs of line 202
+- line 205 is held by 2 studs of line 203
+- line 213 is held by 2 studs of line 209; 2 studs of line 210; 2 studs of line 211; 2 studs of line 212
+- line 214 is held by 8 studs of line 213
+- line 215 is held by 8 studs of line 214
+- line 220 is held by 8 studs of line 252; 24 studs of line 253
+- line 221 is held by 8 studs of line 253
+- line 228 is held by 1 stud of line 58; 1 stud of line 59; 2 studs of line 222; 2 studs of line 223; 2 studs of line 224; 2 studs of line 225; 3 studs of line 226; 3 studs of line 227
+- line 229 is held by 16 studs of line 228
+- line 230 is held by 16 studs of line 229
+- line 232 is held by 2 studs of line 209 (sideways); 2 studs of line 210 (sideways); 2 studs of line 211 (sideways); 2 studs of line 212 (sideways)
+- line 233 is held by 2 studs of line 232 (sideways)
+- line 234 is held by 2 studs of line 222 (sideways); 2 studs of line 223 (sideways); 2 studs of line 224 (sideways); 2 studs of line 225 (sideways)
+- line 235 is held by 2 studs of line 234 (sideways)
+- line 237 is held by 4 studs of line 157
+- line 238 is held by 4 studs of line 157
+- line 239 is held by 4 studs of line 157
+- line 240 is held by 2 studs of line 157
+- line 241 is held by 2 studs of line 157
+- line 242 is held by 4 studs of line 157
+- line 243 is held by 4 studs of line 157
+- line 244 is held by 1 stud of line 173; 2 studs of line 237; 1 stud of line 241
+- line 245 is held by 2 studs of line 173; 2 studs of line 238
+- line 246 is held by 1 stud of line 173; 2 studs of line 239; 1 stud of line 240
+- line 247 is held by 1 stud of line 240
+- line 248 is held by 1 stud of line 241
+- line 250 is held by 4 studs of line 58; 4 studs of line 59; 6 studs of line 64; 6 studs of line 65; 2 studs of line 66; 2 studs of line 67; 4 studs of line 260; 4 studs of line 261
+- line 251 is held by 1 stud of line 58; 1 stud of line 59; 2 studs of line 66; 2 studs of line 67; 1 stud of line 262; 1 stud of line 263
+- line 252 is held by 8 studs of line 250
+- line 253 is held by 24 studs of line 250; 8 studs of line 251
+- line 255 is held by 3 studs of line 232 (sideways)
+- line 256 is held by 3 studs of line 232 (sideways)
+- line 257 is held by 3 studs of line 234 (sideways)
+- line 258 is held by 3 studs of line 234 (sideways)
+- stands: its centre of mass (x -1, z 1) is over what touches the ground.

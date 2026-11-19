@@ -1,0 +1,147 @@
+SUMMARY: 159 parts of 30 kinds, no problems: every part is held, nothing overlaps, and it stands.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 1, line 2, line 3, line 4, line 5, line 6, line 7, line 8, line 9, line 10, line 11, line 12, line 13, line 14, line 15, line 16, line 17
+- line 19 is held by 2 studs of line 2
+- line 20 is held by 2 studs of line 3
+- line 21 is held by 2 studs of line 4
+- line 22 is held by 2 studs of line 5
+- line 23 is held by 4 studs of line 1; 2 studs of line 2; 2 studs of line 3; 2 studs of line 14
+- line 24 is held by 4 studs of line 1; 2 studs of line 4; 2 studs of line 5; 2 studs of line 10
+- line 25 is held by 16 studs of line 1; 1 stud of line 10; 1 stud of line 11; 1 stud of line 14; 1 stud of line 15
+- line 26 is held by 16 studs of line 1; 1 stud of line 11; 1 stud of line 12; 1 stud of line 15; 1 stud of line 16
+- line 27 is held by 16 studs of line 1; 1 stud of line 12; 1 stud of line 13; 1 stud of line 16; 1 stud of line 17
+- line 28 is held by 1 stud of line 10; 1 stud of line 11
+- line 29 is held by 1 stud of line 11; 1 stud of line 12
+- line 30 is held by 1 stud of line 12; 1 stud of line 13
+- line 31 is held by 1 stud of line 14; 1 stud of line 15
+- line 32 is held by 1 stud of line 15; 1 stud of line 16
+- line 33 is held by 1 stud of line 16; 1 stud of line 17
+- line 34 is held by 4 studs of line 1; 2 studs of line 6; 2 studs of line 7; 2 studs of line 17
+- line 35 is held by 4 studs of line 1; 2 studs of line 8; 2 studs of line 9; 2 studs of line 13
+- line 36 is held by 1 stud of line 6; 1 stud of line 7
+- line 37 is held by 1 stud of line 7; 1 stud of line 8
+- line 38 is held by 1 stud of line 8; 1 stud of line 9
+- line 40 is held by 4 studs of line 19; 4 studs of line 20; 4 studs of line 21; 4 studs of line 22
+- line 41 is held by 4 studs of line 24; 2 studs of line 25; 2 studs of line 26; 2 studs of line 27; 2 studs of line 28; 2 studs of line 29; 2 studs of line 30; 4 studs of line 35
+- line 42 is held by 4 studs of line 23; 2 studs of line 25; 2 studs of line 26; 2 studs of line 27; 2 studs of line 31; 2 studs of line 32; 2 studs of line 33; 4 studs of line 34
+- line 43 is held by 2 studs of line 28; 2 studs of line 29; 2 studs of line 30
+- line 44 is held by 2 studs of line 31; 2 studs of line 32; 2 studs of line 33
+- line 45 is held by 2 studs of line 23; 2 studs of line 24; 4 studs of line 25; 4 studs of line 26; 4 studs of line 27
+- line 46 is held by 8 studs of line 34; 8 studs of line 35
+- line 47 is held by 4 studs of line 36; 4 studs of line 37; 4 studs of line 38
+- line 49 is held by 16 studs of line 40
+- line 50 is held by 4 studs of line 42; 2 studs of line 45
+- line 51 is held by 4 studs of line 41; 2 studs of line 45
+- line 52 is held by 4 studs of line 42; 2 studs of line 44
+- line 53 is held by 4 studs of line 41; 2 studs of line 43; 4 studs of line 45
+- line 54 is held by 8 studs of line 42; 4 studs of line 45
+- line 55 is held by 8 studs of line 41; 4 studs of line 45
+- line 56 is held by 4 studs of line 43
+- line 57 is held by 4 studs of line 44
+- line 58 is held by 4 studs of line 42; 8 studs of line 46
+- line 59 is held by 4 studs of line 41; 8 studs of line 46
+- line 60 is held by 12 studs of line 47
+- line 62 is held by 16 studs of line 49
+- line 63 is held by 4 studs of line 51
+- line 64 is held by 4 studs of line 50
+- line 65 is held by 4 studs of line 53; 2 studs of line 55; 2 studs of line 56
+- line 66 is held by 2 studs of line 55; 2 studs of line 56
+- line 67 is held by 4 studs of line 52; 2 studs of line 54; 2 studs of line 57
+- line 68 is held by 2 studs of line 54; 2 studs of line 57
+- line 69 is held by 4 studs of line 59
+- line 70 is held by 4 studs of line 58
+- line 71 is held by 2 studs of line 53; 4 studs of line 55
+- line 72 is held by 2 studs of line 52; 4 studs of line 54
+- line 73 is held by 4 studs of line 51; 4 studs of line 53; 8 studs of line 55; 4 studs of line 59
+- line 74 is held by 4 studs of line 50; 4 studs of line 52; 8 studs of line 54; 4 studs of line 58
+- line 75 is held by 4 studs of line 50; 2 studs of line 52; 2 studs of line 53
+- line 76 is held by 8 studs of line 54; 4 studs of line 58; 4 studs of line 60
+- line 77 is held by 4 studs of line 51; 4 studs of line 53; 8 studs of line 55
+- line 78 is held by 4 studs of line 59; 4 studs of line 60
+- line 80 is held by 8 studs of line 62
+- line 81 is held by 8 studs of line 62
+- line 82 is held by 1 stud of line 63; 2 studs of line 65; 2 studs of line 71; 4 studs of line 73
+- line 83 is held by 2 studs of line 65; 2 studs of line 66; 4 studs of line 71; 4 studs of line 73
+- line 84 is held by 1 stud of line 64; 2 studs of line 67; 2 studs of line 72; 4 studs of line 74
+- line 85 is held by 2 studs of line 67; 2 studs of line 68; 4 studs of line 72; 4 studs of line 74
+- line 86 is held by 8 studs of line 74; 4 studs of line 75; 4 studs of line 76
+- line 87 is held by 4 studs of line 75; 4 studs of line 76; 8 studs of line 77
+- line 88 is held by 8 studs of line 73; 8 studs of line 77
+- line 89 is held by 4 studs of line 73
+- line 90 is held by 4 studs of line 74
+- line 91 is held by 4 studs of line 76; 4 studs of line 78
+- line 92 is held by 4 studs of line 78
+- line 93 is held by 4 studs of line 76
+- line 95 is held by 2 studs of line 80
+- line 96 is held by 2 studs of line 80
+- line 97 is held by 2 studs of line 81
+- line 98 is held by 2 studs of line 81
+- line 99 is held by 2 studs of line 82
+- line 100 is held by 2 studs of line 82
+- line 101 is held by 2 studs of line 84
+- line 102 is held by 2 studs of line 84
+- line 103 is held by 4 studs of line 86; 4 studs of line 87; 4 studs of line 88
+- line 104 is held by 4 studs of line 86; 4 studs of line 87; 4 studs of line 88
+- line 105 is held by 2 studs of line 83; 2 studs of line 85; 4 studs of line 86; 4 studs of line 87; 4 studs of line 88
+- line 106 is held by 2 studs of line 92; 2 studs of line 93
+- line 107 is held by 2 studs of line 85; 4 studs of line 86; 2 studs of line 87
+- line 108 is held by 2 studs of line 83; 2 studs of line 87; 4 studs of line 88
+- line 109 is held by 8 studs of line 91
+- line 111 is held by 2 studs of line 95; 2 studs of line 96; 2 studs of line 97; 2 studs of line 98
+- line 115 is held by 1 stud of line 160; 1 stud of line 161; 8 studs of line 178
+- line 116 is held by 1 stud of line 160
+- line 117 is held by 1 stud of line 161
+- line 118 is held by 6 studs of line 115; 1 stud of line 116; 1 stud of line 117
+- line 119 is held by 6 studs of line 115
+- line 120 is held by 4 studs of line 99; 4 studs of line 101; 12 studs of line 103
+- line 121 is held by 4 studs of line 100; 4 studs of line 102; 12 studs of line 104
+- line 122 is held by 16 studs of line 105
+- line 124 is held by 2 studs of line 120; 2 studs of line 121
+- line 125 is held by 2 studs of line 120; 2 studs of line 121
+- line 126 is held by 2 studs of line 111; 2 studs of line 118; 4 studs of line 120; 4 studs of line 121; 4 studs of line 122
+- line 127 is held by 2 studs of line 111; 2 studs of line 118; 4 studs of line 120; 4 studs of line 121; 4 studs of line 122
+- line 128 is held by 2 studs of line 111; 2 studs of line 118; 4 studs of line 120; 4 studs of line 121; 4 studs of line 122
+- line 129 is held by 2 studs of line 111; 2 studs of line 118; 4 studs of line 120; 4 studs of line 121; 4 studs of line 122
+- line 131 is held by 1 stud of line 127
+- line 132 is held by 1 stud of line 126
+- line 133 is held by 1 stud of line 127
+- line 134 is held by 1 stud of line 126
+- line 135 is held by 2 studs of line 128; 2 studs of line 129
+- line 136 is held by 2 studs of line 126; 2 studs of line 127; 2 studs of line 128; 2 studs of line 129
+- line 137 is held by 2 studs of line 124; 2 studs of line 125; 4 studs of line 126; 4 studs of line 127; 4 studs of line 128; 4 studs of line 129
+- line 138 is held by 2 studs of line 124; 2 studs of line 125; 4 studs of line 126; 4 studs of line 127; 4 studs of line 128; 4 studs of line 129
+- line 139 is held by 4 studs of line 126; 4 studs of line 127; 4 studs of line 128; 4 studs of line 129
+- line 141 is held by 1 stud of line 132; 1 stud of line 134; 2 studs of line 136
+- line 142 is held by 1 stud of line 131; 1 stud of line 133; 2 studs of line 136
+- line 143 is held by 4 studs of line 135; 4 studs of line 136
+- line 144 is held by 4 studs of line 137; 4 studs of line 138
+- line 145 is held by 4 studs of line 137; 4 studs of line 138
+- line 146 is held by 4 studs of line 139
+- line 147 is held by 4 studs of line 139
+- line 148 is held by 8 studs of line 139
+- line 149 is held by 12 studs of line 137
+- line 150 is held by 12 studs of line 138
+- line 152 is held by 1 stud of line 141; 1 stud of line 143; 2 studs of line 144; 4 studs of line 149
+- line 153 is held by 1 stud of line 142; 1 stud of line 143; 2 studs of line 145; 4 studs of line 149
+- line 154 is held by 2 studs of line 144; 1 stud of line 146; 1 stud of line 148; 4 studs of line 150
+- line 155 is held by 2 studs of line 145; 1 stud of line 147; 1 stud of line 148; 4 studs of line 150
+- line 156 is held by 2 studs of line 143; 4 studs of line 149
+- line 157 is held by 2 studs of line 148; 4 studs of line 150
+- line 158 is held by 1 stud of line 152; 1 stud of line 153; 1 stud of line 154; 1 stud of line 155; 2 studs of line 156; 2 studs of line 157
+- line 160 is held by 2 studs of line 95
+- line 161 is held by 2 studs of line 98
+- line 163 is held by 1 stud of line 133 (sideways, in a tube)
+- line 164 is held by 1 stud of line 134 (sideways, in a tube)
+- line 167 is held by 4 studs of line 56 (sideways)
+- line 169 is held by 4 studs of line 57 (sideways)
+- line 170 is held by 2 studs of line 60
+- line 171 is held by 2 studs of line 60
+- line 172 is held by 1 stud of line 69
+- line 173 is held by 1 stud of line 70
+- line 174 is held by 1 stud of line 89
+- line 175 is held by 1 stud of line 90
+- line 176 is held by 1 stud of line 9
+- line 177 is held by 1 stud of line 6
+- line 178 is held by 2 studs of line 96; 2 studs of line 97
+- stands: its centre of mass (x -1, z -1) is over what touches the ground.

@@ -136,6 +136,31 @@ place, and says how to fix it when it can.
   eyes on side-stud bricks, a pink nose, white horn pieces as whiskers, a red collar with a bell, round
   bricks as front legs and a ringed tail of curved slopes wrapped round its side. The no-tools cat had
   ears floating above its head; this one's are held.
+Then four more, to test two questions.
+
+| Built | By | Parts | Kinds | Check | Time | List price |
+|---|---|---|---|---|---|---|
+| Sunflower, from words | Fable 5.2 | 58 | 24 | no problems | 9 min | $3.75 |
+| Sitting cat, from words | Fable 5.2 | 78 | 35 | no problems | 13 min | $4.35 |
+| Sports car, from words | Fable 5.2 | 102 | 33 | no problems | 21 min | $8.11 |
+| Sports car, from words | Opus 5.5 | 108 | 32 | no problems | 17 min | $4.15 |
+| Our duck, from pictures | Fable 5.2 | 159 | 30 | no problems | 16 min | $5.96 |
+| Our car, from pictures | Fable 5.2 | 137 | 32 | no problems | 16 min | $6.37 |
+| Our blocky cat, from pictures | Fable 5.2 | 114 | 32 | no problems | 15 min | $5.01 |
+
+![Our car, built from pictures with tools](with-tools/our-car.png)
+![Our duck, built from pictures with tools](with-tools/our-duck.png)
+![The sports car by Opus 5.5](with-tools/car-by-opus.png)
+
+- **Seven sessions, seven models the checker passes.** No session ended with a problem left.
+- **From pictures of a real object it works as well as from words.** "Our car" is recognisably the sample
+  car, with mudguards over real wheels, a glass windscreen and number plates, in 137 parts; the grid
+  pipeline's best version of the same car has no wheels and 214 parts. The duck is a neat, stylised LEGO
+  duck with a beak of curved slopes and round eyes; it is still blockier than the solver's.
+- **Opus 5.5 does it at half the price.** Its car passes the check and is a good model (spoiler, bubble
+  canopy, stripes); Fable's is the more refined of the two. A cheaper builder with Fable as planner and
+  critic is the obvious thing to try for cost.
+
 - It is a better design than the no-tools sunflower, because the AI searched: it found real petal plates
   (two sizes, layered), three-leaf plant parts that lock into the stem, and a brick with four side studs
   to hold the head, none of which it had used from memory. The pot tapers on inverted slopes.

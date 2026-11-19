@@ -1,0 +1,112 @@
+SUMMARY: 114 parts of 32 kinds, no problems: every part is held, nothing overlaps, and it stands. (5 joints not checked)
+
+NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):
+- line 123 (4592.dat) and line 128 (4593.dat): a hinge joint, which the checker cannot confirm (they share about 210 LDU^3 where one goes into the other). Counted as joined.
+- line 124 (4592.dat) and line 127 (4593.dat): a hinge joint, which the checker cannot confirm (they share about 200 LDU^3 where one goes into the other). Counted as joined.
+- line 125 (4592.dat) and line 130 (4593.dat): a hinge joint, which the checker cannot confirm (they share about 200 LDU^3 where one goes into the other). Counted as joined.
+- line 126 (4592.dat) and line 129 (4593.dat): a hinge joint, which the checker cannot confirm (they share about 210 LDU^3 where one goes into the other). Counted as joined.
+- Lines 127, 128, 129, 130 are joined to what stands on the ground only through those joints.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 1, line 5, line 9, line 13
+- line 2 is held by 4 studs of line 1
+- line 3 is held by 4 studs of line 2
+- line 4 is held by 4 studs of line 3
+- line 6 is held by 4 studs of line 5
+- line 7 is held by 4 studs of line 6
+- line 8 is held by 4 studs of line 7
+- line 10 is held by 4 studs of line 9
+- line 11 is held by 4 studs of line 10
+- line 12 is held by 4 studs of line 11
+- line 14 is held by 4 studs of line 13
+- line 15 is held by 4 studs of line 14
+- line 16 is held by 4 studs of line 15
+- line 18 is held by 4 studs of line 4; 4 studs of line 8; 4 studs of line 12; 4 studs of line 16
+- line 20 is held by 12 studs of line 18
+- line 21 is held by 12 studs of line 18
+- line 22 is held by 12 studs of line 18
+- line 23 is held by 12 studs of line 18
+- line 24 is held by 12 studs of line 18
+- line 26 is held by 4 studs of line 20; 4 studs of line 21; 4 studs of line 22; 4 studs of line 23; 4 studs of line 24
+- line 27 is held by 4 studs of line 20; 4 studs of line 21; 4 studs of line 22; 4 studs of line 23; 4 studs of line 24
+- line 28 is held by 4 studs of line 20; 4 studs of line 21; 4 studs of line 22; 4 studs of line 23
+- line 29 is held by 2 studs of line 24
+- line 30 is held by 2 studs of line 24
+- line 31 is held by 2 studs of line 30
+- line 33 is held by 4 studs of line 26; 4 studs of line 27; 4 studs of line 28
+- line 34 is held by 4 studs of line 26; 4 studs of line 27; 4 studs of line 28
+- line 35 is held by 4 studs of line 26; 4 studs of line 27; 4 studs of line 28
+- line 36 is held by 4 studs of line 26; 4 studs of line 27; 4 studs of line 28
+- line 37 is held by 2 studs of line 26; 2 studs of line 27; 2 studs of line 29
+- line 38 is held by 2 studs of line 26
+- line 39 is held by 2 studs of line 27
+- line 41 is held by 6 studs of line 33
+- line 42 is held by 6 studs of line 33; 6 studs of line 34
+- line 43 is held by 6 studs of line 34; 6 studs of line 35
+- line 44 is held by 6 studs of line 35; 6 studs of line 36
+- line 45 is held by 6 studs of line 36; 6 studs of line 37
+- line 46 is held by 2 studs of line 31; 2 studs of line 38; 2 studs of line 39
+- line 48 is held by 2 studs of line 31 (sideways)
+- line 49 is held by 2 studs of line 31 (sideways)
+- line 50 is held by 1 stud of line 48 (sideways)
+- line 51 is held by 1 stud of line 49 (sideways)
+- line 52 is held by 1 stud of line 50 (sideways); 1 stud of line 51 (sideways)
+- line 53 is held by 1 stud of line 50
+- line 54 is held by 1 stud of line 53
+- line 56 is held by 2 studs of line 18
+- line 57 is held by 2 studs of line 18
+- line 58 is held by 2 studs of line 18
+- line 59 is held by 2 studs of line 18
+- line 60 is held by 2 studs of line 18
+- line 61 is held by 2 studs of line 18
+- line 62 is held by 12 studs of line 18
+- line 66 is held by 1 stud of line 56
+- line 67 is held by 1 stud of line 58
+- line 69 is held by 1 stud of line 57
+- line 73 is held by 1 stud of line 59; 1 stud of line 60
+- line 74 is held by 1 stud of line 61
+- line 76 is held by 2 studs of line 64
+- line 77 is held by 2 studs of line 65
+- line 78 is held by 1 stud of line 66; 1 stud of line 68; 1 stud of line 69; 2 studs of line 71; 1 stud of line 72
+- line 79 is held by 1 stud of line 67; 1 stud of line 70; 2 studs of line 72
+- line 80 is held by 6 studs of line 73
+- line 81 is held by 2 studs of line 73; 6 studs of line 74
+- line 83 is held by 1 stud of line 76
+- line 84 is held by 1 stud of line 78
+- line 85 is held by 2 studs of line 78; 1 stud of line 79
+- line 86 is held by 1 stud of line 79
+- line 87 is held by 1 stud of line 77
+- line 88 is held by 1 stud of line 76; 3 studs of line 78; 3 studs of line 80; 1 stud of line 81
+- line 89 is held by 1 stud of line 77; 2 studs of line 79; 3 studs of line 81
+- line 90 is held by 3 studs of line 80
+- line 91 is held by 4 studs of line 81
+- line 93 is held by 1 stud of line 83; 1 stud of line 84; 3 studs of line 85; 1 stud of line 86; 8 studs of line 88; 4 studs of line 89; 3 studs of line 90; 3 studs of line 91
+- line 94 is held by 1 stud of line 87; 2 studs of line 89; 1 stud of line 91
+- line 96 is held by 2 studs of line 93
+- line 97 is held by 1 stud of line 93; 1 stud of line 94
+- line 98 is held by 2 studs of line 93
+- line 99 is held by 3 studs of line 93
+- line 100 is held by 1 stud of line 93; 1 stud of line 94
+- line 101 is held by 3 studs of line 93
+- line 102 is held by 4 studs of line 93
+- line 103 is held by 6 studs of line 93
+- line 104 is held by 2 studs of line 93; 2 studs of line 94
+- line 106 is held by 2 studs of line 96
+- line 107 is held by 2 studs of line 97
+- line 108 is held by 2 studs of line 106 (sideways)
+- line 109 is held by 2 studs of line 107 (sideways)
+- line 110 is held by 2 studs of line 106
+- line 111 is held by 2 studs of line 107
+- line 113 is held by 1 stud of line 68 (sideways); 1 stud of line 69 (sideways); 1 stud of line 70 (sideways)
+- line 114 is held by 3 studs of line 113 (sideways)
+- line 115 is held by 1 stud of line 113 (sideways)
+- line 116 is held by 1 stud of line 113 (sideways)
+- line 117 is held by 1 stud of line 113 (sideways)
+- line 118 is held by 1 stud of line 117 (sideways)
+- line 120 is held by 1 stud of line 84 (sideways)
+- line 121 is held by 1 stud of line 86 (sideways)
+- line 123 is held by 1 stud of line 64 (sideways, in a tube)
+- line 124 is held by 1 stud of line 76 (sideways, in a tube)
+- line 125 is held by 1 stud of line 65 (sideways, in a tube)
+- line 126 is held by 1 stud of line 77 (sideways, in a tube)
+- stands: its centre of mass (x -1, z -6) is over what touches the ground.

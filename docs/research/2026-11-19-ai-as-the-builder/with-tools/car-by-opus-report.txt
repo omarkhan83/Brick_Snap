@@ -1,0 +1,115 @@
+SUMMARY: 108 parts of 32 kinds, no problems: every part is held, nothing overlaps, and it stands. (13 joints not checked)
+
+NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):
+- line 7 (6157.dat) and line 9 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 7 (6157.dat) and line 10 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 7 (6157.dat) and line 11 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 7 (6157.dat) and line 12 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 8 (6157.dat) and line 13 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 8 (6157.dat) and line 14 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 8 (6157.dat) and line 15 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 810 LDU^3 where one goes into the other). Counted as joined.
+- line 8 (6157.dat) and line 16 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 9 (6014b.dat) and line 10 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 11 (6014b.dat) and line 12 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 13 (6014b.dat) and line 14 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 15 (6014b.dat) and line 16 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- Lines 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 18 and 92 more are joined to what stands on the ground only through those joints.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 10, line 12, line 14, line 16
+- line 3 is held by 4 studs of line 7
+- line 5 is held by 4 studs of line 8
+- line 18 is held by 2 studs of line 2; 8 studs of line 3; 2 studs of line 4
+- line 19 is held by 2 studs of line 4; 8 studs of line 5; 2 studs of line 6
+- line 20 is held by 2 studs of line 2
+- line 21 is held by 2 studs of line 2
+- line 22 is held by 2 studs of line 6
+- line 23 is held by 2 studs of line 6
+- line 24 is held by 8 studs of line 4
+- line 25 is held by 8 studs of line 4
+- line 26 is held by 4 studs of line 4
+- line 28 is held by 2 studs of line 18; 1 stud of line 20; 1 stud of line 21
+- line 29 is held by 2 studs of line 19; 1 stud of line 22; 1 stud of line 23
+- line 30 is held by 8 studs of line 18
+- line 31 is held by 8 studs of line 19
+- line 32 is held by 2 studs of line 18; 2 studs of line 19; 4 studs of line 24; 4 studs of line 25; 4 studs of line 26
+- line 33 is held by 2 studs of line 24
+- line 34 is held by 2 studs of line 25
+- line 35 is held by 1 stud of line 21; 1 stud of line 25
+- line 36 is held by 1 stud of line 23; 1 stud of line 25
+- line 37 is held by 1 stud of line 20; 1 stud of line 24
+- line 38 is held by 1 stud of line 22; 1 stud of line 24
+- line 40 is held by 6 studs of line 30
+- line 41 is held by 8 studs of line 31
+- line 42 is held by 1 stud of line 37
+- line 43 is held by 1 stud of line 35
+- line 44 is held by 1 stud of line 38
+- line 45 is held by 1 stud of line 36
+- line 46 is held by 1 stud of line 42
+- line 47 is held by 1 stud of line 43
+- line 48 is held by 1 stud of line 44
+- line 49 is held by 1 stud of line 45
+- line 50 is held by 1 stud of line 35; 1 stud of line 37; 2 studs of line 40
+- line 51 is held by 4 studs of line 40
+- line 52 is held by 1 stud of line 37
+- line 53 is held by 1 stud of line 35
+- line 54 is held by 1 stud of line 36; 1 stud of line 38; 2 studs of line 41
+- line 55 is held by 4 studs of line 41
+- line 56 is held by 1 stud of line 36; 1 stud of line 38; 2 studs of line 41
+- line 58 is held by 4 studs of line 28; 2 studs of line 35; 2 studs of line 37; 1 stud of line 46; 1 stud of line 47; 6 studs of line 50; 8 studs of line 51
+- line 59 is held by 2 studs of line 52
+- line 60 is held by 2 studs of line 53
+- line 61 is held by 2 studs of line 36; 2 studs of line 38; 6 studs of line 54; 8 studs of line 55; 6 studs of line 56
+- line 62 is held by 4 studs of line 29; 1 stud of line 48; 1 stud of line 49
+- line 63 is held by 2 studs of line 33; 1 stud of line 37; 1 stud of line 38
+- line 64 is held by 2 studs of line 34; 1 stud of line 35; 1 stud of line 36
+- line 65 is held by 2 studs of line 63 (sideways)
+- line 66 is held by 2 studs of line 63 (sideways)
+- line 67 is held by 2 studs of line 64 (sideways)
+- line 68 is held by 2 studs of line 64 (sideways)
+- line 70 is held by 2 studs of line 58; 1 stud of line 59; 1 stud of line 61; 4 studs of line 63
+- line 71 is held by 2 studs of line 58; 1 stud of line 60; 1 stud of line 61; 4 studs of line 64
+- line 72 is held by 1 stud of line 59
+- line 73 is held by 1 stud of line 60
+- line 74 is held by 4 studs of line 61
+- line 75 is held by 18 studs of line 61; 6 studs of line 62
+- line 77 is held by 8 studs of line 58
+- line 78 is held by 1 stud of line 58
+- line 79 is held by 1 stud of line 58
+- line 80 is held by 1 stud of line 58
+- line 81 is held by 1 stud of line 58
+- line 82 is held by 1 stud of line 58
+- line 83 is held by 1 stud of line 58
+- line 84 is held by 8 studs of line 70
+- line 85 is held by 8 studs of line 71
+- line 86 is held by 1 stud of line 72
+- line 87 is held by 1 stud of line 73
+- line 88 is held by 4 studs of line 32
+- line 89 is held by 4 studs of line 32
+- line 90 is held by 1 stud of line 28 (sideways, in a tube)
+- line 91 is held by 1 stud of line 28 (sideways, in a tube)
+- line 92 is held by 2 studs of line 28 (sideways)
+- line 94 is held by 2 studs of line 75
+- line 95 is held by 2 studs of line 75
+- line 96 is held by 1 stud of line 74; 2 studs of line 75
+- line 97 is held by 1 stud of line 74; 2 studs of line 75
+- line 98 is held by 1 stud of line 74; 2 studs of line 75
+- line 99 is held by 1 stud of line 74; 2 studs of line 75
+- line 100 is held by 6 studs of line 75
+- line 101 is held by 1 stud of line 75
+- line 102 is held by 1 stud of line 75
+- line 103 is held by 2 studs of line 75
+- line 104 is held by 1 stud of line 75 (in a tube)
+- line 105 is held by 1 stud of line 75 (in a tube)
+- line 106 is held by 1 stud of line 104; 1 stud of line 105
+- line 107 is held by 6 studs of line 106
+- line 108 is held by 1 stud of line 29 (sideways, in a tube)
+- line 109 is held by 1 stud of line 29 (sideways, in a tube)
+- line 110 is held by 1 stud of line 29 (sideways, in a tube)
+- line 111 is held by 1 stud of line 29 (sideways, in a tube)
+- line 113 is held by 4 studs of line 32
+- line 114 is held by 2 studs of line 30
+- line 115 is held by 2 studs of line 114
+- line 116 is held by 2 studs of line 115 (sideways)
+- line 117 is held by 1 stud of line 116 (sideways, in a tube)
+- stands: its centre of mass (x 0, z 4) is over what touches the ground.
