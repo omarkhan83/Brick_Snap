@@ -1,6 +1,6 @@
 # Thin models still have too many weak spots, mostly at larger sizes
-- status: in-progress
-- owner: Alec-42 (since 2026-11-19)
+- status: open
+- owner: nobody
 - stage: 4
 
 Since the conversion fills cells by coverage, shapes are truer and thinner. At 16 studs no large section
