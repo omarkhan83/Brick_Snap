@@ -1033,3 +1033,46 @@ def test_the_command_line_runs_and_judges(pawn: Project, monkeypatch, capsys):
     monkeypatch.setattr(judge, "run_judge", FakeJudge())
     studio.main([str(pawn.path), "--judge", "1", "2"])
     assert "ranking (best first): version" in capsys.readouterr().out
+
+
+# ---- a busy AI service: try the session again ---------------------------------------------
+
+
+def test_a_pass_is_tried_again_when_the_ai_service_is_busy(tmp_path, monkeypatch):
+    from bricksnap.designer import studio
+    from bricksnap.designer.runner import DesignerRun
+
+    busy = "Claude Code reported a problem: API Error: 529 Overloaded. This is a server-side issue."
+    answers = [DesignerRun(ok=False, error=busy), DesignerRun(ok=False, error=busy)]
+    calls, waits, events = [], [], []
+
+    def session(**kwargs):
+        calls.append(kwargs["transcript"].name)
+        return answers.pop(0) if answers else DesignerRun(ok=True, turns=3)
+
+    monkeypatch.setattr(studio.runner, "run_session", session)
+    monkeypatch.setattr(studio, "_sleep", waits.append)
+    project: Any = type("P", (), {"path": tmp_path, "designer_dir": tmp_path / "designer"})()
+    plan = studio.PASSES["plan"]
+    run = studio.run_pass(project, plan, "go", on_event=events.append)
+    assert run.ok and run.kind == "plan" and len(calls) == 3 and len(set(calls)) == 3
+    assert waits == list(studio.RETRY_WAITS_S[:2])
+    retries = [e for e in events if e.get("event") == "retry"]
+    assert [(e["pass"], e["attempt"], e["wait_s"]) for e in retries] == [
+        ("plan", 1, studio.RETRY_WAITS_S[0]),
+        ("plan", 2, studio.RETRY_WAITS_S[1]),
+    ]
+
+    # it gives up after the last wait, and returns the failure as it is
+    answers[:] = [DesignerRun(ok=False, error=busy) for _ in range(10)]
+    calls.clear()
+    waits.clear()
+    run = studio.run_pass(project, plan, "go")
+    assert not run.ok and len(calls) == len(studio.RETRY_WAITS_S) + 1
+    assert waits == list(studio.RETRY_WAITS_S)
+
+    # any other failure is not tried again
+    answers[:] = [DesignerRun(ok=False, error="The designer used all 30 of its turns.")]
+    calls.clear()
+    waits.clear()
+    assert not studio.run_pass(project, plan, "go").ok and len(calls) == 1 and waits == []

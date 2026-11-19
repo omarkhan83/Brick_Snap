@@ -277,6 +277,19 @@ def _stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+RETRY_WAITS_S = (30, 90, 240)
+"""How long to wait before trying a session again when the AI service was busy."""
+_BUSY_SIGNS = ("529", "overloaded", "503", "service unavailable", "rate limit", "try again in")
+_sleep = time.sleep  # replaced in tests
+
+
+def service_was_busy(run: DesignerRun) -> bool:
+    """True when a session failed because the AI service was busy, not because of the work:
+    the kind of failure that goes away by itself and is worth trying again."""
+    text = run.error.lower()
+    return not run.ok and any(sign in text for sign in _BUSY_SIGNS)
+
+
 def run_pass(
     project: Project,
     pass_: Pass,
@@ -286,23 +299,42 @@ def run_pass(
     effort: str = "high",
     on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> DesignerRun:
-    """One clean-room session for one pass (see the implementation notes)."""
+    """One clean-room session for one pass (see the implementation notes).
+
+    When the AI service is busy (``service_was_busy``) the session is started again after
+    each wait in ``RETRY_WAITS_S``, with a ``{"event": "retry", "pass", "attempt", "wait_s",
+    "why"}`` event before each wait. A new session sees the design as the failed one left
+    it, which for a session that never got to work is as it was. Any other failure is
+    returned as it is.
+    """
     folder = project.path / STUDIO_DIR / "prompts"
     folder.mkdir(parents=True, exist_ok=True)
     prompt_file = folder / f"{pass_.name}.md"
     prompt_file.write_text(prompt_text(pass_), encoding="utf-8")
-    run = runner.run_session(
-        prompt_file=prompt_file,
-        mcp=studio_mcp(project, pass_),
-        message=message,
-        transcript=project.designer_dir / f"{_stamp()}-{pass_.name}.jsonl",
-        model=model,
-        effort=effort,
-        max_turns=pass_.max_turns,
-        timeout_s=pass_.timeout_s,
-        on_event=on_event,
-        role=STUDIO,
-    )
+    for attempt, wait_s in enumerate((*RETRY_WAITS_S, None), start=1):
+        run = runner.run_session(
+            prompt_file=prompt_file,
+            mcp=studio_mcp(project, pass_),
+            message=message,
+            transcript=project.designer_dir / f"{_stamp()}-{pass_.name}.jsonl",
+            model=model,
+            effort=effort,
+            max_turns=pass_.max_turns,
+            timeout_s=pass_.timeout_s,
+            on_event=on_event,
+            role=STUDIO,
+        )
+        if wait_s is None or not service_was_busy(run):
+            break
+        _tell(
+            on_event,
+            event="retry",
+            **{"pass": pass_.name},
+            attempt=attempt,
+            wait_s=wait_s,
+            why=runner.redact(run.error),
+        )
+        _sleep(wait_s)
     run.kind = pass_.name
     return run
 
