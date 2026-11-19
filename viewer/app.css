@@ -245,6 +245,9 @@ button.linklike:disabled { background: none; box-shadow: none; color: #777; curs
 /* ---- models the AI builds from parts (experimental): the home page's second form ---- */
 .home-grid .free-start { grid-column: 2; grid-row: 2; }
 .home-grid .models { grid-row: 1 / span 2; }
+/* the first form's row is only as tall as the form, so the second sits right under it however
+   long the list of models is */
+.home-grid:not(.empty) { grid-template-rows: auto 1fr; }
 .home-grid.empty .free-start { grid-column: 1; grid-row: auto; }
 .free-start { background: #fbf7ff; }
 .free-start h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }

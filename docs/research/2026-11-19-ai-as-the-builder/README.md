@@ -306,7 +306,7 @@ views when one will do would each cut it. None of that has been tried yet.
 ## The path from here, in order
 
 1. **The workshop in the web app**, marked experimental: describe it, optionally point at one of your
-   models, and get a checked model to turn round and download. Being built tonight.
+   models, and get a checked model to turn round and download. Done on the night of the study.
 2. **A complete checker.** Today it proves studs and overlaps and counts clips, bars, pins and axles as
    joined without proof. Open tables of how every part connects exist (see below); adopting one is a new
    dependency and needs a decision. Add how strong each joint is, whether the model stays up when lifted,
@@ -333,8 +333,9 @@ views when one will do would each cut it. None of that has been tried yet.
 
 - Done tonight: the five experiments above; the studio and versions are in the product (`main`); the
   workshop for free building is on a branch.
-- Being built as this is written: the workshop inside the web app, as an experimental second way to make
-  a model ("describe it and let the AI build it").
+- Also done: the workshop is in the web app and the command line as an experimental second way to make a
+  model ("Describe it and let the AI build it"; `bricksnap make`). The eight models from experiments 3 and
+  4 are in Alec's own list of models there.
 - Not started: more than one agent on one model; models above 200 parts; the solver as a fill tool inside
   the workshop; a 3D view that can draw any part.
 
