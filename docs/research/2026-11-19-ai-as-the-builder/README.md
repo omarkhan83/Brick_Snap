@@ -169,7 +169,29 @@ Then four more, to test two questions.
 - What the checker cannot yet confirm: clips, bars, pins and axles are listed as "not checked" and
   counted as joined, and the strength of a joint is listed but not judged.
 
-## Experiment 4: more AI on the present system
+## Experiment 4: the two together
+
+The last test of the night joins the two halves. The solver sculpted the duck from the 3D model, as
+BrickSnap does today (406 parts, the round body with slopes above and below). That model was handed to
+Fable 5.2 in the workshop with the pictures of the real duck and one instruction: keep the body, and make
+it a better LEGO model with real parts. The workshop had gained three tools for this: clear everything in
+a box, fill a box with interlocked bricks (the solver again, as a tool), and mirror to the other side.
+
+![As the solver made it](hybrid/duck-before.png)
+![After the AI rebuilt its features with real parts](hybrid/duck.png)
+
+- **419 parts of 40 kinds, and the checker passes it.** 71 steps, 21 minutes, $7.62 at list prices
+  (`hybrid/duck.ldr`).
+- The body is the solver's. The beak is now a triple-curved orange wedge on a flared plate, locked two
+  studs into the head; the eyes are round tiles on side-stud bricks facing forward; each wing is a wing
+  plate standing on side studs with curved slopes for a shoulder, built once and mirrored; the tail rises
+  in one line; the crown is tiled.
+- The workshop's checker, which knows nothing of BrickSnap and reads the shapes of parts straight from the
+  LDraw library, also passes all five of BrickSnap's own saved sample builds: a second opinion on the
+  solver that had never been asked for before.
+- This is the shape of the proposal below in one picture: the solver for volume, the AI for character.
+
+## Experiment 5: more AI on the present system
 
 Before changing anything large, the question Alec asked first: on the grid BrickSnap has today, does it
 help to give the AI more of the work? Two ways, the same AI (Fable 5.2), the same three models:
@@ -263,8 +285,39 @@ each renders its own previews; a mechanical checker and separate reviewer agents
 6. **Variety** comes from the plan, not from chance: asking for two or three different interpretations at
    the sketch stage, each with its own key part and style, and letting a judge or the person choose.
 
-What this costs per model is measured in the experiments below. The published systems report between a
-few cents and a few dollars for 20 to 220 parts with one agent.
+
+## What it costs
+
+List prices as Claude Code reports them; on a subscription they are usage, not a bill.
+
+| Way | AI time | List price | What you get |
+|---|---|---|---|
+| One designer on the grid | 4 to 6 min | not recorded (one or two studio passes' worth) | a cleaner sculpture |
+| The studio on the grid, six passes | 10 to 15 min | $5 to $7 | a slightly cleaner sculpture, every pass kept |
+| Built from parts with tools, Fable 5.2 | 9 to 21 min | $3.75 to $8.11 | a model of real, varied parts that the checker passes |
+| The same with Opus 5.5 | 17 min | $4.15 | the same kind of model, a little less refined |
+| The solver's body plus real parts (the duck) | 21 min | $7.62 | a faithful round body with real features |
+
+Where the money goes, and how to spend less: most of it is the AI re-reading its growing conversation at
+every step, and looking at pictures. A cheaper AI as the builder with Fable only to plan and to criticise;
+placing several parts in one step; showing a part's picture once and remembering it; and not drawing three
+views when one will do would each cut it. None of that has been tried yet.
+
+## The path from here, in order
+
+1. **The workshop in the web app**, marked experimental: describe it, optionally point at one of your
+   models, and get a checked model to turn round and download. Being built tonight.
+2. **A complete checker.** Today it proves studs and overlaps and counts clips, bars, pins and axles as
+   joined without proof. Open tables of how every part connects exist (see below); adopting one is a new
+   dependency and needs a decision. Add how strong each joint is, whether the model stays up when lifted,
+   and the colours each part is really made in.
+3. **Seeing and building it properly**: a 3D view that draws any part, building steps and a booklet for
+   these models, and a parts list with BrickLink numbers and a wanted list.
+4. **The design process on top**, reusing the studio and versions built tonight: plan, sub-assemblies
+   (one agent each, side by side), a critic who has not seen the work, fixes; two or three sketches and a
+   judge at the start, for variety.
+5. **The solver as a tool, by default for scans**: sculpt the body from the 3D model, then rebuild its
+   features with real parts, as the duck was.
 
 ## What it would change in BrickSnap
 
@@ -278,10 +331,10 @@ few cents and a few dollars for 20 to 220 parts with one agent.
 
 ## Where this stands
 
-- Done tonight: the four experiments above; the studio and versions are in the product (`main`); the
+- Done tonight: the five experiments above; the studio and versions are in the product (`main`); the
   workshop for free building is on a branch.
-- Being added to the workshop as this is written: starting from the solver's sculpted model, filling a
-  box with interlocked bricks, and mirroring.
+- Being built as this is written: the workshop inside the web app, as an experimental second way to make
+  a model ("describe it and let the AI build it").
 - Not started: more than one agent on one model; models above 200 parts; the solver as a fill tool inside
   the workshop; a 3D view that can draw any part.
 
