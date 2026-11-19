@@ -147,10 +147,18 @@ details.more[open] summary { margin-bottom: 10px; }
 .ask { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
 .ask input[type="text"] { flex: 1 1 260px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.actions .more-actions { margin-top: 14px; padding-top: 12px; border-top: 2px dashed #bbb; }
-.actions .more-actions h3, .downloads h3 { margin: 0 0 8px; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
-.downloads { margin-top: 14px; }
-.downloads ul { margin: 0; padding-left: 20px; }
+.actions .more-actions { margin-top: 12px; padding-top: 10px; border-top: 2px dashed #bbb; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.actions .more-actions h3, .downloads h3 { margin: 0; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.actions .more-actions .row { margin: 0; gap: 8px; }
+.actions .more-actions button { padding: 6px 12px; font-size: 14px; box-shadow: 2px 2px 0 var(--ink); }
+/* The downloads: one row of links, with what each file is for behind a small "what are these". */
+.downloads { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.downloads .files { display: flex; flex-wrap: wrap; gap: 8px; }
+.downloads a.file { display: inline-block; padding: 5px 12px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; color: var(--ink); font-weight: 700; font-size: 15px; text-decoration: none; }
+.downloads a.file:hover, .downloads a.file:focus-visible { background: var(--yel); }
+.downloads .about-files { flex-basis: 100%; font-size: 14px; }
+.downloads .about-files summary { cursor: pointer; color: #444; }
+.downloads ul { margin: 6px 0 0; padding-left: 20px; }
 .downloads li { margin: 4px 0; line-height: 1.35; }
 .actmsg { margin: 10px 0 0; font-weight: 700; overflow-wrap: anywhere; }
 .actmsg:empty { display: none; }

@@ -308,18 +308,29 @@ function initActions(project) {
     cancelBtn.disabled = false; // closing the confirmation is always possible
   }
 
+  let shownFiles = null;
   function showDownloads() {
-    const files = (info && info.files) || [];
-    const items = files.filter((f) => DOWNLOADS[f]).map((f) => {
+    const files = ((info && info.files) || []).filter((f) => DOWNLOADS[f]);
+    const key = files.join('|');
+    if (key === shownFiles) return; // unchanged: leave the list (and an opened explanation) alone
+    shownFiles = key;
+    const short = (f) => f.split('/').pop();
+    const links = files.map((f) => {
       const [label, what] = DOWNLOADS[f];
-      const link = el('a', { href: `${base}/files/${f}`, text: label });
-      link.setAttribute('download', f.split('/').pop());
-      return el('li', {}, [link, document.createTextNode(` (${f.split('/').pop()}): ${what}`)]);
+      const link = el('a', { href: `${base}/files/${f}`, text: label, className: 'file', title: `${short(f)}: ${what}` });
+      link.setAttribute('download', short(f));
+      return link;
     });
-    const list = items.length
-      ? el('ul', {}, items)
-      : el('p', { className: 'muted small', text: 'Nothing to download yet. “Make the parts list and LDraw file” and “Make building instructions” below make the files.' });
-    downloads.replaceChildren(el('h3', { text: 'Download' }), list);
+    const body = links.length
+      ? [
+          el('div', { className: 'files' }, links),
+          el('details', { className: 'about-files' }, [
+            el('summary', { text: 'What are these files?' }),
+            el('ul', {}, files.map((f) => el('li', { text: `${DOWNLOADS[f][0]} (${short(f)}): ${DOWNLOADS[f][1]}` }))),
+          ]),
+        ]
+      : [el('p', { className: 'muted small', text: 'Nothing to download yet. “Build the bricks again” below makes the files.' })];
+    downloads.replaceChildren(el('h3', { text: 'Download' }), ...body);
   }
 
   function showNextStep() {
