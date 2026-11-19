@@ -35,6 +35,9 @@ there are no tracebacks for mistakes a user can make.
     bricksnap view PROJECT [--port 8765] [--no-open]
         Serve the 3D viewer for this project (``bricksnap.viewserver.serve``) and print the
         address.
+    bricksnap serve [--dir projects] [--port 8765] [--no-open]
+        Start the web app (``bricksnap.webapp.serve_app``): everything above from a page in
+        the browser, for every project in the folder. Print the address.
 
 PROJECT is a path to a project folder; a bare name is looked up under ./projects/.
 
@@ -1490,6 +1493,13 @@ def cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    from bricksnap.webapp import serve_app  # imported here: webapp imports this module
+
+    serve_app(projects_dir=args.dir, port=args.port, open_browser=not args.no_open)
+    return 0
+
+
 # ---- argument parsing ---------------------------------------------------------------------
 
 
@@ -1685,6 +1695,29 @@ def _parser() -> _Parser:
     )
     p.add_argument("--no-open", action="store_true", help="do not open the browser")
     p.set_defaults(func=cmd_view)
+
+    p = sub.add_parser(
+        "serve",
+        help="use BrickSnap from your web browser: upload a model, design it, download the files",
+        description=(
+            "Start BrickSnap as a web app on this computer and open it in your browser. "
+            "Nothing is sent anywhere unless you start the AI designer from the page."
+        ),
+    )
+    p.add_argument(
+        "--dir",
+        metavar="FOLDER",
+        default="projects",
+        help="the folder your projects are kept in (default: ./projects; made if missing)",
+    )
+    p.add_argument(
+        "--port",
+        type=_port,
+        default=8765,
+        help="the port to use, 1 to 65535, or 0 to pick a free one (default: 8765)",
+    )
+    p.add_argument("--no-open", action="store_true", help="do not open the browser")
+    p.set_defaults(func=cmd_serve)
     return parser
 
 

@@ -171,10 +171,14 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   comes out. `docs/ARCHITECTURE.md` describes every module; `docs/ROADMAP.md` says which stage we are in.
   `uv run bricksnap --help` lists the commands. Each module starts with a CONTRACT in its opening comment:
   keep the code, its tests, and that text in agreement.
-- **The viewer** is `viewer/`, a web page with no build step, served by `uv run bricksnap view <project>`.
-- **The AI design step** (`uv run bricksnap design <project>`) runs through the user's own Claude Code
-  login and uses their subscription. Never start it unless your user asks. The tests that would start it
-  are skipped unless asked for by name.
+- **The web app** is `uv run bricksnap serve`: BrickSnap in the browser, for people who do not use a
+  terminal (upload a model, see it built, start the designer, download the files). When your user asks to
+  open or start BrickSnap, run it in the background, give them the address it prints, and stop it when
+  they are done. Its pages and the 3D viewer (`uv run bricksnap view <project>`) are in `viewer/`, with
+  no build step.
+- **The AI design step** (`uv run bricksnap design <project>`, or the designer button in the web app)
+  runs through the user's own Claude Code login and uses their subscription. Never start it unless your
+  user asks. The tests that would start it are skipped unless asked for by name.
 - **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
   still opens by double-click. It is not developed further: do not fix or extend it.
 - `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in

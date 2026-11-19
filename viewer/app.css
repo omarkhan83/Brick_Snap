@@ -1,0 +1,182 @@
+/* BrickSnap web app (bricksnap/webapp.py): the home page and the action bar the project page
+   gains when the app serves it. Builds on style.css (colours, cards, buttons). */
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+a { color: var(--blue); font-weight: 700; }
+a.button, .linkbtn {
+  display: inline-block;
+  font: 700 16px var(--font);
+  padding: 9px 18px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: var(--yel);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+button.primary, a.button.primary { background: var(--blue); color: #fff; font-size: 17px; }
+button.quiet { background: #fff; }
+button.danger { background: #fff; color: var(--red); }
+button.primary:disabled, button.quiet:disabled, button.danger:disabled {
+  background: #ddd;
+  color: #777;
+}
+
+.lead { margin: 0 0 12px; font-size: 16px; line-height: 1.45; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.card h2 { margin: 0 0 6px; font-size: 22px; font-weight: 800; }
+
+/* ---- the home page ---- */
+body.home main { max-width: 1200px; }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+.home-grid .start { grid-column: 2; grid-row: 1; }
+.home-grid .models { grid-column: 1; grid-row: 1; }
+.home-grid.empty { grid-template-columns: minmax(0, 640px); justify-content: center; }
+.home-grid.empty .start, .home-grid.empty .models { grid-column: 1; grid-row: auto; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; }
+.field > label, .field > .label { font-weight: 800; font-size: 17px; }
+.field input[type="text"], .field input[type="file"], .ask input[type="text"], .ask textarea {
+  font: 16px var(--font);
+  padding: 8px 10px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+  width: 100%;
+  min-width: 0;
+}
+.field input[type="file"] { padding: 8px; }
+.field .hint, .hint-line { margin: 0; color: var(--muted); font-size: 14px; }
+.size-row { display: flex; align-items: center; gap: 12px; }
+.size-row input[type="range"] { flex: 1; min-width: 0; }
+.size-row output { font-weight: 800; min-width: 4.5em; text-align: right; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 16px; }
+.check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--blue); }
+details.more { margin: 0 0 16px; }
+details.more summary { cursor: pointer; font-weight: 800; }
+details.more[open] summary { margin-bottom: 10px; }
+.formmsg { margin: 10px 0 0; font-weight: 700; color: var(--red); }
+.formmsg:empty { display: none; }
+
+.cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.pcard {
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 4px 4px 0 var(--ink);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.pcard a.open { color: inherit; text-decoration: none; display: flex; flex-direction: column; height: 100%; }
+.pcard a.open:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; }
+.pcard .pic {
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(#cfe9ff, #fffdf5);
+  border-bottom: 3px solid var(--ink);
+  display: flex; align-items: center; justify-content: center;
+}
+.pcard .pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pcard .pic .none { color: var(--muted); font-weight: 700; padding: 10px; text-align: center; }
+.pcard .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.pcard .pname { margin: 0; font-size: 19px; font-weight: 800; overflow-wrap: anywhere; line-height: 1.2; }
+.pcard .facts { margin: 0; font-size: 15px; color: var(--muted); font-weight: 600; }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge {
+  display: inline-block;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  background: #fff;
+}
+.badge.ok { background: var(--green); color: #fff; }
+.badge.bad { background: var(--red); color: #fff; }
+.badge.busy { background: var(--yel); }
+.empty-note { margin: 4px 0 0; font-size: 17px; line-height: 1.45; }
+
+/* ---- a job's progress, on both pages ---- */
+.job {
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: #fffbe6;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.job[hidden] { display: none; }
+.job.done { background: #eafbea; }
+.job.failed { background: #ffecec; }
+.job h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+.job .when, .job .leave { margin: 0 0 6px; font-size: 14px; color: var(--muted); }
+.job .error { margin: 6px 0; font-weight: 700; overflow-wrap: anywhere; line-height: 1.4; }
+.job .todo { margin: 6px 0; line-height: 1.4; }
+.job ul.progress { margin: 8px 0 0; padding-left: 20px; max-height: 260px; overflow-y: auto; }
+.job ul.progress li { margin: 3px 0; overflow-wrap: anywhere; line-height: 1.35; }
+.job ul.progress li:first-child { font-weight: 800; }
+.job .next { margin: 10px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.spinner {
+  width: 18px; height: 18px; flex: none;
+  border: 3px solid var(--ink);
+  border-top-color: var(--yel);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* ---- the project page's action bar ---- */
+/* On wide screens a model with a brief is laid out in two columns (style.css). The action
+   bar stays on top, across both, instead of dropping below the views. */
+@media (min-width: 1280px) {
+  body.has-brief main {
+    grid-template-areas: "actions actions" "view brief" "steps brief";
+    grid-template-rows: auto auto 1fr;
+  }
+  body.has-brief .actions { grid-area: actions; }
+}
+.actions .topline { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.actions .topline a { font-size: 16px; }
+.actions .next-step { margin: 0 0 12px; }
+.actions .next-step p { margin: 0 0 10px; line-height: 1.45; font-size: 16px; }
+.ask { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+.ask input[type="text"] { flex: 1 1 260px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.actions .more-actions { margin-top: 14px; padding-top: 12px; border-top: 2px dashed #bbb; }
+.actions .more-actions h3, .downloads h3 { margin: 0 0 8px; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.downloads { margin-top: 14px; }
+.downloads ul { margin: 0; padding-left: 20px; }
+.downloads li { margin: 4px 0; line-height: 1.35; }
+.actmsg { margin: 10px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.actmsg:empty { display: none; }
+.actmsg.bad { color: var(--red); }
+
+.confirm {
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: #eef6ff;
+  padding: 14px;
+  margin-top: 14px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.confirm[hidden] { display: none; }
+.confirm h3 { margin: 0 0 8px; font-size: 19px; font-weight: 800; }
+.confirm ul { margin: 0 0 12px; padding-left: 22px; }
+.confirm li { margin: 5px 0; line-height: 1.4; }
+.confirm .quote { font-weight: 800; overflow-wrap: anywhere; }
+.confirm select { align-self: flex-start; max-width: 100%; font: 700 16px var(--font); padding: 6px 8px; border: 3px solid var(--ink); border-radius: 10px; background: #fff; }
+.confirm .check { margin: 10px 0 12px; font-weight: 700; }
+
+@media (max-width: 900px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-grid .start, .home-grid .models { grid-column: 1; grid-row: auto; }
+}
+@media (max-width: 560px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .ask button, .confirm .row button { flex: 1 1 auto; }
+}

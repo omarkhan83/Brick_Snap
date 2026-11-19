@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="bricksnap-token" content="BRICKSNAP_TOKEN">
+<title>BrickSnap</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/viewer/style.css">
+<link rel="stylesheet" href="/viewer/app.css">
+</head>
+<body class="home">
+<header class="top">
+  <div class="bar">
+    <div class="brand" aria-hidden="true">
+      <svg viewBox="0 0 44 36" width="44" height="36">
+        <rect x="8" y="3" width="9" height="7" rx="2" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+        <rect x="27" y="3" width="9" height="7" rx="2" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+        <rect x="3" y="10" width="38" height="23" rx="4" fill="#006cb7" stroke="#1b1b1b" stroke-width="3"/>
+      </svg>
+    </div>
+    <div class="titles">
+      <span class="kicker">BrickSnap</span>
+      <h1>Your brick models</h1>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="grid" class="home-grid">
+    <section id="start" class="card start" aria-labelledby="startTitle">
+      <h2 id="startTitle">Make a new model</h2>
+      <p class="lead">Choose a 3D model file and BrickSnap turns it into a set of real bricks.</p>
+      <form id="newForm" novalidate>
+        <div class="field">
+          <label for="model">1. Choose a 3D model file</label>
+          <input id="model" name="model" type="file" accept=".stl,.obj,.glb,.gltf,.3mf,.ply">
+          <p class="hint">STL, OBJ, GLB, GLTF, 3MF or PLY, up to 60 MB.</p>
+        </div>
+        <div class="field">
+          <label for="studs">2. How big should it be?</label>
+          <div class="size-row">
+            <input id="studs" name="studs" type="range" min="4" max="96" step="1" value="16">
+            <output id="studsOut" for="studs">16 studs</output>
+          </div>
+          <p class="hint" id="studsHint">About 12.8 cm along its longest side.</p>
+        </div>
+        <details class="more">
+          <summary>More choices</summary>
+          <div class="field">
+            <label for="name">Name (you can leave this empty)</label>
+            <input id="name" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The file's name is used">
+          </div>
+          <label class="check"><input id="hollow" name="hollow" type="checkbox" value="1"> Hollow inside, to use fewer parts</label>
+        </details>
+        <button id="go" type="submit" class="primary">Turn it into bricks</button>
+        <p id="formMsg" class="formmsg" role="alert"></p>
+      </form>
+      <div id="newJobs"></div>
+    </section>
+
+    <section id="models" class="card models" aria-labelledby="modelsTitle">
+      <h2 id="modelsTitle">Your models</h2>
+      <p id="empty" class="empty-note" hidden>No models yet. Choose a 3D model file in “Make a new model” to make your first one.</p>
+      <p id="loading" class="muted">Looking for your models…</p>
+      <ul id="cards" class="cards"></ul>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <p id="trademark">LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this project.</p>
+</footer>
+
+<script type="module" src="/viewer/home.js"></script>
+</body>
+</html>

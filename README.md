@@ -19,7 +19,21 @@ LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize, or e
 You need [uv](https://docs.astral.sh/uv/). Then, in this folder:
 
 ```
-uv sync                                                    # once: installs everything
+uv sync                 # once: installs everything
+uv run bricksnap serve  # opens BrickSnap in your web browser
+```
+
+In the browser: choose a 3D model file and a size, and press "Turn it into bricks". You get the plain
+conversion beside the finished build in 3D, the building steps, and downloads (the brick model for
+BrickLink Studio, the parts list, a BrickLink wanted list, an instruction booklet). From there you can start
+the AI designer and then ask it for changes in your own words. Everything runs on your own computer; only
+the AI designer sends anything off it, and the page says what and asks first. It needs
+[Claude Code](https://claude.com/claude-code) installed and signed in. Sample models to try are in
+`samples/models/`.
+
+The same from the command line:
+
+```
 uv run bricksnap new samples/models/pawn.stl --studs 16    # model in, bricks out
 uv run bricksnap view pawn                                 # look at it in 3D in your browser
 ```
@@ -37,6 +51,7 @@ comparing the model with the build (`renders/compare.png`), and the check report
 | `bricksnap design PROJECT --best-of 3` | Design it three times and let a second AI, which cannot tell which is which, keep the best |
 | `bricksnap render PROJECT` | Write the comparison picture. With `--rough`: your model, the plain conversion, and the finished build |
 | `bricksnap view PROJECT` | Open the 3D viewer |
+| `bricksnap serve` | Open the web app: everything above from a page in your browser |
 | `bricksnap export PROJECT` | Write the LDraw file, a parts list (`parts.csv`), and a BrickLink wanted list (`wanted_list.xml`) |
 | `bricksnap instructions PROJECT` | Write an instruction booklet (`instructions.pdf` and `.html`): the parts, then one page per building step |
 | `bricksnap bench` | Build every test model and print the scorecard: how we tell whether a change helped |

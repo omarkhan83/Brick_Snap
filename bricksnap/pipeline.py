@@ -138,3 +138,46 @@ def render_compare(
     out = project.renders_dir / (name or ("compare-rough.png" if rough else "compare.png"))
     compare_sheet(seed, design, build, catalog, **options).save(out)
     return out
+
+
+CARD_SIZE = (640, 480)
+"""renders/card.png: a 4:3 card on the web app's home page, at twice its size on the page."""
+
+
+def render_card(project: Project, *, catalog: Catalog | None = None) -> Path:
+    """Write renders/card.png, one clean picture of the current build, and return its path.
+
+    The three-quarter view in real part shapes (``render.render_build``, "iso", no labels or
+    ticks), cut to the model and centred on a ``CARD_SIZE`` picture with a small margin, so a
+    project card on the web app's home page shows the bricks rather than the comparison
+    sheet. Written beside the old picture first and then moved into place.
+    """
+    import os
+
+    from PIL import Image, ImageChops
+
+    from bricksnap.render import BACKGROUND, render_build
+
+    catalog = catalog or load_catalog()
+    build = project.load_build()
+    nx, ny, nz = build.shape
+    px = max(4, min(64, int(1200 / max(nx, ny, nz * 0.4, 1))))
+    picture = render_build(build, catalog, "iso", px_per_stud=px, labels=False).convert("RGB")
+    box = ImageChops.difference(picture, Image.new("RGB", picture.size, BACKGROUND)).getbbox()
+    if box is not None:
+        picture = picture.crop(box)
+    width, height = CARD_SIZE
+    margin = 24
+    scale = min((width - 2 * margin) / picture.width, (height - 2 * margin) / picture.height)
+    size = (max(1, round(picture.width * scale)), max(1, round(picture.height * scale)))
+    picture = picture.resize(size, Image.Resampling.LANCZOS)
+    card = Image.new("RGB", CARD_SIZE, BACKGROUND)
+    card.paste(picture, ((width - size[0]) // 2, (height - size[1]) // 2))
+    out = project.renders_dir / "card.png"
+    tmp = out.with_name(f".card.{os.getpid()}.png")
+    try:
+        card.save(tmp)
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return out

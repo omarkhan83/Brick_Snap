@@ -278,9 +278,11 @@ bricksnap/
   render.py       pictures of a mesh, a Design, or a Build (plain numpy, no GPU)
   project.py      read and write a project folder
   cli.py          the `bricksnap` command
+  viewserver.py   the small local server behind `bricksnap view`
+  webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads
   designer/       prompt.md, tools.py, mcp_server.py, runner.py, parity.py; the judge: judge.py,
                   judge_prompt.md, judge_server.py
-viewer/           a build-free web page that shows a project folder in 3D
+viewer/           build-free web pages: the 3D viewer, and the web app's home page and action bar
 tests/            unit tests and acceptance tests
 samples/          test models (with their licences) and example projects
 legacy/           the original single-page prototype, kept working
@@ -297,7 +299,7 @@ Rules that keep parallel work from colliding:
 - `uv run pytest` runs the tests, `uv run ruff check` and `uv run ruff format` lint and format,
   `uv run ty check` checks types.
 - `uv run bricksnap <command>`: `new`, `build`, `check`, `render`, `export`, `instructions`, `ops`,
-  `design`, `view`, `bench`.
+  `design`, `view`, `serve`, `bench`.
 - The viewer is plain JavaScript modules with three.js copied into `viewer/vendor/`; `bricksnap view`
   serves it with Python's built-in web server. It is tested with headless Chromium through Playwright.
 
@@ -305,9 +307,16 @@ Rules that keep parallel work from colliding:
 
 The engine is a library. `bricksnap.pipeline` is the one door into it: make a project, rebuild, draw,
 export. The command line is a thin layer over that, and so is the designer's tool server. The web app
-planned for stage 4 will be a third: a small server on the user's own computer that calls the same
-functions and serves the viewer page with controls added. No front end holds logic of its own, so they
-cannot drift apart.
+(`bricksnap serve`, `bricksnap/webapp.py`) is a third: a small server on the user's own computer that
+calls the same functions and serves the viewer page with controls added. No front end holds logic of its
+own, so they cannot drift apart.
+
+The web app acts for whoever can reach it, so it is strict about who that is: it listens on this computer
+only, refuses requests that do not name this computer, and refuses every request that changes something
+unless it carries a token that only its own pages are given. It serves a fixed list of files from a
+project and never the AI's transcripts. It starts the AI designer only after the person has read what
+will be sent and has agreed to the number of runs. The rules are in the opening comment of `webapp.py`,
+each with a test.
 
 ## The prototype
 

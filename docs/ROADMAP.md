@@ -94,7 +94,8 @@ Lanes are groups of files. People can work side by side by staying in different 
 | Engine | `bricksnap/layout.py`, `buildable.py`, `finish.py`, `checks.py` | Solver, repairs, finishing, checks |
 | Parts and export | `bricksnap/catalog/`, `ldraw.py`, `export.py` | Parts table, file formats, checking files open in Studio |
 | Designer | `bricksnap/designer/`, `design.py` | Prompt, tools, test runs, judging |
-| Pictures and viewer | `bricksnap/render.py`, `viewserver.py`, `viewer/` | Pictures, the web page |
+| Pictures and viewer | `bricksnap/render.py`, `viewserver.py`, `viewer/viewer.js`, `index.html`, `style.css` | Pictures, the 3D page |
+| Web app | `bricksnap/webapp.py`, `viewer/home.*`, `viewer/app.*` | The pages people use, uploads, jobs |
 | Measuring | `bricksnap/bench.py`, `samples/scorecard.json` | The scorecard |
 | No code | `samples/`, Notes in `docs/tasks/` | Collecting licensed test models, rating results, the walkthrough script, ordering parts |
 

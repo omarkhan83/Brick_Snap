@@ -28,3 +28,19 @@ See the decision `docs/decisions/2026-11-15-a-web-app-on-a-server-once-it-works-
 
 2026-11-18, Alec-42's agent: the contract is the opening comment of `bricksnap/webapp.py`. No web framework
 for the local version (see the decision of that date).
+
+2026-11-18, Alec-42's agent: built and on `main`. `uv run bricksnap serve` opens it; the README says how.
+An independent review tried about sixty path tricks, forged requests from other sites, and broken uploads
+against it and found no way in; what it did find (a Cancel button that went dead, the judge's transcripts
+being served, a refused request disturbing a running job) is fixed, each with a test. I put the sample cat
+through it in a headless browser: upload to finished build in 5 seconds, files and booklet downloadable.
+
+Left before this task is done:
+- **A person tries it.** The "done when" above needs someone who was not involved: start it, hand over
+  the address, and watch without helping. Write down where they hesitate.
+- **The AI designer from the page has only run against stand-ins** (the tests never start the real one).
+  The first real run from the page should be watched: progress lines, the brief appearing, the build
+  changing.
+- **Starting it without a terminal.** Today an agent or a person types the command. A double-click
+  starter for Windows and macOS would remove that; not built yet.
+- A job cannot be stopped from the page once started.

@@ -48,6 +48,11 @@ const ROUND_KINDS = new Set(['round_brick', 'round_plate', 'round_tile']);
 
 const $ = (id) => document.getElementById(id);
 
+// Where the project's files are. ``bricksnap view`` serves them under /project/; the web app
+// (bricksnap/webapp.py) serves this page for one of many projects and says where in <body>.
+const PROJECT_URL = document.body.dataset.projectFiles || '/project';
+const FILES_LIST_URL = document.body.dataset.projectList || '/project-files.json';
+
 // ---- state exposed to tests --------------------------------------------------------------
 
 const state = {
@@ -1325,6 +1330,19 @@ for (const b of compareBox.querySelectorAll('button')) {
 
 /** project.json's brief: what the AI designer decided, in a panel beside the views. A brief
  * from an older project, written as one paragraph, is shown as that paragraph. */
+/** The right-hand view is "Designed" once the AI designer has written a brief; before that
+ * it is "Finished": BrickSnap's own finishing pass (tiles and slopes) on the plain conversion. */
+function nameDesignedView(designed) {
+  const [title, what] = designed
+    ? ['Designed', 'What BrickSnap made of it · ']
+    : ['Finished', 'BrickSnap’s own finishing: tiles and slopes · '];
+  views.designed.label = title;
+  $('designedTag').querySelector('.pane-title').textContent = title;
+  $('designedTag').querySelector('.pane-what').textContent = what;
+  document.querySelector('#compare button[data-show="designed"]').textContent = title;
+  $('stepsFor').textContent = `The steps are for the ${title.toLowerCase()} build.`;
+}
+
 function showBrief(proj) {
   const panel = $('brief');
   const body = $('briefBody');
@@ -1343,6 +1361,7 @@ function showBrief(proj) {
     if (!brief.object && !brief.features.length && !brief.plan && !brief.colours.length && !brief.finish) brief = null;
   }
   state.brief = brief;
+  nameDesignedView(Boolean(brief));
   body.replaceChildren();
   panel.hidden = !brief;
   document.body.classList.toggle('has-brief', Boolean(brief));
@@ -1510,7 +1529,7 @@ const DRAW_FAILED =
 
 async function loadProject() {
   try {
-    project = (await fetchJson('/project/project.json')) || project;
+    project = (await fetchJson(`${PROJECT_URL}/project.json`)) || project;
   } catch {
     // keep the old name
   }
@@ -1563,13 +1582,13 @@ function parseObject(text) {
 /** Look at build.json, build.rough.json and project.json, and show whatever changed. */
 async function refresh() {
   const [text, files, projectText] = await Promise.all([
-    fetchText('/project/build.json'),
-    fetchJson('/project-files.json'),
-    fetchText('/project/project.json'),
+    fetchText(`${PROJECT_URL}/build.json`),
+    fetchJson(FILES_LIST_URL),
+    fetchText(`${PROJECT_URL}/project.json`),
   ]);
   // Only asked for when it is there, so a project without one causes no failed requests.
   const hasRough = Boolean(files && Array.isArray(files.files) && files.files.includes('build.rough.json'));
-  const roughText = hasRough ? await fetchText('/project/build.rough.json') : null;
+  const roughText = hasRough ? await fetchText(`${PROJECT_URL}/build.rough.json`) : null;
 
   const buildChanged = text !== lastBuildText;
   const build = buildChanged ? parseObject(text) : currentBuild;
