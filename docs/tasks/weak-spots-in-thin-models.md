@@ -30,3 +30,11 @@ What is known, from the work on `docs/decisions/2026-11-17-a-cell-is-filled-when
 - The finishing pass measures at most 150,000 parts while deciding which swaps to keep; on the duck at 24
   studs that is 4% short, and it gives up 36 slopes it could have kept. Raising the limit to 200,000 cures
   it at about half a second's cost.
+
+2026-11-19, Alec-42's agent: the finishing pass now merges the small plates its swaps leave behind (the
+fewer-parts task), and a merge is kept only if no weak spot gets heavier and there are no more of them.
+That alone took the weak-spot total over the eleven samples from 232 to 186 at 16 studs (83 to 72 at 12,
+311 to 292 at 24). The target here is under 180 at 16 studs, and the large sections at 24 studs (the hat's
+11, the pineapple's crown) and the bottle's neck at 12 are unchanged: they are in the plain conversion
+already, before finishing.
+

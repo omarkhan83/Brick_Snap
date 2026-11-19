@@ -69,6 +69,8 @@ Words used below
    puts back parts covering exactly the same cells: the tiles or slopes wanted, and bricks
    or plates (existing pairs only) for the cells left over. Parts of the input that already
    collide, stick out of the grid, are unknown, or are not bricks or plates are left alone.
+   Afterwards plain parts are merged into fewer, larger ones (see the stage 4 addition on
+   merging).
 
 5. Nothing is ever made worse. Compared with the input:
    - the same cells are covered (apart from detail cells), each by exactly one part, in the
@@ -80,8 +82,8 @@ Words used below
      (or is undone). When the wanted part does not exist in the cell's colour, the cell is
      left as it is; never substitute another colour.
 
-6. Steps. A new part takes the step of the part it replaces (the latest, if it replaces
-   cells of several). Detail parts come after everything else, in new steps of up to eight,
+6. Steps. A new part takes the step of the input part it replaces (the latest, if it
+   covers cells of several). Detail parts come after everything else, in new steps of up to eight,
    ordered by z, then y, then x. No part has an earlier step than a part it stands on, and
    the steps used are 1..n with none missing.
 
@@ -163,7 +165,8 @@ together into smaller parts.
   would leave N parts hanging on a single part" (N counted in the input's parts, as above),
   with the place, and the same advice as for parts that would come loose.
 - Everything else about the pass is unchanged: on a build where no swap threatens
-  sturdiness, the result is exactly what it was before this addition.
+  sturdiness, the result is exactly what it was before this addition (and then merged, see
+  the stage 4 addition on merging).
 - Speed: a 3,000-part build still under 5 seconds.
 - Measured on the scorecard at 16 studs: seen as the input's parts, no sample model is less
   sturdy after finishing than the solver's own build was. Counted as the checks count
@@ -323,6 +326,41 @@ stud of the brick that the solver pinned directly behind its column (see
 - A smooth or sloped mark on the top of the side-stud brick cannot be met (the brick is one
   part three plates tall; a tile on it would stand above the Design's cells): the note says
   so in its own words and suggests moving the detail one course down.
+
+STAGE 4 ADDITION TO THE CONTRACT: merging what the swaps leave
+A swap covers what it displaces part by part, inside each part it took out, so a rounded
+model came out with a quarter more parts than the solver's build (the duck at 16 studs: 398
+before finishing, 503 after: 105 slopes went in, and the bricks and plates they were cut
+from stayed as many parts as before, only smaller). After the tiles and slopes, the pass
+joins plain parts into fewer, larger ones.
+- A merge is a swap whose wanted part is a brick or plate (an existing pair) of one colour:
+  every part in its cells comes out and what they leave outside it is covered again as in
+  section 4. All those parts must be bricks or plates of its colour that the pass may change
+  (never a tile, slope, detail, sideways part or side-stud brick, nor a part of the input
+  that already had a problem), at least one of them made by this pass, and the merge must
+  leave fewer parts than there were. The same cells are covered in the same colours; no
+  tile, slope or detail part is moved, so the look, the shaped share and the outline do not
+  change.
+- Merges are taken best first (most parts saved, then the larger part, then position), in
+  up to ``_MERGE_ROUNDS`` rounds, each round looking around the parts the last one made.
+- Sturdiness. A merge never loosens anything (section 5), and is kept only if, measured
+  after it, the build still keeps the stage 3 rule and, counted as the checks count them (in
+  its own parts), its heaviest weak spot in cells is no heavier and it has no more weak
+  spots than before merging began. Several merges may be made and measured together; when
+  the measure fails they are all undone and tried in smaller groups, a merge failing on its
+  own being refused. Measuring is bounded (``_MERGE_BUDGET`` parts measured, then what is
+  left is not merged), and so is the counting of merges that cut parts reaching out of
+  their box (``_MERGE_TRIES``), so a large build does not spend long on them.
+- Only the run that is kept merges. The run without the stage 3 rule merges only if it kept the
+  rule before merging; otherwise the run with the rule is made, as before, and merges.
+  With merging switched off the pass gives exactly what it gave before this addition.
+- Steps (section 6): a merged part, like any new part, takes the latest input step of the
+  cells it covers; the pass keeps the input's step of every cell for this.
+- Not promised: the parts are not the fewest possible (greedy, and bounded on large builds).
+- Measured on the scorecard at 16 studs: 2,809 parts over the eleven sample models become
+  2,416 (the duck 401, the teapot 192, the pawn 177), with the same shaped share and
+  outlines; weak spots 232 become 186, and no model's heaviest weak spot covers more cells
+  than before. The 3,000-part sphere took 2.0 seconds to finish and takes 3.3.
 """
 
 from __future__ import annotations
@@ -367,6 +405,9 @@ _RETRY_ROUNDS = 3
 _STURDY_ROUNDS = 8  # rounds of refusing the swaps to blame, per class, before a broad one
 _MEASURE_BUDGET = 150_000  # parts measured, summed over the swaps judged one by one
 _MEASURE_MARGIN = 2  # a class is judged swap by swap when twice its swaps' measuring fits
+_MERGE_ROUNDS = 3  # passes over the parts the swaps made, joining them into larger ones
+_MERGE_BUDGET = 60_000  # parts measured while judging merges, summed over the pass
+_MERGE_TRIES = 5_000  # merges whose parts sticking out are covered again to count them
 
 
 # ---- small helpers ------------------------------------------------------------------------
@@ -797,7 +838,7 @@ class _State:
             if (self.occ[sl] != -1).any():
                 fits = False
             self.occ[sl] = nid
-            self.stepg[sl] = step
+            # stepg keeps the input's step of each cell: a new part takes the latest of its cells
             top = q.z + cat.parts[q.part].h - 1
             for x, y in cat.stud_cells(q):
                 self.stud[x, y, top] = True
@@ -1268,6 +1309,179 @@ def _replan_tiles(
     return placed
 
 
+def _merge_candidates(
+    state: _State, ids: list[int], cover: _Cover, cache: dict | None = None
+) -> list[tuple[tuple, Placement, str]]:
+    """Bricks or plates that could take the place of several plain parts, each covering part
+    of one of the parts ``ids``: (sort key, placement, how to cover the rest), best first.
+
+    A candidate's box is filled by bricks and plates of its colour that the pass may change;
+    they come out, the candidate goes in and what they leave outside its box is covered again
+    as any swap covers it (``_merge_saving``). Only candidates that leave fewer parts than
+    there were count. Better means more parts saved, then a larger part, then position.
+    """
+    cat = state.catalog
+    if not ids:
+        return []
+    size = state.next_id + 1  # index -1 (an empty cell) lands on the last entry
+    colour_of = np.full(size, EMPTY, dtype=np.int64)
+    mergeable = np.zeros(size, dtype=bool)
+    for j, q in state.parts.items():
+        colour_of[j] = q.color
+        mergeable[j] = _mergeable(state, j, q.color)
+    wanted = np.zeros(size, dtype=bool)
+    wanted[ids] = True
+    occ = state.occ
+    ok = mergeable[occ]
+    near = wanted[occ]
+    boxes: dict[int, list[tuple[int, ...]]] = {}  # colour -> (x, y, z, w, d, h) of its parts
+    for j, q in state.parts.items():
+        if mergeable[j]:
+            boxes.setdefault(q.color, []).append((q.x, q.y, q.z, *cat.footprint(q)))
+    out: list[tuple[tuple, Placement, str]] = []
+    for colour in sorted(int(c) for c in np.unique(colour_of[occ[near & ok]])):
+        mask = ok & (colour_of[occ] == colour)
+        full = _box_sums(mask)
+        touch = _box_sums(near & mask)
+        parts = np.array(boxes[colour], dtype=np.int64)
+        for kinds, hh in (("plate", 1), ("brick", 3)):
+            for bw, bd, pid, rot in cover._options(kinds, colour):
+                if bw * bd * hh < 2:
+                    continue
+                n = _windows(full, bw, bd, hh)
+                fits = (n == bw * bd * hh) & (_windows(touch, bw, bd, hh) > 0)
+                if not fits.any():
+                    continue
+                # a box saves a part only if at least two parts lie wholly inside it
+                fits &= _inside_counts(parts, (bw, bd, hh), fits.shape) >= 2
+                for bx, by, bz in np.argwhere(fits).tolist():
+                    q = Placement(pid, colour, bx, by, bz, rot)
+                    got = _merge_saving(state, q, cover, cache)
+                    if got is not None:
+                        key = (-got[0], -(bw * bd * hh), bz, by, bx, pid, rot)
+                        out.append((key, q, got[1]))
+    out.sort(key=lambda kq: kq[0])
+    return out
+
+
+def _inside_counts(
+    parts: np.ndarray, box: tuple[int, int, int], shape: tuple[int, ...]
+) -> np.ndarray:
+    """How many of ``parts`` (rows of x, y, z, w, d, h) lie wholly inside a box of size
+    ``box`` at every minimum corner of ``shape``: each part adds one over the range of
+    corners whose box holds it."""
+    size = np.array(box, dtype=np.int64)
+    fit = (parts[:, 3:] <= size).all(axis=1)
+    lo = np.maximum(parts[fit, :3] + parts[fit, 3:] - size, 0)
+    hi = np.minimum(parts[fit, :3], np.array(shape) - 1) + 1  # one past the last corner
+    keep = (lo < hi).all(axis=1)
+    lo, hi = lo[keep], hi[keep]
+    diff = np.zeros(tuple(n + 1 for n in shape), dtype=np.int64)
+    for corner in range(8):
+        pick = [(hi if corner >> a & 1 else lo)[:, a] for a in range(3)]
+        sign = -1 if bin(corner).count("1") % 2 else 1
+        np.add.at(diff, tuple(pick), sign)
+    return diff.cumsum(0).cumsum(1).cumsum(2)[: shape[0], : shape[1], : shape[2]]
+
+
+def _box_sums(mask: np.ndarray) -> np.ndarray:
+    """The 3-D running sum of ``mask``, padded with a zero plane in front on each axis."""
+    sums = np.zeros(tuple(n + 1 for n in mask.shape), dtype=np.int64)
+    sums[1:, 1:, 1:] = mask.cumsum(0).cumsum(1).cumsum(2)
+    return sums
+
+
+def _windows(s: np.ndarray, w: int, d: int, h: int) -> np.ndarray:
+    """How many cells are set in every w x d x h box, by its minimum corner."""
+    return (
+        s[w:, d:, h:]
+        - s[:-w, d:, h:]
+        - s[w:, :-d, h:]
+        - s[w:, d:, :-h]
+        + s[:-w, :-d, h:]
+        + s[:-w, d:, :-h]
+        + s[w:, :-d, :-h]
+        - s[:-w, :-d, :-h]
+    )
+
+
+def _mergeable(state: _State, j: int, colour: int) -> bool:
+    """Whether part ``j`` is a brick or plate of this colour that the pass may change."""
+    q = state.parts[j]
+    return (
+        j not in state.frozen
+        and q.color == colour
+        and q.face == "top"
+        and state.catalog.parts[q.part].kind in ("brick", "plate")
+    )
+
+
+def _merge_saving(
+    state: _State, q: Placement, cover: _Cover, cache: dict | None = None
+) -> tuple[int, str] | None:
+    """(parts saved, how to cover the rest) if putting ``q`` in, taking out every part in its
+    box and covering what they leave outside it, leaves fewer parts; else None. Every part in
+    the box must be a brick or plate of ``q``'s colour that the pass may change."""
+    cat = state.catalog
+    region = state.occ[cat.cells(q)]
+    if (region < 0).any():
+        return None
+    removed = np.unique(region).tolist()
+    if len(removed) < 2 or not all(_mergeable(state, j, q.color) for j in removed):
+        return None
+    # each part sticking out of the box leaves at least one part behind
+    w, d, h = cat.footprint(q)
+    inside = 0
+    outside: list[int] = []
+    for j in removed:
+        r = state.parts[j]
+        rw, rd, rh = cat.footprint(r)
+        if (
+            q.x <= r.x
+            and r.x + rw <= q.x + w
+            and q.y <= r.y
+            and r.y + rd <= q.y + d
+            and q.z <= r.z
+            and r.z + rh <= q.z + h
+        ):
+            inside += 1
+        else:
+            outside.append(j)
+    if inside < 2:
+        return None
+    if not outside:
+        return inside - 1, "plates"
+    parts = state.parts
+    key = (
+        q,
+        tuple((parts[j].part, parts[j].x, parts[j].y, parts[j].z, parts[j].rot) for j in outside),
+    )
+    if cache is not None and key in cache:
+        got = cache[key]
+        return None if got is None else (inside + got[0], got[1])
+    if cache is not None:
+        # the parts sticking out must be covered again to know: bounded work, as the
+        # measuring is, so that a large build does not spend long on it
+        tries = cache.get("tries", _MERGE_TRIES)
+        if tries <= 0:
+            return None
+        cache["tries"] = tries - 1
+    best: tuple[int, str] | None = None  # (parts the outside ones become, less one; how)
+    bricks = any(cat.parts[parts[j].part].kind == "brick" for j in outside)
+    for variant in _VARIANTS_TALL if bricks else _VARIANTS_TALL[1:]:
+        refill = state._refill(outside, [q], variant, cover)
+        if refill is None:
+            continue
+        kept = len(outside) - 1 - len(refill)
+        if best is None or kept > best[0]:
+            best = (kept, variant)
+    if cache is not None:
+        cache[key] = best
+    if best is None or inside + best[0] <= 0:
+        return None
+    return inside + best[0], best[1]
+
+
 def _with_retries(items: list, place, failed: list | None = None) -> int:
     """Try to place every item in order, then again those that failed while any went in.
 
@@ -1435,6 +1649,14 @@ class _Sturdy:
     def _state_groups(
         self, state: _State
     ) -> tuple[list[int], list[Placement], dict[frozenset, tuple[int, int, LoneLink]]]:
+        ids, parts, _, groups = self._state_links(state)
+        return ids, parts, groups
+
+    def _state_links(
+        self, state: _State
+    ) -> tuple[
+        list[int], list[Placement], list[LoneLink], dict[frozenset, tuple[int, int, LoneLink]]
+    ]:
         ids, parts, links = self._measure(state)
         originals = []
         for i in ids:
@@ -1443,7 +1665,7 @@ class _Sturdy:
                 got = state.originals[i] = self._originals(state.parts[i])
             originals.append(got)
         originals += [self._originals(p) for p in self.details]
-        return ids, parts, self._groups(parts, originals, links)
+        return ids, parts, links, self._groups(parts, originals, links)
 
     def _offenders(
         self, groups: dict[frozenset, tuple[int, int, LoneLink]]
@@ -1461,6 +1683,32 @@ class _Sturdy:
             for k, g in groups.items()
             if g[1] > self.most or (too_many and k not in self.known)
         }
+
+    def weak_spots(self, state: _State) -> tuple[int, int, int, int]:
+        """The state's weak spots, measured now: the largest load in cells and the number of
+        lone links counted as the checks count them (in the state's own parts), then the same
+        two seen as the input's parts (as the rule counts them)."""
+        _, _, links, groups = self._state_links(state)
+        return (
+            max((ln.cells for ln in links), default=0),
+            len(links),
+            max((g[1] for g in groups.values()), default=0),
+            len(groups),
+        )
+
+    def allows(self, state: _State, limit: tuple[int, int, int, int]) -> bool:
+        """Whether the state keeps the rule and none of the four ``weak_spots`` numbers is
+        above ``limit`` (used to judge merges)."""
+        _, _, links, groups = self._state_links(state)
+        if self._offenders(groups):
+            return False
+        now = (
+            max((ln.cells for ln in links), default=0),
+            len(links),
+            max((g[1] for g in groups.values()), default=0),
+            len(groups),
+        )
+        return all(a <= b for a, b in zip(now, limit, strict=True))
 
     def affords(self, swaps: int, parts: int) -> bool:
         return swaps * parts * _MEASURE_MARGIN <= self.budget
@@ -2216,6 +2464,77 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
 
     for work in (plan_tiles, replan_tiles, single_tiles):
         guarded(work)
+
+    # what the swaps left behind: join plain parts into fewer, larger bricks and plates
+    first_new = len(build.parts)
+
+    merge_cache: dict = {}
+    measures = [_MERGE_BUDGET]  # parts that may still be measured while merging
+
+    def measured_ok(limit: tuple[int, int, int, int]) -> bool | None:
+        """Whether the state is within ``limit``; None when it can no longer be measured."""
+        n = len(state.parts) + len(details)
+        if n > measures[0]:
+            return None
+        measures[0] -= n
+        return guard.allows(state, limit)
+
+    def merge_batch(batch: list[Placement], limit: tuple[int, int, int, int]) -> bool | None:
+        """Make the merges of ``batch`` that still save a part and keep them if the state
+        stays within ``limit``; else undo them all and say False (None: no longer measured)."""
+        snap = state.snapshot()
+        made = 0
+        for q in batch:
+            got = _merge_saving(state, q, cover, merge_cache)
+            if got is not None and state.swap(q, (got[1],), cover):
+                made += 1
+        if not made:
+            return True
+        ok = measured_ok(limit)
+        if not ok:
+            state.restore(snap)
+        return ok
+
+    def merge_all(merges: list[Placement], limit: tuple[int, int, int, int]) -> None:
+        """Try the merges in order, several at a time: twice as many after a batch is kept,
+        half as many after one is undone; a merge undone on its own is refused."""
+        i, size = 0, 1
+        while i < len(merges):
+            ok = merge_batch(merges[i : i + size], limit)
+            if ok is None:
+                return
+            if ok:
+                i += size
+                size *= 2
+            elif size == 1:
+                i += 1
+            else:
+                size //= 2
+
+    def merge_parts() -> None:
+        """Join plain parts into fewer, larger bricks and plates. No weak spot may become
+        heavier and there may be no more of them, counted either way, than before merging
+        (or than the rule allows, seen as the input's parts)."""
+        guard._measure_input()
+        if len(state.parts) + len(details) > measures[0]:
+            return
+        measures[0] -= len(state.parts) + len(details)
+        limit = guard.weak_spots(state)
+        limit = (*limit[:2], max(limit[2], guard.most), max(limit[3], guard.count))
+        since = first_new  # the parts made since: the swaps' at first, then the last round's
+        for _ in range(_MERGE_ROUNDS):
+            ids = sorted(i for i in state.parts if i >= since)
+            since = state.next_id
+            merge_all([q for _, q, _ in _merge_candidates(state, ids, cover, merge_cache)], limit)
+            if state.next_id == since:
+                break
+
+    if state.swaps:
+        # the run without the rule must keep it before merging, or it is not the result:
+        # merge only in the run that will be kept, so its tiles and slopes are as before
+        if not sturdy and guard.check(state, len(state.done), broad=False) is not None:
+            return None
+        merge_parts()
 
     slanted, tiled = prog.slanted, prog.tiled
     n_slopes, n_tiles = prog.n_slopes, prog.n_tiles

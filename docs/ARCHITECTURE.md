@@ -164,7 +164,10 @@ tiles where the finish is smooth; 45-degree slopes where a sloped cell steps dow
 where it steps down by two plates. A slope takes the corner off a step and never adds material. Then the
 Design's detail parts are stood on their studs, or pushed onto the side stud of the brick behind them. A
 swap that would loosen any part of the model is not made, and a part that does not exist in the cell's
-colour is never substituted. What could not be done is written in the Build's notes.
+colour is never substituted. Last, the small bricks and plates the swaps left behind are merged into
+larger ones of the same colour over the same cells, wherever that leaves the model no weaker (no weak spot
+heavier, and no more of them): a slope costs a part, and merging wins most of them back. What could not be
+done is written in the Build's notes.
 
 **Parts that face sideways.** `Placement.face` says which way a part's top points. Everything upright has
 "top" and is stored exactly as before. A sideways part is always a one-stud detail on a side-stud brick

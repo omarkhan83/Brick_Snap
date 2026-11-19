@@ -529,10 +529,15 @@ def test_only_open_cells_of_a_partly_covered_top_get_tiles(catalog):
     fin(design)[2:4, 2:4, 2] = FINISH_SMOOTH  # covered cells marked smooth too: ignored
     before, after, c = run(design, catalog)
     assert c["smooth"] == 16 and c["smooth_left"] == 0
+    occ = occupancy(after, catalog)[0]
     for x in (2, 3):
         for y in (2, 3):
-            assert has_stud(after, catalog, x, y, 2), "the cells under the 2x2 lost their studs"
-    occ = occupancy(after, catalog)[0]
+            # a stud there, or the part goes on up into the 2x2 (merging may join them)
+            p = after.parts[int(occ[x, y, 2])]
+            assert kind(catalog, p) in ("brick", "plate"), "a covered cell got a tile"
+            assert has_stud(after, catalog, x, y, 2) or p.z + catalog.parts[p.part].h - 1 > 2, (
+                "the cells under the 2x2 lost their studs"
+            )
     tiles = [p for p in after.parts if kind(catalog, p) == "tile"]
     assert sum(int(np.prod(catalog.footprint(p)[:2])) for p in tiles) == 16
     assert len(pieces(after, catalog)) == 1
@@ -791,9 +796,12 @@ def test_a_45_degree_slope_leaves_the_rest_of_the_brick_a_brick(catalog):
     assert counted["slopes"] == Counter({"3039": 1})
 
 
-def test_a_cheese_slope_on_a_brick_keeps_a_whole_plate_at_its_bottom(catalog):
+def test_a_cheese_slope_on_a_brick_keeps_a_whole_plate_at_its_bottom(catalog, monkeypatch):
     """Swapping a brick for plates keeps one plate the size of the brick at the bottom, so
-    the brick's grip on what is under it is not split."""
+    the brick's grip on what is under it is not split. (Merging afterwards may join the
+    plates beside the slope into a 1 x 1 brick, which is just as sturdy by the measure; it is
+    switched off here to see the swap itself.)"""
+    without_merging(monkeypatch)
     design = from_heights(np.array([[4], [4]]))
     fin(design)[0, 0, 3] = FINISH_SLOPED
     fin(design)[1, 0, 3] = FINISH_STUDS
@@ -1261,6 +1269,11 @@ def test_at_most_six_reason_sentences(catalog):
     )
 
 
+def without_merging(monkeypatch) -> None:
+    """Switch off merging: the pass then gives what it gave before merging was added."""
+    monkeypatch.setattr(finish_module, "_MERGE_ROUNDS", 0)
+
+
 def without_the_sturdiness_rule(monkeypatch) -> None:
     """Switch off the stage 3 rule: the pass then works exactly as it did before it."""
     monkeypatch.setattr(finish_module._Sturdy, "check", lambda self, state, start, broad: None)
@@ -1271,17 +1284,38 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
     """Finding the reasons must not change what the pass builds: these fingerprints of the
     parts (with their steps and order) were recorded before the reasons were added, and
     before the sturdiness rule, so they hold with the rule switched off; with it, the
-    first set (recorded when the rule took its present form) holds."""
+    first set (recorded when the rule took its present form) holds. Both are of the pass
+    with merging switched off (it came later and changes no tile or slope); the last two
+    sets, with merging, were recorded when it was added."""
     cases = mixed_cases(catalog)
-    want = {"blobs": "4065d63c1a5f67d1", "stairs": "676fa78ad0305f1d", "shaped": "37f0220c77db87ab"}
+    with monkeypatch.context() as m:
+        without_merging(m)
+        want = {
+            "blobs": "4065d63c1a5f67d1",
+            "stairs": "676fa78ad0305f1d",
+            "shaped": "37f0220c77db87ab",
+        }
+        for name, group in cases.items():
+            builds = [finish(build, design, catalog) for design, build in group]
+            assert parts_fingerprint(builds) == want[name], name
+        # and these cases do have tiles, slopes, details and cells left for every sort of reason
+        notes = " ".join(n for b in builds for n in b.notes)
+        assert "detail part stands on" in notes and "would come loose" in notes
+        without_the_sturdiness_rule(m)
+        want = {
+            "blobs": "cb27a5fdc520506e",
+            "stairs": "a8f3dbbf410b6548",
+            "shaped": "89ca68ebcee90301",
+        }
+        for name, group in cases.items():
+            builds = [finish(build, design, catalog) for design, build in group]
+            assert parts_fingerprint(builds) == want[name], name
+    want = {"blobs": "9975c0dfc0f3508a", "stairs": "6ed0b4d017052265", "shaped": "168f8170b8a0be96"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
-    # and these cases do have tiles, slopes, details and cells left for every sort of reason
-    notes = " ".join(n for b in builds for n in b.notes)
-    assert "detail part stands on" in notes and "would come loose" in notes
     without_the_sturdiness_rule(monkeypatch)
-    want = {"blobs": "cb27a5fdc520506e", "stairs": "a8f3dbbf410b6548", "shaped": "89ca68ebcee90301"}
+    want = {"blobs": "a4dfcb839870ddf1", "stairs": "5e3974e110b7e9c4", "shaped": "47e87f92bfdefcdc"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
@@ -1289,19 +1323,25 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
 
 def test_nothing_changes_where_no_swap_threatens_sturdiness(catalog, monkeypatch):
     """Where the pass without the rule already leaves the build as sturdy as the rule asks
-    (checked here), the rule changes nothing: the same parts, order and steps."""
+    (checked here, before merging), the rule changes nothing: the same parts, order and
+    steps, merged the same way."""
     cases = [case for group in mixed_cases(catalog).values() for case in group]
     with monkeypatch.context() as m:
         without_the_sturdiness_rule(m)
+        merged = [finish(build, design, catalog) for design, build in cases]
+        without_merging(m)
         plain = [finish(build, design, catalog) for design, build in cases]
     calm = 0
-    for (design, build), was in zip(cases, plain, strict=True):
+    for (design, build), was, joined in zip(cases, plain, merged, strict=True):
         try:
             assert_no_less_sturdy(build, was, design, catalog)
         except AssertionError:
             continue  # the rule has something to refuse here
         calm += 1
-        assert finish(build, design, catalog).parts == was.parts
+        assert finish(build, design, catalog).parts == joined.parts
+        with monkeypatch.context() as m:
+            without_merging(m)
+            assert finish(build, design, catalog).parts == was.parts
     assert 10 <= calm < len(cases), (calm, len(cases))
 
 
@@ -1469,8 +1509,9 @@ def test_speed_3000_parts(catalog):
     start = time.perf_counter()
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
-    # about 2 s on the lead's machine: the limit allows a slower or busy one
-    assert elapsed < 6.0, f"{elapsed:.1f} s"
+    # about 3.3 s on the lead's machine (2 s before merging): the limit allows a slower or
+    # busy one
+    assert elapsed < 10.0, f"{elapsed:.1f} s"
     c = assert_finished(build, after, design, catalog)
     assert c["tiles"] > 0 and sum(c["slopes"].values()) > 0
 
@@ -1711,7 +1752,8 @@ def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
     the input's heaviest weak spot. (With the coverage fill one 2 x 4 brick of the head
     carries 20 cells after finishing, 14 before: slopes cut the two 1 x 2 bricks that
     straddle it and its neighbour, and their outer halves now stand on it alone; the
-    heaviest weak spot is 24 cells, 33 before.)"""
+    heaviest weak spot is 24 cells, 33 before. Merging, added later, makes that 25 cells and
+    23 weak spots 6, seen as the input's parts, and no part then carries more than 10.)"""
     design, build = samples[16]["pawn"]
     before, after, counted = run(design, catalog, build)
     most0, count0 = sturdiness_in_cells(build, catalog)
@@ -1726,7 +1768,9 @@ def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
 # sturdy, recorded before the rule was added: the rule must leave them exactly as they were.
 # They depend on the voxeliser, the solver and the make-buildable pass too.
 # Recorded again for the coverage fill with the pass as it was before the rule (360ac0d).
+# The same with merging switched off; and with it, recorded when merging was added.
 UNCHANGED_AT_16 = {"bottle": "49bd6a50cd03b78f", "cat": "dce7b135fb28f6a2"}
+MERGED_AT_16 = {"bottle": "d7473b1923c89b46", "cat": "1b564f62cb6b60be"}
 
 
 @pytest.mark.parametrize("studs", [pytest.param(12, marks=pytest.mark.thorough), 16])
@@ -1735,14 +1779,19 @@ def test_every_sample_is_no_less_sturdy_after_finishing(catalog, samples, monkey
         _, after, _ = run(design, catalog, build)  # run checks the rule, among the rest
         with monkeypatch.context() as m:
             without_the_sturdiness_rule(m)
+            joined = finish(build, design, catalog)
+            without_merging(m)
             was = finish(build, design, catalog)
         try:
             assert_no_less_sturdy(build, was, design, catalog)
         except AssertionError:
             continue  # the rule had something to refuse in this model
-        assert after.parts == was.parts, name
-        if studs == 16 and name in UNCHANGED_AT_16:
+        assert after.parts == joined.parts, name
+        if studs == 16 and name in MERGED_AT_16:
             text = json.dumps([tuple(plain(p).values()) for p in after.parts])
+            assert hashlib.sha256(text.encode()).hexdigest()[:16] == MERGED_AT_16[name], name
+        if studs == 16 and name in UNCHANGED_AT_16:
+            text = json.dumps([tuple(plain(p).values()) for p in was.parts])
             assert hashlib.sha256(text.encode()).hexdigest()[:16] == UNCHANGED_AT_16[name], name
 
 
@@ -1961,6 +2010,76 @@ def test_how_the_sturdiness_sentences_read(catalog):
         "1 cell marked smooth at x=5, y=5, z=5 kept its stud because a tile there would leave "
         f"4 parts hanging on a single part, {advice}",
     ]
+
+
+# ---- stage 4: merging what the swaps leave ------------------------------------------------
+
+
+def shaped_parts(build: Build, catalog) -> Counter:
+    """Every part that is not a plain brick or plate, as placed (steps aside)."""
+    return Counter(
+        (p.part, p.color, p.x, p.y, p.z, p.rot, p.face)
+        for p in build.parts
+        if kind(catalog, p) not in ("brick", "plate")
+    )
+
+
+def checks_weak_spots(build: Build, catalog) -> tuple[int, int]:
+    """(heaviest weak spot in cells, how many), counted as the checks count them."""
+    links = lone_links(build, catalog)
+    return max((ln.cells for ln in links), default=0), len(links)
+
+
+def test_merging_joins_the_remnants_of_a_sloped_sphere(catalog, monkeypatch):
+    """The slopes of a sphere cut the bricks under them into smaller bricks and plates;
+    merging joins them into fewer, larger ones, keeping every promise of the pass, every
+    tile and slope where it was, and no weak spot heavier or more of them."""
+    design = mark_open(shapes.sphere(12), FINISH_SLOPED)
+    build = solve(design, catalog)
+    with monkeypatch.context() as m:
+        without_merging(m)
+        unmerged = finish(build, design, catalog)
+    _, after, _ = run(design, catalog, build)  # run checks every promise
+    assert len(after.parts) < len(unmerged.parts) - 10, (len(after.parts), len(unmerged.parts))
+    assert shaped_parts(after, catalog) == shaped_parts(unmerged, catalog)
+    most, count = checks_weak_spots(after, catalog)
+    most0, count0 = checks_weak_spots(unmerged, catalog)
+    assert most <= most0 and count <= count0
+
+
+def test_merging_needs_a_part_the_pass_made(catalog):
+    """A build the swaps did not touch is left as the solver made it, even where two of its
+    plates could be one (a flat top marked sloped: no slope fits)."""
+    filled = np.zeros((4, 2, 1), dtype=bool)
+    filled[:, :, 0] = True
+    design = mark_open(design_of(filled), FINISH_SLOPED)
+    c = int(design.colors[0, 0, 0])
+    build = Build(
+        shape=design.shape,
+        parts=[Placement("3022", c, 0, 0, 0, 0, 1), Placement("3022", c, 2, 0, 0, 0, 1)],
+    )
+    assert finish(build, design, catalog).parts == build.parts
+
+
+def test_merging_on_the_samples(catalog, samples, monkeypatch):
+    """At 16 studs merging takes the duck under 450 parts (503 before it) and the eleven
+    samples from 2,809 to about 2,400, moving no tile, slope or detail part, and leaving no
+    model with a heavier weak spot or more of them, counted as the checks count."""
+    total = 0
+    for name, (design, build) in samples[16].items():
+        after = finish(build, design, catalog)
+        with monkeypatch.context() as m:
+            without_merging(m)
+            unmerged = finish(build, design, catalog)
+        assert len(after.parts) <= len(unmerged.parts), name
+        assert shaped_parts(after, catalog) == shaped_parts(unmerged, catalog), name
+        most, count = checks_weak_spots(after, catalog)
+        most0, count0 = checks_weak_spots(unmerged, catalog)
+        assert most <= most0 and count <= count0, (name, most, most0, count, count0)
+        if name == "duck":
+            assert len(after.parts) < 450, len(after.parts)
+        total += len(after.parts)
+    assert total < 2500, total
 
 
 # ---- stage 4: sideways details ----------------------------------------------------------
