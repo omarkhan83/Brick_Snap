@@ -17,6 +17,11 @@ research groups published the same finding within the last two months, and the c
 the one we already believe in: the AI places a part by saying what it connects to, software works out the
 position, and a checker says exactly what is wrong.
 
+Tonight's own test bench confirms it. Given a parts search, a way to place a part by the stud it sits
+on, a checker and pictures, Fable 5.2 built a sunflower (58 parts), a sitting cat (78) and an open-top
+car with turning wheels (102). The checker passes all three: every part held, nothing overlapping, each
+stands. They took 9 to 21 minutes and look like small official sets.
+
 So the proposal is to turn BrickSnap around. Today the software builds and the AI touches up. Instead the
 AI builds, the way a LEGO designer does, and the software is its workshop: it finds parts, snaps them
 together, fills the boring volume, checks everything, and draws pictures.
@@ -114,11 +119,18 @@ model, and look at it from any side. The checker names each problem with the lin
 place, and says how to fix it when it can.
 
 ![The sunflower, built with tools](with-tools/flower.png)
+![The car, built with tools](with-tools/car.png)
 ![The cat, built with tools](with-tools/cat.png)
 
 - **The sunflower: 58 parts of 24 kinds, and the checker finds nothing wrong**: every part is held,
   nothing overlaps, and it stands. It took 47 steps and nine minutes; Claude Code reports $3.75 at list
   prices. The model is `with-tools/flower.ldr` and the checker's full report is beside it.
+- **The car: 102 parts of 33 kinds, no problems** (13 wheel-pin and tyre joints listed as "not checked").
+  82 steps, 21 minutes, $8.11 at list prices (`with-tools/car.ldr`). A red open-top roadster: mudguard
+  arches over wheels that turn on wheel-pin plates, a wrap-around smoke windscreen, two tan seats, a
+  steering wheel and gear knob, roll bars, a white racing stripe running over curved slopes, round
+  headlights, a grille of tiles and a number plate. BrickLink Studio opens it with the same 102 parts
+  and 15 steps and names every part.
 - **The cat: 78 parts of 35 kinds, and again the checker finds nothing wrong.** 45 steps, twelve and a
   half minutes, $4.35 at list prices (`with-tools/cat.ldr`). An orange tabby with a white bib, green round
   eyes on side-stud bricks, a pink nose, white horn pieces as whiskers, a red collar with a bell, round
@@ -243,7 +255,8 @@ few cents and a few dollars for 20 to 220 parts with one agent.
 
 - Done tonight: the four experiments above; the studio and versions are in the product (`main`); the
   workshop for free building is on a branch.
-- Running as this is written: the cat and the car built with tools.
+- Being added to the workshop as this is written: starting from the solver's sculpted model, filling a
+  box with interlocked bricks, and mirroring.
 - Not started: more than one agent on one model; models above 200 parts; the solver as a fill tool inside
   the workshop; a 3D view that can draw any part.
 

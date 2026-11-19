@@ -1,0 +1,22 @@
+SUMMARY: 102 parts of 33 kinds, no problems: every part is held, nothing overlaps, and it stands. (13 joints not checked)
+
+NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):
+- line 2 (4488.dat) and line 27 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 2 (4488.dat) and line 28 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 3 (4488.dat) and line 29 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 3 (4488.dat) and line 30 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 4 (4488.dat) and line 31 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 4 (4488.dat) and line 32 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 5 (4488.dat) and line 33 (6014b.dat): a wheel pin joint, which the checker cannot confirm (they share about 740 LDU^3 where one goes into the other). Counted as joined.
+- line 5 (4488.dat) and line 34 (6015.dat): a wheel pin joint, which the checker cannot confirm (they share about 790 LDU^3 where one goes into the other). Counted as joined.
+- line 27 (6014b.dat) and line 28 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 29 (6014b.dat) and line 30 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 31 (6014b.dat) and line 32 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- line 33 (6014b.dat) and line 34 (6015.dat): a tyre on a wheel joint, which the checker cannot confirm (they share about 15000 LDU^3 where one goes into the other). Counted as joined.
+- Lines 2, 3, 4, 5, 15, 16, 17, 18, 23, 24, 27, 29 and 86 more are joined to what stands on the ground only through those joints.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 28, line 30, line 32, line 34
+- 85 parts are held by studs: 112 connections, 272 studs in all, 6 of them sideways or upside down. (part_info with a line number shows what holds one part.)
+- held by a single stud (20 parts; fine for a detail, weak for anything that carries others): lines 44, 45, 77, 83, 98, 99, 100, 101, 106, 107, 117, 133, 134, 135, 136, 137, 144, 145, 156, 157
+- stands: its centre of mass (x 0, z 0) is over what touches the ground.
