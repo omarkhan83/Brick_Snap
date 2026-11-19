@@ -148,11 +148,29 @@ main {
   pointer-events: none;
 }
 .view.compare .pane-tag.designed { background: var(--yel); }
-.pane-title { font-weight: 800; font-size: 19px; line-height: 1.2; }
+.pane-title { font-weight: 800; font-size: 19px; line-height: 1.2; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-sub { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 
+/* above the views: which versions to compare, and which of the two to show */
+.viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin: 0 0 12px; }
+.viewbar[hidden], .choose[hidden] { display: none; }
+.choose { display: flex; flex-wrap: wrap; gap: 8px 14px; min-width: 0; flex: 1 1 360px; }
+.pick { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 170px; }
+.pick-side { font-weight: 800; }
+.pick select, .cut select {
+  min-width: 0;
+  width: 100%;
+  font: 700 15px var(--font);
+  padding: 5px 8px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+}
+.pick select:focus-visible, .cut select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+
 /* which build to show, when there are two */
-.compare { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.compare { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
 .compare[hidden] { display: none; }
 .compare-label { font-weight: 800; margin-right: 2px; }
 .compare button { padding: 6px 12px; font-size: 15px; }
@@ -181,6 +199,20 @@ main {
 input[type="range"] { width: 100%; accent-color: var(--blue); height: 26px; }
 .steps-for { margin: 0; color: var(--muted); font-size: 14px; font-weight: 600; }
 .steps-for[hidden] { display: none; }
+/* look inside: cut the model open along one axis */
+.cut {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding-top: 8px;
+  border-top: 2px dashed #bbb;
+}
+.cut-label { font-weight: 800; font-size: 16px; }
+.cut input[type="range"] { flex: 1 1 200px; width: auto; min-width: 0; }
+.cut select { width: auto; flex: 0 1 auto; }
+.cut-says { color: var(--muted); font-size: 14px; font-weight: 600; flex: 1 1 100%; }
 
 button {
   font: 700 16px var(--font);
@@ -267,8 +299,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
   .pane-title { font-size: 16px; }
   .pane-sub { font-size: 13px; }
   .pane-what { display: none; }
+  .pane-sub { flex: none; white-space: nowrap; }
   /* the three choices side by side, as wide as each other */
-  .compare { display: grid; grid-template-columns: 1fr 1.5fr 1.2fr; gap: 8px; align-items: stretch; }
+  .compare { display: grid; grid-template-columns: 1fr 1.5fr 1.2fr; gap: 8px; align-items: stretch; flex: 1 1 100%; }
+  .choose { flex-basis: 100%; }
   .compare-label { display: none; }
   .compare button { padding: 6px 4px; font-size: 14px; line-height: 1.2; }
 }

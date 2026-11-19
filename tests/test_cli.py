@@ -108,6 +108,11 @@ def test_new_makes_and_builds_a_project_and_says_what_to_do_next(capsys, tmp_pat
     assert "bricksnap design" in out
     assert out.rstrip().splitlines()[-1].strip()  # ends with the next steps, not blank
     assert err == ""
+    assert "Kept as version 1, so you can always come back to it." in out
+    index = json.loads((folder / "versions" / "index.json").read_text())
+    assert [(v["kind"], v["label"]) for v in index["versions"]] == [
+        ("converted", "Converted from pawn.stl")
+    ]
 
 
 def test_new_defaults_to_projects_folder_and_suggests_bare_name(
@@ -2212,3 +2217,66 @@ def test_instructions_before_any_build(capsys, tmp_path, pawn_path):
     assert "bricksnap build" in err
     assert not (project.path / "instructions.pdf").exists()
     assert "Traceback" not in out + err
+
+
+# ---- versions -----------------------------------------------------------------------------
+
+
+def test_every_change_is_kept_as_a_version_and_can_be_brought_back(
+    capsys, in_projects, monkeypatch
+):
+    from bricksnap import versions
+
+    # a project made before versions were kept: its present state becomes version 1
+    code, out, _ = run(capsys, "versions", "pawn")
+    assert code == 0 and '"pawn" has no versions yet.' in out
+    assert not (in_projects / "versions").exists()  # listing writes nothing
+    code, out, err = run(capsys, "build", "pawn")
+    assert code == 0 and err == ""
+    assert [(v.n, v.kind, v.label) for v in versions.versions(Project(in_projects))] == [
+        (1, "converted", "The model as it was")
+    ]
+    assert "Kept as version" not in out  # building again changed nothing
+
+    (in_projects / "ops.json").write_text(json.dumps(PAINT))
+    code, out, _ = run(capsys, "ops", "pawn", str(in_projects / "ops.json"), "--build")
+    assert code == 0
+    assert "Kept as version 2; 'uv run bricksnap versions pawn' lists them all." in out
+
+    def designer(project, **options):
+        design = project.load_design()
+        from bricksnap.design import apply_ops
+
+        apply_ops(design, PAINT_4[:1], load_catalog())
+        project.save_design(design)
+        return DesignerRun(ok=True, turns=1, final_text="Done.")
+
+    monkeypatch.setattr("bricksnap.designer.runner.run_designer", designer)
+    _write_brief(Project(in_projects), {"object": "A pawn."})
+    code, out, _ = run(capsys, "design", "pawn", "make the base blue")
+    assert "Kept as version" in out
+    kept = versions.versions(Project(in_projects))
+    assert [(v.n, v.kind, v.label, v.note) for v in kept] == [
+        (1, "converted", "The model as it was", ""),
+        (2, "manual", "Changed by hand", ""),
+        (3, "edit", "Change: make the base blue", "make the base blue"),
+    ]
+
+    code, out, _ = run(capsys, "versions", "pawn")
+    assert code == 0
+    assert "    1. The model as it was\n" in out
+    assert "    3. Change: make the base blue  <- current\n" in out
+    assert "conversion · " in out and "holds together" in out
+    assert "uv run bricksnap versions pawn --restore" in out
+
+    code, out, _ = run(capsys, "versions", "pawn", "--restore", "1")
+    assert code == 0, out
+    assert 'Brought back version 1 of "pawn": The model as it was.' in out
+    assert "still in the list" in out
+    assert "the comparison picture" in out and "uv run bricksnap render pawn" in out
+    again = Project(in_projects)
+    assert versions.current(again) == 1 and "brief" not in again.meta
+    assert len(versions.versions(again)) == len(kept)  # going back added nothing
+
+    code, _, err = run(capsys, "versions", "pawn", "--restore", "99")
+    assert code == 2 and "has no version 99 (its versions: 1, 2, 3)" in err

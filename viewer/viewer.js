@@ -17,6 +17,15 @@
 // is drawn. So turning either view turns both, and geometry and materials are shared. The step
 // slider acts on the designed build. project.json's brief is shown in a panel beside them.
 //
+// Versions (bricksnap/versions.py): when /project-files.json lists versions, two choosers say
+// what each view shows. The left view ("rough" in the code) shows the plain conversion or any
+// version, the right view ("designed") any version; the current version is drawn from
+// build.json itself, so it follows a rebuild live. The step slider, the header, the brief and
+// the right-hand title follow the right view. Without versions the page is as before.
+//
+// Look inside: a clipping plane on the model's materials (never the ground or grid) cuts both
+// views open along one axis; at 0 nothing is cut.
+//
 // Any text that comes from the files goes into the page with textContent, never innerHTML.
 //
 // A part with "face" (front, right, back or left; absent means "top") lies on its side, as
@@ -78,6 +87,9 @@ const state = {
   notes: [], // the build's notes as shown under the verdict
   brief: null, // the designer's brief as shown, or null when there is none
   error: null,
+  versions: [], // the project's versions, as /project-files.json lists them (oldest first)
+  current: null, // the current version's number, or null
+  choice: { left: null, right: null }, // what each view draws: 'rough', a version number, or null
 };
 window.__bricksnap = state;
 
@@ -88,6 +100,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.localClippingEnabled = true; // "look inside" clips the model's materials only
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -567,6 +580,7 @@ function materialFor(code) {
   if (colour.transparent) Object.assign(opts, { transparent: true, opacity: 0.55, depthWrite: false });
   mat = new THREE.MeshLambertMaterial(opts);
   materialCache.set(code, mat);
+  if (cutOn()) cutMaterial(mat, true);
   return mat;
 }
 
@@ -1135,6 +1149,7 @@ function inspectView(view, detail) {
 // ---- camera, ground and lights fitted to the model --------------------------------------
 
 let fittedFor = '';
+let modelBox = null; // the box round the parts of the shown builds, before any margin
 
 /** The 8 corners of a box, as a flat [x, y, z, x, y, z, ...] array. */
 function boxCorners(box) {
@@ -1266,6 +1281,7 @@ function fitView(build) {
     if (Array.isArray(build.shape) && build.shape.length === 3) [nx, ny, nz] = build.shape.map((n) => Number(n) || 0);
     box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(nx * CELL.x, ny * CELL.y, nz * CELL.z));
   }
+  modelBox = box.clone(); // the parts themselves, for "look inside"
   const least = new THREE.Vector3(4 * CELL.x, 4 * CELL.y, 3 * CELL.z);
   const size = box.getSize(new THREE.Vector3());
   const centre = box.getCenter(new THREE.Vector3());
@@ -1337,6 +1353,10 @@ function setNotice(text) {
 // ---- the two views and the brief ------------------------------------------------------------
 
 const compareBox = $('compare');
+const chooseBox = $('choose');
+const viewbar = $('viewbar');
+const pickLeft = $('pickLeft');
+const pickRight = $('pickRight');
 const stepsFor = $('stepsFor');
 const hint = $('hint');
 const HINT_ONE = hint.textContent; // as index.html writes it
@@ -1355,6 +1375,8 @@ function showCompare(picked = false) {
   for (const b of compareBox.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.show === show));
   stepsFor.hidden = !compareActive || show === 'designed';
   hint.textContent = compareActive && show === 'both' ? HINT_BOTH : HINT_ONE;
+  chooseBox.hidden = state.versions.length === 0;
+  viewbar.hidden = compareBox.hidden && chooseBox.hidden;
   resize(picked);
   requestRender();
 }
@@ -1366,25 +1388,64 @@ for (const b of compareBox.querySelectorAll('button')) {
   });
 }
 
-/** project.json's brief: what the AI designer decided, in a panel beside the views. A brief
- * from an older project, written as one paragraph, is shown as that paragraph. */
-/** The right-hand view is "Designed" once the AI designer has written a brief; before that
- * it is "Finished": BrickSnap's own finishing pass (tiles and slopes) on the plain conversion. */
+/** Put a title, what is under it and the Show button's word on one view. */
+function setTag(view, title, what, button) {
+  view.label = title;
+  const tag = $(view === views.rough ? 'roughTag' : 'designedTag');
+  tag.querySelector('.pane-title').textContent = title;
+  tag.querySelector('.pane-what').textContent = what;
+  document.querySelector(`#compare button[data-show="${view.name}"]`).textContent = button;
+}
+
+/** Without versions, the right-hand view is "Designed" once the AI designer has written a
+ * brief; before that it is "Finished": BrickSnap's own finishing pass (tiles and slopes) on
+ * the plain conversion. */
 function nameDesignedView(designed) {
   const [title, what] = designed
     ? ['Designed', 'What BrickSnap made of it · ']
     : ['Finished', 'BrickSnap’s own finishing: tiles and slopes · '];
-  views.designed.label = title;
-  $('designedTag').querySelector('.pane-title').textContent = title;
-  $('designedTag').querySelector('.pane-what').textContent = what;
-  document.querySelector('#compare button[data-show="designed"]').textContent = title;
+  setTag(views.designed, title, what, title);
   $('stepsFor').textContent = `The steps are for the ${title.toLowerCase()} build.`;
 }
 
-function showBrief(proj) {
+/** [title, what is under it, the Show button's word] for what a view draws (see sources). */
+function describeSource(src) {
+  if (src === 'rough') return ['Plain conversion', 'What a plain converter makes · ', 'Plain conversion'];
+  const v = src === 'live' ? versionByN(state.current) : versionByN(src);
+  if (src === 'live' && !(v && liveIsKept(v))) return ['The model now', 'Not kept as a version yet · ', 'Now'];
+  if (!v) return ['', '', ''];
+  return [v.label, `Version ${v.n}${v.n === state.current ? ' (in use)' : ''} · `, `Version ${v.n}`];
+}
+
+// On a narrow screen the two views are one above the other: the choosers and the Show
+// buttons then say "Top" and "Bottom" instead of "Left" and "Right".
+const narrow = window.matchMedia('(max-width: 700px)');
+narrow.addEventListener('change', () => nameViews());
+
+/** The titles over the two views, as the choosers say. */
+function nameViews() {
+  if (!state.versions.length) {
+    setTag(views.rough, 'Plain conversion', 'What a plain converter makes · ', 'Plain conversion');
+    nameDesignedView(Boolean(state.brief));
+    return;
+  }
+  const sides = narrow.matches ? ['Top', 'Bottom'] : ['Left', 'Right'];
+  for (const [i, el] of document.querySelectorAll('#choose .pick-side').entries()) el.textContent = sides[i];
+  if (sources.left !== null) {
+    const [title, what] = describeSource(sources.left);
+    setTag(views.rough, title, what, sides[0]);
+  }
+  const [title, what, word] = describeSource(sources.right);
+  setTag(views.designed, title, what, sides[1]);
+  $('stepsFor').textContent = word === 'Now' ? 'The steps are for the model now.' : `The steps are for ${word.toLowerCase()}.`;
+}
+
+/** The designer's brief, in a panel beside the views: project.json's, or the brief the
+ * version on the right had. A brief from an older project, written as one paragraph, is
+ * shown as that paragraph. */
+function showBrief(raw) {
   const panel = $('brief');
   const body = $('briefBody');
-  const raw = proj ? proj.brief : null;
   const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
   let brief = null;
   if (text(raw)) brief = { object: text(raw), features: [], plan: '', colours: [], finish: '' };
@@ -1399,7 +1460,6 @@ function showBrief(proj) {
     if (!brief.object && !brief.features.length && !brief.plan && !brief.colours.length && !brief.finish) brief = null;
   }
   state.brief = brief;
-  nameDesignedView(Boolean(brief));
   body.replaceChildren();
   panel.hidden = !brief;
   document.body.classList.toggle('has-brief', Boolean(brief));
@@ -1617,7 +1677,176 @@ function parseObject(text) {
   }
 }
 
-/** Look at build.json, build.rough.json and project.json, and show whatever changed. */
+// ---- versions: what each view draws ----------------------------------------------------------
+
+let hasRoughFile = false; // /project-files.json names build.rough.json
+let leftPick = null; // the person's choice for the left view: null (default), 'rough' or a number
+let rightPick = null; // and for the right view: null (the current version) or a number
+const sources = { left: null, right: 'live' }; // what is drawn: 'rough', 'live', a number or null
+const versionTexts = new Map(); // version number -> its build.json text (a version never changes)
+let lastSourcesKey = '';
+let lastVersionsKey = '';
+
+function versionByN(n) {
+  return typeof n === 'number' ? state.versions.find((v) => v.n === n) || null : null;
+}
+
+/** Whether build.json, drawn on the right as "live", is version ``v`` (and not a run that is
+ * still changing it). */
+function liveIsKept(v) {
+  const b = currentBuild;
+  if (!b || sources.right !== 'live') return true;
+  return b.design_id === v.design_id && Array.isArray(b.parts) && b.parts.length === v.parts;
+}
+
+/** A version entry from /project-files.json, checked, or null. */
+function cleanVersion(v) {
+  if (!v || typeof v !== 'object' || !Number.isInteger(v.n) || v.n < 1) return null;
+  if (typeof v.build !== 'string' || !/^versions\/[0-9]{4,}\/build\.json$/.test(v.build)) return null;
+  const text = (x) => (typeof x === 'string' ? x : '');
+  return {
+    n: v.n,
+    kind: text(v.kind),
+    label: text(v.label) || `Version ${v.n}`,
+    note: text(v.note),
+    created: text(v.created),
+    parts: Number.isInteger(v.parts) ? v.parts : 0,
+    valid: v.valid === true,
+    design_id: text(v.design_id),
+    brief: v.brief && typeof v.brief === 'object' && !Array.isArray(v.brief) ? v.brief : null,
+    build: v.build,
+  };
+}
+
+/** Work out what each view draws from the person's choices and what exists. */
+function chooseSources() {
+  if (!versionByN(rightPick)) rightPick = null;
+  if (typeof leftPick === 'number' && !versionByN(leftPick)) leftPick = null;
+  sources.right = rightPick !== null && rightPick !== state.current ? rightPick : 'live';
+  if (leftPick === 'rough' && hasRoughFile) sources.left = 'rough';
+  else if (typeof leftPick === 'number') sources.left = leftPick;
+  else if (hasRoughFile) sources.left = 'rough';
+  else {
+    // no plain conversion: the version before the one on the right
+    const right = sources.right === 'live' ? state.current : sources.right;
+    const i = state.versions.findIndex((v) => v.n === right);
+    sources.left = i > 0 ? state.versions[i - 1].n : null;
+  }
+  state.choice = { left: sources.left, right: sources.right === 'live' ? state.current : sources.right };
+}
+
+/** The two choosers' lists, newest first, and what they show now. */
+function fillChoosers() {
+  const option = (value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    return o;
+  };
+  const name = (v) => `${v.n} · ${v.label}${v.n === state.current ? ' (in use)' : ''}`;
+  const newest = [...state.versions].reverse();
+  const left = newest.map((v) => option(String(v.n), name(v)));
+  if (hasRoughFile) left.unshift(option('rough', 'Plain conversion'));
+  const right = newest.map((v) => option(String(v.n), name(v)));
+  if (state.current === null) right.unshift(option('live', 'The model now'));
+  pickLeft.replaceChildren(...left);
+  pickRight.replaceChildren(...right);
+  if (sources.left === null) pickLeft.selectedIndex = -1;
+  else pickLeft.value = String(sources.left);
+  pickRight.value = sources.right === 'live' ? String(state.current ?? 'live') : String(sources.right);
+}
+
+pickLeft.addEventListener('change', () => {
+  leftPick = pickLeft.value === 'rough' ? 'rough' : Number(pickLeft.value);
+  state.pollNow();
+});
+pickRight.addEventListener('change', () => {
+  rightPick = pickRight.value === 'live' ? null : Number(pickRight.value);
+  state.pollNow();
+});
+
+// For tests and the web app's list of versions: show ``value`` in the ``side`` view ('left'
+// or 'right'): a version number, 'rough' (left only) or 'default'. Resolves once it is drawn.
+state.choose = async (side, value) => {
+  const pick = value === 'default' ? null : value === 'rough' ? 'rough' : Number(value);
+  if (side === 'left') leftPick = pick;
+  else rightPick = pick === 'rough' ? null : pick;
+  await state.pollNow();
+};
+
+async function versionText(n) {
+  if (versionTexts.has(n)) return versionTexts.get(n);
+  const v = versionByN(n);
+  const text = v ? await fetchText(`${PROJECT_URL}/${v.build}`) : null;
+  if (text !== null) versionTexts.set(n, text);
+  return text;
+}
+
+// ---- look inside ------------------------------------------------------------------------------
+
+const cutSlider = $('cut');
+const cutAxis = $('cutAxis');
+const cutSays = $('cutSays');
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const cutPlanes = [cutPlane];
+const CUT_WORDS = { y: 'from the front', x: 'from the side', z: 'from the top' };
+const cut = { axis: 'y', amount: 0 };
+
+function cutOn() {
+  return cut.amount > 0;
+}
+
+/** Clip ``mat`` (or stop clipping it), drawing cut parts from both sides so they read as
+ * opened up rather than see-through. */
+function cutMaterial(mat, on) {
+  const planes = on ? cutPlanes : null;
+  const side = mat === outlineMat ? THREE.BackSide : on ? THREE.DoubleSide : THREE.FrontSide;
+  if (mat.clippingPlanes !== planes || mat.side !== side) {
+    mat.clippingPlanes = planes;
+    mat.clipShadows = true;
+    mat.side = side;
+    mat.needsUpdate = true;
+  }
+}
+
+/** Place the cut through the model's box and put it on every material the model uses. */
+function applyCut() {
+  const on = cutOn();
+  for (const mat of [...materialCache.values(), edgeMat, newEdgeMat, outlineMat]) cutMaterial(mat, on);
+  const box = modelBox || new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+  const t = cut.amount;
+  const lo = box.min;
+  const hi = box.max;
+  if (cut.axis === 'x') cutPlane.set(new THREE.Vector3(-1, 0, 0), hi.x - t * (hi.x - lo.x));
+  else if (cut.axis === 'z') cutPlane.set(new THREE.Vector3(0, 0, -1), hi.z - t * (hi.z - lo.z));
+  else cutPlane.set(new THREE.Vector3(0, 1, 0), -(lo.y + t * (hi.y - lo.y)));
+  cutSays.textContent = on ? `Cut ${Math.round(t * 100)}% of the way, ${CUT_WORDS[cut.axis]}` : 'Off: slide to cut the model open';
+  requestRender();
+}
+
+state.setCut = (amount, axis = cut.axis) => {
+  cut.amount = Math.min(1, Math.max(0, Number(amount) || 0));
+  if (Object.hasOwn(CUT_WORDS, axis)) cut.axis = axis;
+  cutSlider.value = String(Math.round(cut.amount * 100));
+  cutAxis.value = cut.axis;
+  applyCut();
+};
+Object.defineProperty(state, 'cut', {
+  enumerable: true,
+  get: () => ({
+    axis: cut.axis,
+    amount: cut.amount,
+    plane: cutOn() ? [...cutPlane.normal.toArray(), cutPlane.constant] : null,
+    clipped: [...materialCache.values(), edgeMat, newEdgeMat, outlineMat].filter((m) => m.clippingPlanes === cutPlanes).length,
+  }),
+});
+cutSlider.addEventListener('input', () => state.setCut(Number(cutSlider.value) / 100));
+cutAxis.addEventListener('change', () => state.setCut(cut.amount, cutAxis.value));
+
+// ---- refreshing ---------------------------------------------------------------------------------
+
+/** Look at build.json, build.rough.json, project.json and the versions, and show whatever
+ * changed (in either view). */
 async function refresh() {
   const [text, files, projectText] = await Promise.all([
     fetchText(`${PROJECT_URL}/build.json`),
@@ -1625,12 +1854,22 @@ async function refresh() {
     fetchText(`${PROJECT_URL}/project.json`),
   ]);
   // Only asked for when it is there, so a project without one causes no failed requests.
-  const hasRough = Boolean(files && Array.isArray(files.files) && files.files.includes('build.rough.json'));
-  const roughText = hasRough ? await fetchText(`${PROJECT_URL}/build.rough.json`) : null;
+  hasRoughFile = Boolean(files && Array.isArray(files.files) && files.files.includes('build.rough.json'));
+  const listed = files && Array.isArray(files.versions) ? files.versions.map(cleanVersion).filter(Boolean) : [];
+  state.versions = listed;
+  state.current = files && Number.isInteger(files.current) && versionByN(files.current) ? files.current : null;
+  chooseSources();
+  const rightText = sources.right === 'live' ? text : await versionText(sources.right);
+  let roughText = null;
+  if (sources.left === 'rough') roughText = await fetchText(`${PROJECT_URL}/build.rough.json`);
+  else if (sources.left !== null) roughText = await versionText(sources.left);
+  const sourcesKey = JSON.stringify(sources);
+  const versionsKey = JSON.stringify([state.versions, state.current, hasRoughFile]);
+  const sourcesChanged = sourcesKey !== lastSourcesKey || versionsKey !== lastVersionsKey;
 
-  const buildChanged = text !== lastBuildText;
-  const build = buildChanged ? parseObject(text) : currentBuild;
-  if (buildChanged && text !== null && !build) {
+  const buildChanged = rightText !== lastBuildText;
+  const build = buildChanged ? parseObject(rightText) : currentBuild;
+  if (buildChanged && rightText !== null && !build) {
     // Probably caught half-written: the next poll will see the whole file. If it stays
     // unreadable, say so rather than showing "Loading" (or an old build) without a word.
     unreadable += 1;
@@ -1639,8 +1878,10 @@ async function refresh() {
   }
   const roughChanged = roughText !== lastRoughText;
   const projectChanged = projectText !== lastProjectText;
-  if (!buildChanged && !roughChanged && !projectChanged) return;
+  if (!buildChanged && !roughChanged && !projectChanged && !sourcesChanged) return;
   unreadable = 0;
+  lastSourcesKey = sourcesKey;
+  lastVersionsKey = versionsKey;
   if (projectChanged) {
     lastProjectText = projectText;
     project = parseObject(projectText) || project; // half-written: keep the old one
@@ -1649,7 +1890,7 @@ async function refresh() {
   let notice = null; // null: leave the notice as it is
   let keep = null;
   if (buildChanged) {
-    lastBuildText = text;
+    lastBuildText = rightText;
     currentBuild = build;
     // Keep the step the person was looking at, if it still exists.
     keep = state.showingAll ? null : state.step;
@@ -1691,6 +1932,7 @@ async function refresh() {
   const r = views.rough;
   // A plain conversion with nothing in it to draw counts as none, like one that cannot be read.
   compareActive = Boolean(d.drawn && r.drawn && r.drawn.parts.length && r.partsJson !== d.partsJson);
+  if (state.versions.length) fillChoosers();
   showCompare();
   if (buildChanged || roughChanged) {
     try {
@@ -1703,7 +1945,10 @@ async function refresh() {
   }
   if (notice !== null) setNotice(notice);
   showHeader(project, currentBuild);
-  showBrief(project);
+  const shownVersion = sources.right === 'live' ? null : versionByN(sources.right);
+  showBrief(shownVersion ? shownVersion.brief : project ? project.brief : null);
+  nameViews();
+  applyCut();
   if (buildChanged) {
     if (d.drawn) applyStep(keep ?? state.maxStep, keep === null || keep > state.maxStep);
     else showNoSteps();

@@ -183,6 +183,35 @@ Implementation notes: before and after, and the brief (viewer/viewer.js)
   milliseconds per frame. In the headless test browser, which draws in software, two
   600-part builds take about 0.45 s a frame, the designed one alone 0.3 s and the plain one
   alone 0.17 s; a graphics card is far faster.
+
+STAGE 4 ADDITION TO THE CONTRACT: versions, and looking inside
+- ``/project-files.json`` also gives ``versions`` (``bricksnap.versions``, oldest first: each
+  ``{"n", "kind", "label", "note", "created", "parts", "valid", "design_id", "brief",
+  "build", "card"}``, where ``build`` and ``card`` are the version's files relative to the
+  project folder, ``card`` null when it has none) and ``current`` (the current version's
+  number, or null). A project without versions, or whose index cannot be read, gives an
+  empty list and null. ``version_entries(folder)`` makes both.
+- With versions, the page gets two choosers above the views. The left view shows the plain
+  conversion (when the project has one) or any version; the right view any version, the
+  current one by default, which is drawn from build.json itself so it follows a rebuild as
+  before. When there is no plain conversion the left view starts on the version before the
+  current one. A chooser left on its default follows the model (a new current version is
+  shown on the right); one the person set keeps their choice while that version exists.
+  The titles and what is under them, the Show buttons, the part counts, the header (count,
+  verdict, notes), the step slider and the brief panel (the brief the right-hand version
+  had; hidden when it had none) follow the right view. When the right view shows build.json
+  but that build is not the current version's (a run that is still changing it), its title
+  says it is the model now, not kept as a version yet. Two views appear whenever the two
+  choices draw different builds. Without versions the page is exactly as before.
+- "Look inside": a slider under the steps cuts both views away along one axis (from the
+  front by default; from the side or from the top), with three.js clipping planes on the
+  model's materials only (the ground and grid stay whole), cut parts drawn from both sides.
+  At 0 nothing is cut, which is how the page starts.
+- ``window.__bricksnap`` adds ``versions`` and ``current`` (as listed), ``choice``
+  (``{left, right}``: "rough", a version number, or null for none), ``choose(side, value)``
+  (pick a version for "left" or "right", or "rough"/"default"; resolves once it is drawn),
+  ``cut`` ({axis, amount (0 to 1), plane: [nx, ny, nz, constant] or null, clipped: how many
+  model materials carry it}) and ``setCut(amount, axis)``.
 """
 
 from __future__ import annotations
@@ -272,10 +301,38 @@ def is_local_host(host: str | None) -> bool:
     return name in LOCAL_HOSTS
 
 
+def version_entries(project_root: Path) -> tuple[list[dict[str, Any]], int | None]:
+    """The project's versions as ``/project-files.json`` lists them, and the current one."""
+    from dataclasses import asdict
+
+    from bricksnap import versions
+    from bricksnap.project import Project
+
+    try:
+        project = Project(project_root)
+        found, now = versions.versions(project), versions.current(project)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return [], None
+    entries = []
+    for v in found:
+        folder = f"{versions.VERSIONS_DIR}/{v.n:04d}"
+        card = f"{folder}/card.png"
+        entries.append(
+            {
+                **asdict(v),
+                "build": f"{folder}/build.json",
+                "card": card if safe_join(project_root, card) is not None else None,
+            }
+        )
+    return entries, now
+
+
 def project_files(project_root: Path) -> bytes:
-    """The body of ``/project-files.json``: which of ``PROJECT_FILES`` exist as files."""
+    """The body of ``/project-files.json``: which of ``PROJECT_FILES`` exist as files, and
+    the project's versions."""
     found = [name for name in PROJECT_FILES if safe_join(project_root, name) is not None]
-    return json.dumps({"files": found}).encode("utf-8")
+    entries, now = version_entries(project_root)
+    return json.dumps({"files": found, "versions": entries, "current": now}).encode("utf-8")
 
 
 def resolve_route(url_path: str, project_root: Path) -> Path | None:

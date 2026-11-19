@@ -160,6 +160,39 @@ details.more[open] summary { margin-bottom: 10px; }
 .downloads .about-files summary { cursor: pointer; color: #444; }
 .downloads ul { margin: 6px 0 0; padding-left: 20px; }
 .downloads li { margin: 4px 0; line-height: 1.35; }
+/* The versions: one row of small cards, newest first, that scrolls sideways when long; the
+   heading on the same row, so the strip costs one line of the page. */
+.versions[hidden] { display: none; }
+.versions { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.versions h3 { margin: 0; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.vlist {
+  list-style: none; margin: 0; padding: 2px 6px 5px 2px;
+  display: flex; gap: 8px; overflow-x: auto; flex: 1 1 0; min-width: 0;
+  scrollbar-width: thin;
+}
+.vlist li { flex: none; }
+.vcard {
+  display: flex; align-items: center; gap: 8px;
+  width: 300px; padding: 3px 8px 3px 3px;
+  font: 600 14px var(--font); text-align: left;
+  background: #fff; box-shadow: 2px 2px 0 var(--ink); border-width: 2px;
+}
+.vcard:hover { box-shadow: 3px 3px 0 var(--ink); }
+.vcard[aria-pressed="true"] { background: var(--yel); outline: 3px solid var(--blue); outline-offset: 1px; }
+.vcard img, .vnopic {
+  width: 56px; height: 42px; flex: none; object-fit: contain; display: block;
+  border: 2px solid var(--ink); border-radius: 6px; background: linear-gradient(#cfe9ff, #fffdf5);
+}
+.vtext { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.vname { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
+.vn { font-weight: 800; flex: none; }
+.vn::after { content: "."; }
+.vlabel { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vfacts { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vnow { font-size: 11px; padding: 0 6px; margin-right: 5px; }
+.vuse { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; flex: 1 1 100%; font-weight: 700; }
+.vuse button { padding: 5px 14px; font-size: 15px; box-shadow: 2px 2px 0 var(--ink); }
+
 .actmsg { margin: 10px 0 0; font-weight: 700; overflow-wrap: anywhere; }
 .actmsg:empty { display: none; }
 .actmsg.bad { color: var(--red); }
@@ -186,5 +219,7 @@ details.more[open] summary { margin-bottom: 10px; }
 }
 @media (max-width: 560px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
+  .vlist { flex-basis: 100%; }
+  .vcard { width: 240px; }
   .ask button, .confirm .row button { flex: 1 1 auto; }
 }

@@ -151,3 +151,26 @@ def test_a_damaged_index_is_no_versions_and_recording_starts_after_what_is_there
     assert versions.record(pawn, "converted", "Again") == 2  # folder 0001 is not overwritten
     index = json.loads((pawn.path / "versions" / "index.json").read_text())
     assert index["current"] == 2 and [e["n"] for e in index["versions"]] == [2]
+
+
+def test_a_project_made_before_versions_is_adopted_once(pawn):
+    assert versions.adopt(pawn) == 1
+    (only,) = versions.versions(pawn)
+    assert (only.kind, only.label) == ("converted", "The model as it was")
+    assert versions.adopt(pawn) is None  # it has a version now
+    repaint(pawn)
+    assert versions.adopt(pawn) is None and len(versions.versions(pawn)) == 1
+
+
+def test_adopting_a_designed_project_or_one_whose_build_is_old(pawn):
+    pawn.meta["brief"] = BRIEF
+    pawn.save_meta()
+    design = pawn.load_design()
+    assert all(r.applied for r in apply_ops(design, PAINT, load_catalog()))
+    pawn.save_design(design)  # the build is older than the design: nothing to keep yet
+    assert versions.adopt(pawn) is None and versions.versions(pawn) == []
+    rebuild(pawn)
+    assert versions.adopt(pawn) == 1
+    assert [(v.kind, v.label, v.brief) for v in versions.versions(pawn)] == [
+        ("designed", "The design as it was", BRIEF)
+    ]

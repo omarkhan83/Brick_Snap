@@ -45,9 +45,14 @@ takes more than a moment returns ``{"job": id}``.
     /api/p/<project>/instructions    writes instructions.pdf and instructions.html
     /api/p/<project>/delete          moves the project folder into ``projects_dir/.trash``
                                      (nothing is ever deleted outright)
+    /api/p/<project>/restore         ``{"version": n}``: brings version n back
+                                     (``versions.restore``), after keeping the model as it
+                                     is now in the list. Job result: ``{"project", "parts",
+                                     "valid", "version"}``.
 GET /api/projects                    the list the home page shows
 GET /api/p/<project>                 name, studs, part count, verdict, notes, brief, which
-                                     files exist, whether the build is current, running job
+                                     files exist, whether the build is current, running job,
+                                     and the model's versions
 GET /api/jobs/<id>                   ``{"state": "waiting" | "running" | "done" | "failed",
                                      "kind", "project", "started", "progress": [plain
                                      sentences, newest last], "result", "error"}``
@@ -187,6 +192,32 @@ Implementation notes
 - Progress from the designer: the run starting, each tool call in words (``describe``,
   ``render``, ``brief``, ``rebuild``, and ``apply_ops`` with its number of edits), and what
   the designer writes, shortened to 240 characters after ``runner.redact``.
+
+STAGE 4 ADDITION TO THE CONTRACT: versions (``bricksnap.versions``)
+- Every job that changes the model keeps the result as a version, labelled as the command
+  line labels it (``cli.keep_version`` and its label helpers): ``new`` "converted"
+  ("Converted from cat.glb"); ``build`` "manual" ("Changed by hand", or "Built again" when
+  only the bricks changed; nothing new when nothing changed); ``design`` "designed", or
+  "edit" with the request as the note, a best-of run saying it was the best of N, a run
+  that stopped saying so. Before a job changes anything, a project made before versions
+  were kept gets its present state as its first version (``versions.adopt``). Keeping a
+  version never fails a job: when it cannot be done the progress says so and the job
+  carries on.
+- ``restore`` is a job like the others (token, one job per project, refused while another
+  runs; a version number that is not a whole number of at least 1 is refused at once, one
+  the project does not have fails the job plainly). It keeps the present state first
+  (building it when the design was changed after its build, so nothing is lost), brings
+  the version back, then draws renders/compare.png and the card again, makes sure the plain
+  conversion is there, and refreshes the downloads as after any build.
+- ``GET /api/p/<project>`` also gives ``versions``, oldest first, each ``{"n", "kind",
+  "label", "note", "created", "parts", "valid", "picture"}`` (``picture`` is the address of
+  the version's card, or null), and ``current_version``, the number of the current one
+  (null when there are none). (``current`` already says whether the build is up to date.)
+- ``project-files.json`` lists the versions too (``viewserver.project_files``), which the
+  viewer's two choosers use.
+- Under ``files/``, ``versions/<NNNN>/build.json`` and ``versions/<NNNN>/card.png`` are
+  served for a version the project's index lists, judged on the resolved path like the
+  other files; nothing else in a version's folder (never its design files).
 """
 
 from __future__ import annotations
@@ -215,9 +246,22 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import unquote, urlsplit
 
-from bricksnap.cli import UserError, _system_error, load_build, load_design, open_project
+from bricksnap.cli import (
+    UserError,
+    _system_error,
+    adopt_versions,
+    converted_label,
+    design_label,
+    keep_present,
+    keep_version,
+    load_build,
+    load_design,
+    open_project,
+    rebuild_label,
+)
 from bricksnap.project import Project, ProjectError, slug
 from bricksnap.types import SeedError
+from bricksnap.versions import VERSIONS_DIR
 from bricksnap.viewserver import (
     CATALOG_DIR,
     CATALOG_FILES,
@@ -228,6 +272,7 @@ from bricksnap.viewserver import (
     is_local_host,
     project_files,
     safe_join,
+    version_entries,
 )
 
 MAX_UPLOAD_BYTES = 60 * 1024 * 1024
@@ -262,6 +307,7 @@ DOWNLOADS = (
 SERVED_FILES = frozenset({"project.json", "build.json", "build.rough.json", *DOWNLOADS})
 """The files of a project the pages may fetch; ``renders/<name>.png`` too, and nothing else."""
 _SERVED_PICTURE = re.compile(r"renders/[A-Za-z0-9][A-Za-z0-9._-]*\.png")
+_SERVED_VERSION = re.compile(r"versions/([0-9]{4,})/(?:build\.json|card\.png)")
 _COMMAND_ADVICE = re.compile(
     r"\buv run\b|'bricksnap\b|\s--[a-z]"
     r"|\bbricksnap (?:new|build|check|design|view|export|render|ops|instructions|serve)\b"
@@ -304,7 +350,7 @@ NOT_FOUND_PAGE = """<!doctype html>
 </body>
 </html>
 """
-ACTIONS = ("build", "design", "export", "instructions", "delete")
+ACTIONS = ("build", "design", "export", "instructions", "delete", "restore")
 APP_TYPES = {
     **CONTENT_TYPES,
     ".pdf": "application/pdf",
@@ -320,6 +366,7 @@ JOB_LABELS = {
     "design": "the AI designer is working on it",
     "export": "writing the parts list and the LDraw file",
     "instructions": "making the building instructions",
+    "restore": "going back to an earlier version",
 }
 TOOL_WORDS = {
     "describe": "The designer is looking at the model",
@@ -412,7 +459,16 @@ def served_file(folder: Path, inner: str) -> Path | None:
         return None
     if rel in SERVED_FILES or _SERVED_PICTURE.fullmatch(rel):
         return target
-    return None
+    kept = _SERVED_VERSION.fullmatch(rel)
+    if kept is None or kept.group(1) != f"{int(kept.group(1)):04d}":
+        return None
+    return target if int(kept.group(1)) in {v["n"] for v in version_list(folder)} else None
+
+
+def version_list(folder: Path) -> list[dict[str, Any]]:
+    """The versions of the project in ``folder``, oldest first, as ``viewserver.project_files``
+    lists them; an empty list when there are none or they cannot be read."""
+    return version_entries(folder)[0]
 
 
 def clean_text(text: str, limit: int) -> str:
@@ -790,6 +846,18 @@ class App:
             info["verdict"] = "Not built into bricks yet."
         info["files"] = [f for f in DOWNLOADS if safe_join(folder, f) is not None]
         info["bin"] = str(self.shown_root / TRASH_DIR)
+        found, info["current_version"] = version_entries(folder)
+        info["versions"] = []
+        for v in found:
+            card = folder / VERSIONS_DIR / f"{v['n']:04d}" / "card.png"
+            picture = f"/p/{name}/files/{VERSIONS_DIR}/{v['n']:04d}/card.png"
+            info["versions"].append(
+                {
+                    **{k: v[k] for k in ("n", "kind", "label", "note", "created", "parts")},
+                    "valid": v["valid"],
+                    "picture": picture if card.is_file() else None,
+                }
+            )
         job_id = info["job"]
         with self.lock:
             job = self.jobs.get(job_id) if job_id else None
@@ -947,16 +1015,18 @@ class App:
                 project = Project(target)
             finally:
                 shutil.rmtree(staging, ignore_errors=True)
-            return self._build(job, project)
+            return self._build(job, project, new=True)
 
         return self.start("new", folder, work, job_id=job_id, reserved=True)
 
-    def _build(self, job: Job, project: Project) -> dict[str, Any]:
+    def _build(self, job: Job, project: Project, new: bool = False) -> dict[str, Any]:
         """Rebuild, draw the picture and make the plain conversion, as ``bricksnap build``."""
         from bricksnap.pipeline import rebuild, render_card, render_compare, rough_build
 
         job.say("Laying out the bricks and checking that they hold together")
         load_design(project)  # a plain message, not a traceback, when the design is damaged
+        if not new:
+            adopt_versions(project, say=job.say)
         build = rebuild(project)
         job.say("Drawing a picture of the model beside the bricks")
         render_compare(project)
@@ -964,7 +1034,17 @@ class App:
         job.say("Making the plain conversion, to show beside the design")
         rough_build(project)
         self._refresh_downloads(job, project)
+        if new:
+            self._keep(job, project, "converted", converted_label(project))
+        else:
+            self._keep(job, project, "manual", rebuild_label(project, build))
         return self._outcome(job, project, build)
+
+    def _keep(self, job: Job, project: Project, kind: str, label: str, note: str = "") -> None:
+        """Keep the model as it is now as a version, and say so; never fails the job."""
+        n = keep_version(project, kind, label, note, say=job.say)
+        if n is not None:
+            job.say(f"Kept as version {n}: {label}")
 
     def _refresh_downloads(self, job: Job, project: Project) -> None:
         """Keep the files a person downloads in step with the build just made.
@@ -1075,10 +1155,13 @@ class App:
 
         design_before = load_design(project)  # fail now, clearly, if there is nothing to design
         kind = runner.run_kind(project, request)
+        adopt_versions(project, say=job.say)
+        what, label, note = design_label(kind, request, best_of)
         if kind == runner.EDIT:
             job.say(f'This is one change to a model that is already designed: "{request}"')
             job.say("Building the model as it is now, so the change starts from it")
             rebuild(project)
+            adopt_versions(project, say=job.say)
         elif runner.has_brief(project):
             job.say("This is another full design pass: the designer may change any part of it")
         elif request:
@@ -1111,6 +1194,7 @@ class App:
             rough_build(project)
             render_card(project)
             self._refresh_downloads(job, project)
+            self._keep(job, project, what, label, note)
             build = load_build(project)
             out = self._outcome(job, project, build)
             out.update(
@@ -1137,6 +1221,9 @@ class App:
         render_card(project)
         rough_build(project)
         self._refresh_downloads(job, project)
+        if not run.ok:
+            label += " (stopped before it finished)"
+        self._keep(job, project, what, label, note)
         log = load_design(project).log
         out = self._outcome(job, project, build)
         out.update(
@@ -1243,6 +1330,41 @@ class App:
             }
 
         return self.start("instructions", name, work)
+
+    def restore(self, name: str, body: dict[str, Any]) -> Job:
+        number = body.get("version")
+        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+            raise Refused("Choose which version to go back to, by its number.")
+        self.known(name)
+
+        def work(job: Job) -> dict[str, Any]:
+            return self._restore(job, self.open(name), number)
+
+        return self.start("restore", name, work)
+
+    def _restore(self, job: Job, project: Project, n: int) -> dict[str, Any]:
+        from bricksnap import versions
+        from bricksnap.pipeline import render_card, render_compare, rough_build
+
+        version = next((v for v in versions.versions(project) if v.n == n), None)
+        if version is None:
+            raise JobFailed(
+                f"This model has no version {n}, so nothing was changed. Reload the page to see "
+                "the versions it has."
+            )
+        job.say(f"Going back to version {n}: {version.label}")
+        job.say("Keeping the model as it is now in the list of versions")
+        keep_present(project, say=job.say)
+        build = versions.restore(project, n)
+        project = Project(project.path)
+        job.say("Drawing a picture of the model beside the bricks")
+        render_compare(project)
+        render_card(project)
+        rough_build(project)  # the plain conversion stays beside it
+        self._refresh_downloads(job, project)
+        out = self._outcome(job, project, build)
+        out["version"] = n
+        return out
 
     def delete(self, name: str) -> dict[str, Any]:
         """Move the project's folder into ``.trash``; nothing is deleted outright."""
@@ -1548,6 +1670,8 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         return
                     if action == "design":
                         job = app.design(name, body)
+                    elif action == "restore":
+                        job = app.restore(name, body)
                     else:
                         job = getattr(app, action)(name)
                     self._json(HTTPStatus.ACCEPTED, {"job": job.id})

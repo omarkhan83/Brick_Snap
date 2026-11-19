@@ -39,11 +39,17 @@
 
 <main>
   <section class="card viewcard">
-    <div id="compare" class="compare" role="group" aria-label="Which build to show" hidden>
-      <span class="compare-label">Show</span>
-      <button type="button" data-show="both" aria-pressed="true">Both</button>
-      <button type="button" data-show="rough" aria-pressed="false">Plain conversion</button>
-      <button type="button" data-show="designed" aria-pressed="false">Designed</button>
+    <div id="viewbar" class="viewbar" hidden>
+      <div id="choose" class="choose" role="group" aria-label="Which versions to put side by side" hidden>
+        <label class="pick"><span class="pick-side">Left</span><select id="pickLeft"></select></label>
+        <label class="pick"><span class="pick-side">Right</span><select id="pickRight"></select></label>
+      </div>
+      <div id="compare" class="compare" role="group" aria-label="Which build to show" hidden>
+        <span class="compare-label">Show</span>
+        <button type="button" data-show="both" aria-pressed="true">Both</button>
+        <button type="button" data-show="rough" aria-pressed="false">Plain conversion</button>
+        <button type="button" data-show="designed" aria-pressed="false">Designed</button>
+      </div>
     </div>
     <div id="view" class="view" aria-label="3D view of the model. Drag to turn it, scroll to zoom, right-drag to move it.">
       <div class="panes">
@@ -76,6 +82,16 @@
     </div>
     <button id="next" type="button" title="Next step (right arrow)">Next ▶</button>
     <button id="all" type="button" class="allbtn" aria-pressed="true">All</button>
+    <div class="cut" role="group" aria-label="Look inside the model">
+      <label for="cut" class="cut-label">Look inside</label>
+      <input id="cut" type="range" min="0" max="100" value="0" step="1" aria-describedby="cutSays">
+      <select id="cutAxis" aria-label="Which way to cut">
+        <option value="y">from the front</option>
+        <option value="x">from the side</option>
+        <option value="z">from the top</option>
+      </select>
+      <span id="cutSays" class="cut-says">Off: slide to cut the model open</span>
+    </div>
   </section>
 
   <section id="brief" class="card brief" aria-labelledby="briefTitle" hidden>

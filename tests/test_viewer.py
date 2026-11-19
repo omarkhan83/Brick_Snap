@@ -1878,15 +1878,20 @@ def test_project_files_route_says_which_files_exist(running: Running, project: P
     assert status == 200
     assert headers["content-type"].startswith("application/json")
     assert headers["cache-control"] == "no-store"
-    assert json.loads(body) == {"files": ["project.json", "build.json"]}
+    none = {"versions": [], "current": None}  # a project with no versions
+    assert json.loads(body) == {"files": ["project.json", "build.json"], **none}
     (project.path / ROUGH).write_text("{}", "utf-8")
     assert json.loads(running.request("/project-files.json")[2]) == {
-        "files": ["project.json", "build.json", ROUGH]
+        "files": ["project.json", "build.json", ROUGH],
+        **none,
     }
     project.build_path.unlink()
     (project.path / ROUGH).unlink()
     (project.path / ROUGH).mkdir()  # a folder is not a file
-    assert json.loads(running.request("/project-files.json")[2]) == {"files": ["project.json"]}
+    assert json.loads(running.request("/project-files.json")[2]) == {
+        "files": ["project.json"],
+        **none,
+    }
     assert running.request("/project-files.json", method="HEAD")[2] == b""
     assert running.request("/project-files.json", host="evil.example.com")[0] == 404
     assert running.request("/project-files.json/")[0] == 404
@@ -2381,3 +2386,108 @@ def test_a_part_on_a_face_lies_on_its_bricks_side_stud(
         p.settle()
         assert p.state()["visibleCount"] == 8
         p.assert_clean()
+
+
+# ---- versions and looking inside ----------------------------------------------------------
+
+
+def test_project_files_lists_the_versions(running: Running, project: Project) -> None:
+    from bricksnap import versions
+
+    (project.path / "versions").mkdir()
+    (project.path / "versions" / "index.json").write_text("{not json")
+    assert json.loads(running.request("/project-files.json")[2])["versions"] == []
+    entry = {"n": 1, "kind": "converted", "label": "First", "note": "", "created": "x",
+             "parts": 2, "valid": True, "design_id": "abc", "brief": None}  # fmt: skip
+    (project.path / "versions" / "0001").mkdir()
+    (project.path / "versions" / "0001" / "build.json").write_text("{}")
+    (project.path / "versions" / "index.json").write_text(
+        json.dumps({"current": 1, "last": 1, "versions": [entry]})
+    )
+    listed = json.loads(running.request("/project-files.json")[2])
+    assert listed["current"] == 1 and versions.current(project) == 1
+    assert listed["versions"] == [{**entry, "build": "versions/0001/build.json", "card": None}]
+    status, _, body = running.request("/project/versions/0001/build.json")
+    assert status == 200 and body == b"{}"
+
+
+@pytest.mark.browser
+def test_versions_side_by_side_and_looking_inside(
+    browser: Any, tmp_path: Path, pawn_path: Path, catalog: Catalog
+) -> None:
+    """``bricksnap view`` on a hollow model with two versions and no plain conversion: the
+    choosers start on the version before the current one beside the current one, follow a
+    choice, and the "look inside" control cuts both views open."""
+    from bricksnap import versions
+    from bricksnap.design import apply_ops
+    from bricksnap.pipeline import create_project, rebuild
+
+    proj = create_project(pawn_path, studs=10, directory=tmp_path, name="Hollow", hollow=True)
+    rebuild(proj)
+    versions.record(proj, "converted", "Converted from pawn.stl")
+    design = proj.load_design()
+    paint = {"op": "paint", "shape": {"type": "box", "min": [0, 0, 0], "max": [20, 20, 4]}}
+    assert all(r.applied for r in apply_ops(design, [{**paint, "color": RED}], catalog))
+    proj.save_design(design)
+    proj.meta["brief"] = {"object": "A hollow pawn.", "plan": "A red base."}
+    proj.save_meta()
+    rebuild(proj)
+    versions.record(proj, "pass", "Pass 1: the main shapes")
+    r = Running(proj.path)
+    p = Page(browser, r.url, width=1100, height=900)
+    try:
+        p.open()
+        page = p.page
+        assert page.locator("#choose").is_visible()
+        got = page.evaluate("() => window.__bricksnap.choice")
+        assert got == {"left": 1, "right": 2}
+        assert p.text("#roughTag .pane-title") == "Converted from pawn.stl"
+        assert p.text("#designedTag .pane-title") == "Pass 1: the main shapes"
+        assert p.text("#designedTag .pane-what") == "Version 2 (in use) · "
+        assert p.text('#compare button[data-show="designed"]') == "Right"
+        assert p.text("#stepsFor") == "The steps are for version 2."
+        assert page.locator("#brief").is_visible() and "A red base." in p.text("#brief")
+        options = page.locator("#pickRight option").all_text_contents()
+        assert options == ["2 · Pass 1: the main shapes (in use)", "1 · Converted from pawn.stl"]
+        assert page.locator('#pickLeft option[value="rough"]').count() == 0  # none kept
+        views = p.inspect()["views"]
+        assert views["rough"]["shown"] and views["designed"]["shown"]
+        assert p.state()["partCount"] == views["designed"]["partCount"]
+        p.settle()
+        ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(ARTIFACTS / "versions-view.png"), full_page=True)
+
+        # the right view follows the chooser, and so do the steps and the brief
+        page.select_option("#pickRight", "1")
+        page.wait_for_function("window.__bricksnap.choice.right === 1")
+        p.settle()
+        assert page.locator("#brief").is_hidden()  # version 1 had no brief
+        assert p.text("#designedTag .pane-title") == "Converted from pawn.stl"
+        assert p.inspect()["compare"]["active"] is False  # the same build on both sides
+        page.select_option("#pickRight", "2")
+        page.wait_for_function("window.__bricksnap.choice.right === 2")
+
+        # look inside: off at first, then a cut from the front through both views
+        assert page.evaluate("() => window.__bricksnap.cut") == {
+            "axis": "y", "amount": 0, "plane": None, "clipped": 0
+        }  # fmt: skip
+        whole = p.view_pixels()
+        page.eval_on_selector(
+            "#cut", "e => { e.value = '50'; e.dispatchEvent(new Event('input')); }"
+        )
+        cut = page.evaluate("() => window.__bricksnap.cut")
+        assert cut["amount"] == 0.5 and cut["clipped"] >= 4 and cut["plane"][:3] == [0, 1, 0]
+        assert "50% of the way, from the front" in p.text("#cutSays")
+        opened = p.view_pixels()
+        page.screenshot(path=str(ARTIFACTS / "versions-look-inside.png"))
+        assert np.abs(opened - whole).sum(axis=2).astype(bool).mean() > 0.02
+        page.select_option("#cutAxis", "z")
+        assert page.evaluate("() => window.__bricksnap.cut.plane")[:3] == [0, 0, -1]
+        page.eval_on_selector(
+            "#cut", "e => { e.value = '0'; e.dispatchEvent(new Event('input')); }"
+        )
+        assert page.evaluate("() => window.__bricksnap.cut.clipped") == 0
+        p.assert_clean()
+    finally:
+        p.close()
+        r.close()

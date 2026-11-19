@@ -97,6 +97,7 @@ const WHAT_TO_DO = {
   export: 'Build the bricks again, then try once more.',
   instructions:
     'Instructions can only be made for bricks that hold together. Ask the AI designer to fix the model, or build it again, then try once more.',
+  restore: 'Your model was left as it was. Reload the page and try again.',
 };
 
 const DONE_TITLE = {
@@ -105,6 +106,7 @@ const DONE_TITLE = {
   design: 'The AI designer has finished',
   export: 'The parts list and LDraw file are ready',
   instructions: 'The building instructions are ready',
+  restore: 'The earlier version is back',
 };
 
 /** One job's box: what is happening, newest progress first, and what to do if it failed. */
@@ -239,6 +241,7 @@ function initActions(project) {
   const instrBtn = el('button', { type: 'button', className: 'quiet', id: 'actInstructions', text: 'Make building instructions' });
   const deleteBtn = el('button', { type: 'button', className: 'danger', id: 'actDelete', text: 'Move to the bin' });
   const downloads = el('div', { className: 'downloads', id: 'downloads' });
+  const versionsBox = el('div', { className: 'versions', id: 'versions', hidden: true });
 
   // the AI confirmation step
   const confirmBox = el('div', { id: 'aiConfirm', className: 'confirm', hidden: true, role: 'dialog', 'aria-labelledby': 'aiConfirmTitle' });
@@ -278,6 +281,7 @@ function initActions(project) {
     confirmBox,
     message,
     jobArea,
+    versionsBox,
     downloads,
     el('div', { className: 'more-actions' }, [
       el('h3', { text: 'More' }),
@@ -304,6 +308,7 @@ function initActions(project) {
     exportBtn.disabled = off || !built;
     instrBtn.disabled = off || !built || info.valid !== true;
     for (const b of nextStep.querySelectorAll('button')) b.disabled = off;
+    for (const b of versionsBox.querySelectorAll('#useVersion')) b.disabled = off;
     startBtn.disabled = off || !understood.checked;
     cancelBtn.disabled = false; // closing the confirmation is always possible
   }
@@ -390,12 +395,72 @@ function initActions(project) {
     }
   }
 
+  // ---- the versions: a strip, newest first; a click shows one in the right-hand view ----
+  const KIND_WORDS = { converted: 'Conversion', designed: 'AI design', edit: 'Your change', pass: 'AI design pass', manual: 'By hand' };
+  let pending = null; // the version just clicked, until the viewer has drawn it
+  const viewer = () => window.__bricksnap || null;
+
+  function showVersions() {
+    const list = (info && Array.isArray(info.versions) ? info.versions : []).slice().reverse();
+    const now = info ? info.current_version : null;
+    versionsBox.hidden = list.length === 0;
+    if (!list.length) {
+      versionsBox.replaceChildren();
+      return;
+    }
+    const v = viewer();
+    const right = v && v.choice ? v.choice.right : now;
+    const shownN = pending ?? right ?? now;
+    const cards = list.map((x) => {
+      const pic = x.picture
+        ? el('img', { src: x.picture, alt: '', loading: 'lazy', width: 64, height: 48 })
+        : el('span', { className: 'vnopic', 'aria-hidden': 'true' });
+      const facts = `${KIND_WORDS[x.kind] || x.kind} · ${plural(x.parts, 'part')}${x.valid ? '' : ' · does not hold'}`;
+      const button = el('button', { type: 'button', className: 'vcard', title: x.note ? `${x.label}: ${x.note}` : x.label, dataset: { n: String(x.n) }, 'aria-pressed': String(x.n === shownN) }, [
+        pic,
+        el('span', { className: 'vtext' }, [
+          el('span', { className: 'vname' }, [el('span', { className: 'vn', text: String(x.n) }), el('span', { className: 'vlabel', text: x.label })]),
+          el('span', { className: 'vfacts' }, [x.n === now ? el('span', { className: 'badge ok vnow', text: 'In use' }) : null, document.createTextNode(facts)]),
+        ]),
+      ]);
+      button.onclick = async () => {
+        pending = x.n;
+        render(true);
+        const viewerState = viewer();
+        if (viewerState && typeof viewerState.choose === 'function') await viewerState.choose('right', x.n);
+        pending = null;
+        render(true);
+      };
+      return el('li', {}, [button]);
+    });
+    const parts = [
+      el('h3', { id: 'versionsTitle', text: 'Versions', title: 'Click one to see it in the right-hand 3D view' }),
+      el('ol', { className: 'vlist', 'aria-labelledby': 'versionsTitle' }, cards),
+    ];
+    const picked = list.find((x) => x.n === shownN);
+    if (picked && picked.n !== now) {
+      const use = el('button', { type: 'button', className: 'primary', id: 'useVersion', text: 'Use this version' });
+      use.disabled = busy();
+      use.onclick = () => {
+        if (!window.confirm(`Go back to version ${picked.n}, “${picked.label}”? The model as it is now stays in the list, so you can come back to it.`)) return;
+        start('restore', { version: picked.n });
+      };
+      parts.push(el('div', { className: 'vuse' }, [el('span', { text: `Version ${picked.n} is in the right-hand view.` }), use]));
+    }
+    const strip = versionsBox.querySelector('.vlist');
+    const scroll = strip ? strip.scrollLeft : 0;
+    versionsBox.replaceChildren(...parts);
+    versionsBox.querySelector('.vlist').scrollLeft = scroll;
+  }
+
   let shown = '';
-  function render() {
-    const key = JSON.stringify(info);
-    if (key === shown) return;
+  function render(force = false) {
+    const v = viewer();
+    const key = JSON.stringify([info, pending, v && v.choice ? v.choice.right : null]);
+    if (key === shown && !force) return;
     shown = key;
     showNextStep();
+    showVersions();
     showDownloads();
     updateButtons();
   }

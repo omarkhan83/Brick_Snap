@@ -41,6 +41,14 @@ names it), "manual" (edit operations applied by hand).
     other version, the base design or the seed is touched. Files made from the old build
     (the parts list, the wanted list, the booklet, the comparison picture) are the caller's
     to refresh.
+``adopt(project) -> int | None``
+    A project made before versions were kept gets its present state as its first version:
+    when it has no version yet and its Build is the one made from its Design, that state is
+    recorded, as "designed" ("The design as it was") when project.json has a brief and as
+    "converted" ("The model as it was") otherwise, and its number returned. A project that
+    already has versions, or whose Build is missing or older than its Design, is left alone
+    (None). The web app and the command line call it before a job or command changes the
+    model, so the state the person had is never lost.
 
 This module holds no modelling logic: it copies files and reads ``Project``.
 """
@@ -197,6 +205,16 @@ def record(project: Project, kind: str, label: str, note: str = "") -> int:
     )
     _write_index(project, n, [*found, entry])
     return n
+
+
+def adopt(project: Project) -> int | None:
+    if versions(project) or not project.has_design() or not project.has_build():
+        return None
+    if not project.build_is_current():
+        return None
+    if _brief(project) is not None:
+        return record(project, "designed", "The design as it was")
+    return record(project, "converted", "The model as it was")
 
 
 def restore(project: Project, n: int) -> Build:

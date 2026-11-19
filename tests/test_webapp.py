@@ -325,7 +325,11 @@ def test_project_files_and_the_viewer_list(running: Running, projects: Path) -> 
     assert body == (projects / "pawn" / "build.json").read_bytes()
     assert "sandbox" in headers["content-security-policy"]
     files = running.get_json("/p/pawn/project-files.json")
-    assert files == {"files": ["project.json", "build.json", "build.rough.json"]}
+    assert files == {
+        "files": ["project.json", "build.json", "build.rough.json"],
+        "versions": [],
+        "current": None,
+    }
     status, headers, _ = running.request("/p/pawn/files/renders/compare.png?v=1")
     assert status == 200 and headers["content-type"] == "image/png"
     for name in ("parts.json", "colours.json"):
@@ -568,6 +572,101 @@ def test_a_symlink_out_of_the_projects_is_not_served(
     assert running.request("/api/p/linked")[0] == 404
     assert running.request("/p/pawn/files/renders/secret.txt")[0] == 404
     assert "linked" not in [c["project"] for c in running.get_json("/api/projects")["projects"]]
+
+
+@pytest.mark.parametrize(
+    ("path", "status"),
+    [
+        ("/p/pawn/files/versions/0001/build.json", 200),
+        ("/p/pawn/files/versions/0001/card.png", 200),
+        ("/p/pawn/files/versions/0001/design.json", 404),
+        ("/p/pawn/files/versions/0001/design.npz", 404),
+        ("/p/pawn/files/versions/0001/notes.jsonl", 404),
+        ("/p/pawn/files/versions/0001/leak.png", 404),
+        ("/p/pawn/files/versions/0002/card.png", 404),  # a symlink to a transcript
+        ("/p/pawn/files/versions/index.json", 404),
+        ("/p/pawn/files/versions/1/build.json", 404),
+        ("/p/pawn/files/versions/00001/build.json", 404),
+        ("/p/pawn/files/versions/0009/build.json", 404),  # a folder the index does not list
+        ("/p/pawn/files/versions/0001/../../secret.txt", 404),
+        ("/p/pawn/files/versions%2F0001%2Fbuild.json", 404),
+        ("/p/pawn/files/VERSIONS/0001/build.json", 404),
+    ],
+)
+def test_only_a_versions_build_and_card_are_served(
+    running: Running, projects: Path, path: str, status: int
+) -> None:
+    from bricksnap import versions
+
+    project = Project(projects / "pawn")
+    assert versions.record(project, "converted", "First") == 1
+    (projects / "pawn" / "designer").mkdir()
+    (projects / "pawn" / "designer" / "run.jsonl").write_text("someone@example.com")
+    kept = projects / "pawn" / "versions"
+    project.meta["brief"] = BRIEF  # a second version, whose card leads to a transcript
+    project.save_meta()
+    assert versions.record(project, "designed", "Second") == 2
+    (kept / "0001" / "notes.jsonl").write_text("someone@example.com")
+    (kept / "0001" / "leak.png").write_text("someone@example.com")
+    shutil.copytree(kept / "0001", kept / "0009")
+    (kept / "0002" / "card.png").unlink()
+    (kept / "0002" / "card.png").symlink_to("../../designer/run.jsonl")
+    got, _, body = running.request(path)
+    assert got == status, path
+    assert b"example.com" not in body and b"TOP SECRET" not in body
+    if status == 200:
+        assert body == (projects / "pawn" / path.split("/files/")[1]).read_bytes()
+
+
+def test_jobs_keep_versions_and_one_can_be_brought_back(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch, remembered_rebuild: None
+) -> None:
+    folder = projects / "pawn"
+    info = running.get_json("/api/p/pawn")
+    assert info["versions"] == [] and info["current_version"] is None
+    # building a model made before versions were kept keeps its present state, once
+    job = running.wait(running.post("/api/p/pawn/build", {})[1]["job"])
+    assert job["state"] == "done", job
+    assert not any(line.startswith("Kept as version") for line in job["progress"])
+    monkeypatch.setattr(runner, "run_designer", FakeDesigner())
+    job = running.wait(running.post("/api/p/pawn/design", AGREED)[1]["job"])
+    assert job["state"] == "done", job
+    assert "Kept as version 2: AI design" in job["progress"]
+    request = {**AGREED, "request": "make the base blue"}
+    job = running.wait(running.post("/api/p/pawn/design", request)[1]["job"])
+    assert job["state"] == "done", job  # the fake paints the same: nothing new to keep
+    info = running.get_json("/api/p/pawn")
+    assert [(v["n"], v["kind"], v["label"], v["valid"]) for v in info["versions"]] == [
+        (1, "converted", "The model as it was", True),
+        (2, "designed", "AI design", True),
+    ]
+    assert info["current_version"] == 2 and info["current"] is True
+    first = info["versions"][0]
+    assert first["picture"] == "/p/pawn/files/versions/0001/card.png"
+    assert first["parts"] > 0 and first["created"].endswith("Z") and first["note"] == ""
+    assert running.request(first["picture"])[0] == 200
+
+    # restoring: the token and a version number are needed
+    assert running.post("/api/p/pawn/restore", {"version": 1}, token=False)[0] == 403
+    for bad in ({}, {"version": "1"}, {"version": 0}, {"version": True}):
+        status, answer = running.post("/api/p/pawn/restore", bad)
+        assert status == 400 and "which version" in answer["error"], bad
+    job = running.wait(running.post("/api/p/pawn/restore", {"version": 7})[1]["job"])
+    assert job["state"] == "failed" and job["error"].startswith("This model has no version 7")
+    (folder / "parts.csv").write_text("from an older build")
+    compare = (folder / "renders" / "compare.png").stat().st_mtime_ns
+    job = running.wait(running.post("/api/p/pawn/restore", {"version": 1})[1]["job"])
+    assert job["state"] == "done", job
+    assert job["progress"][0] == "Going back to version 1: The model as it was"
+    assert job["result"]["version"] == 1 and job["result"]["valid"] is True
+    project = Project(folder)
+    assert "brief" not in project.meta and project.build_is_current()
+    assert (folder / "parts.csv").read_text().startswith("Part,")
+    assert (folder / "renders" / "compare.png").stat().st_mtime_ns != compare
+    assert (folder / "build.rough.json").is_file()
+    info = running.get_json("/api/p/pawn")
+    assert info["current_version"] == 1 and len(info["versions"]) == 2
+    assert info["brief"] is None
 
 
 # ---- jobs ---------------------------------------------------------------------------------
@@ -1421,10 +1520,11 @@ def test_browser_project_page_and_a_design_run(
         page.wait_for_selector("#askText")  # the model has a brief now: ask for a change
         assert len(fake.calls) == 1
         page.wait_for_function(
-            "document.querySelector('#designedTag .pane-title').textContent === 'Designed'"
-        )
-        assert tab.text('#compare button[data-show="designed"]') == "Designed"
-        assert tab.text("#stepsFor") == "The steps are for the designed build."
+            "document.querySelector('#designedTag .pane-title').textContent === 'AI design'"
+        )  # the model now has versions: what it was, and this design, which is in use
+        assert tab.text("#designedTag .pane-what") == "Version 2 (in use) · "
+        assert tab.text('#compare button[data-show="designed"]') == "Right"
+        assert tab.text("#stepsFor") == "The steps are for version 2."
         # after a finished run the confirmation still closes
         page.locator("#askText").fill("make the base blue")
         page.locator("#askBtn").click()
@@ -1567,6 +1667,8 @@ def test_browser_the_action_bar_stays_on_top_beside_a_brief(
         assert tops[".actions"][1] <= tops[".viewcard"][0], tops
         assert tops[".actions"][1] <= tops[".brief"][0], tops
         assert tops[".actions"][2] > tops[".viewcard"][2], tops  # it spans both columns
+        view = page.evaluate("() => document.querySelector('#view').getBoundingClientRect().top")
+        assert view <= 900 - 280, view  # the 3D views begin on the first screen
         page.screenshot(path=str(ARTIFACTS / "webapp-project-with-brief.png"))
         tab.assert_clean()
     finally:
@@ -1654,3 +1756,102 @@ def test_serve_is_listed_in_the_help(capsys):
     code, out, _ = _cli(capsys, "--help")
     assert code == 0
     assert "serve" in out and "web browser" in out
+
+
+@pytest.mark.browser
+def test_browser_versions_can_be_compared_and_one_brought_back(
+    browser: Any,
+    running: Running,
+    projects: Path,
+    remembered_rebuild: None,
+) -> None:
+    """Four versions (the conversion and three passes of an AI design): the strip lists them
+    newest first, a click shows one on the right, "Use this version" brings it back after a
+    confirmation, and the choosers put any two AI versions side by side. The 3D views stay
+    on the first screen, and the strip works at phone width."""
+    from bricksnap import versions
+    from bricksnap.catalog import load_catalog
+    from bricksnap.design import apply_ops
+
+    project = Project(projects / "pawn")
+    versions.record(project, "converted", "Converted from pawn.stl")
+    passes = ("Pass 1: the main shapes", "Pass 2: colours", "Pass 3: surface and details")
+    for i, (colour, label) in enumerate(zip((4, 1, 14), passes, strict=True)):
+        design = project.load_design()
+        box = {"type": "box", "min": [0, 0, 0], "max": [9, 9, 2 + 3 * i]}
+        paint = [{"op": "paint", "shape": box, "color": colour}]
+        assert all(r.applied for r in apply_ops(design, paint, load_catalog()))
+        project.save_design(design)
+        project.meta["brief"] = {**BRIEF, "object": f"A chess pawn, pass {i + 1}."}
+        project.save_meta()
+        pipeline.rebuild(project)
+        render_card(project)
+        versions.record(project, "pass", label)
+    tab = Tab(browser, running.url, width=1400, height=900).open("p/pawn")
+    try:
+        page = tab.page
+        page.wait_for_function("window.__bricksnap && window.__bricksnap.ready === true")
+        page.wait_for_selector("#versions .vcard")
+        cards = page.locator("#versions .vcard")
+        assert [c.get_attribute("data-n") for c in cards.all()] == ["4", "3", "2", "1"]
+        assert tab.text("#versions .vcard[data-n='4'] .vlabel") == passes[2]
+        assert page.locator("#versions .vcard[data-n='4'] .vnow").is_visible()
+        assert page.locator("#useVersion").count() == 0  # the one on the right is in use
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#versions img')]"
+            ".every(i => i.complete && i.naturalWidth > 0)"
+        )
+        # the page stays compact: the 3D views begin on the first screen
+        view = page.evaluate("() => document.querySelector('#view').getBoundingClientRect().top")
+        assert view <= 900 - 280, view
+        assert tab.text("#pickRight option:checked") == f"4 · {passes[2]} (in use)"
+
+        # a click shows a version on the right, with its own brief
+        cards.nth(2).click()
+        page.wait_for_function("window.__bricksnap.choice.right === 2")
+        assert tab.text("#designedTag .pane-title") == passes[0]
+        assert "A chess pawn, pass 1." in tab.text("#brief")
+        assert cards.nth(2).get_attribute("aria-pressed") == "true"
+        said: list[str] = []
+        page.once("dialog", lambda d: (said.append(d.message), d.accept()))
+        page.locator("#useVersion").click()
+        page.wait_for_selector("#appJob .job.done")
+        assert "stays in the list" in said[0] and passes[0] in said[0]
+        assert "Going back to version 2: Pass 1: the main shapes" in tab.text("#appJob")
+        page.wait_for_selector("#versions .vcard[data-n='2'] .vnow")
+        assert running.get_json("/api/p/pawn")["current_version"] == 2
+        page.wait_for_function("document.querySelector('#designedTag .pane-what')"
+                               ".textContent.includes('(in use)')")  # fmt: skip
+        assert page.locator("#useVersion").count() == 0
+        page.screenshot(path=str(ARTIFACTS / "versions-project-page.png"))
+
+        # any two versions side by side: two AI passes
+        page.select_option("#pickLeft", "3")
+        page.select_option("#pickRight", "4")
+        page.wait_for_function(
+            "() => { const c = window.__bricksnap.choice; return c.left === 3 && c.right === 4 }"
+        )
+        assert tab.text("#roughTag .pane-title") == passes[1]
+        assert tab.text("#designedTag .pane-title") == passes[2]
+        assert tab.text("#stepsFor") == "The steps are for version 4."
+        state = page.evaluate("() => window.__bricksnap.inspect().compare")
+        assert state == {"active": True, "show": "both"}
+        page.locator('#compare button[data-show="rough"]').click()
+        assert page.evaluate("() => window.__bricksnap.inspect().views.designed.shown") is False
+        page.locator('#compare button[data-show="both"]').click()
+        page.wait_for_selector("#versions .vcard[data-n='4'][aria-pressed='true']")
+        assert page.locator("#useVersion").is_visible()
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)))")
+        page.screenshot(path=str(ARTIFACTS / "versions-two-ai-side-by-side.png"), full_page=True)
+        tab.assert_clean()
+    finally:
+        tab.close()
+    phone = Tab(browser, running.url, width=390, height=844).open("p/pawn")
+    try:
+        phone.page.wait_for_selector("#versions .vcard")
+        assert phone.page.locator("#choose .pick-side").all_text_contents() == ["Top", "Bottom"]
+        phone.no_sideways_scroll()
+        phone.page.screenshot(path=str(ARTIFACTS / "versions-phone.png"), full_page=True)
+        phone.assert_clean()
+    finally:
+        phone.close()

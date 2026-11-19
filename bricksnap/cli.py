@@ -209,6 +209,28 @@ Implementation notes
   With no designs there, it says so and starts nothing (exit code 1).
 - Opening a project (any command) first puts back a best-of run that died while it was
   putting its winner in place (``judge.recover``), and says so on standard error.
+
+STAGE 4 ADDITION TO THE CONTRACT: versions (``bricksnap.versions``)
+- Every command that changes the model keeps the result as a version: ``new`` ("converted",
+  "Converted from <file>"), ``design`` ("designed", or "edit" with the request as the note;
+  a best-of run says it was chosen from N), ``ops --build`` ("manual", "Changed by hand")
+  and ``build`` ("manual": "Changed by hand" when the design differs from the current
+  version's, "Built again" when only the bricks do; a rebuild that changes nothing keeps
+  nothing new). A new version is mentioned in one line ("Kept as version N."). Before such
+  a command changes anything, a project made before versions were kept gets its present
+  state as its first version (``versions.adopt``). Keeping a version never fails a command:
+  when it cannot be done, a note on standard error says why and the command carries on.
+  ``keep_version``, ``adopt_versions`` and the label helpers are shared with the web app.
+- ``versions PROJECT`` lists the versions, oldest first: number, when (local time), what
+  kind in words, the label (and the note), parts, whether it holds together, and which is
+  the current one; then how to go back to one. A project without versions says when they
+  will start. It writes nothing.
+- ``versions PROJECT --restore N`` brings version N back (``versions.restore``) after
+  keeping the present state (building it first when the design was changed after its
+  build), prints the verdict, and says which files (parts list, wanted list, booklet,
+  comparison picture) still belong to the build before until they are made again, with
+  the commands that make them. Exit code 0 when the restored build holds together, 1 when
+  it does not; a number that is not a version is exit code 2.
 """
 
 from __future__ import annotations
@@ -503,6 +525,109 @@ def _print_next(project: Project, ok: bool) -> None:
         print("      or change the design yourself with edit operations, then rebuild")
 
 
+# ---- versions -----------------------------------------------------------------------------
+
+KIND_WORDS = {
+    "converted": "conversion",
+    "designed": "AI design",
+    "edit": "your change",
+    "pass": "AI design pass",
+    "manual": "by hand",
+}
+LABEL_CHARS = 60
+
+
+def _shorten(text: str, limit: int = LABEL_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def converted_label(project: Project) -> str:
+    """The label of a new model's first version: "Converted from cat.glb"."""
+    source = project.meta.get("seed_original_name") or project.meta.get("seed") or "the model"
+    return f"Converted from {_shorten(str(source))}"
+
+
+def design_label(kind: str, request: str | None, best_of: int = 1) -> tuple[str, str, str]:
+    """(version kind, label, note) for an AI design run; ``kind`` is ``runner.run_kind``'s."""
+    from bricksnap.designer.runner import EDIT
+
+    chosen = f"the best of {best_of}" if best_of > 1 else ""
+    if kind == EDIT and request:
+        label = f"Change: {_shorten(request)}"
+        note = request.strip() + (f" ({chosen} designs)" if chosen else "")
+        return "edit", label, note
+    label = "AI design" + (f", {chosen}" if chosen else "")
+    return "designed", label, (request or "").strip()
+
+
+def rebuild_label(project: Project, build: Build) -> str:
+    """The label of a rebuild: "Changed by hand" when the design differs from the current
+    version's, else "Built again" (only the bricks changed: a newer BrickSnap lays them out
+    differently)."""
+    from bricksnap import versions
+
+    now = versions.current(project)
+    kept = next((v for v in versions.versions(project) if v.n == now), None)
+    if kept is not None and kept.design_id == build.design_id:
+        return "Built again"
+    return "Changed by hand"
+
+
+def _note(text: str) -> None:
+    sys.stdout.flush()
+    print(f"Note: {text}", file=sys.stderr)
+
+
+def _why_not_kept(e: Exception) -> str:
+    if isinstance(e, OSError):
+        return _system_error(e)
+    if isinstance(e, (ProjectError, UserError)):
+        return _sentence(e)
+    if isinstance(e, _DAMAGED):
+        return "a file of this project is damaged and cannot be read."
+    import traceback
+
+    traceback.print_exc(file=sys.stderr)
+    return "something went wrong inside BrickSnap."
+
+
+def keep_version(
+    project: Project, kind: str, label: str, note: str = "", say: Any = None
+) -> int | None:
+    """Keep the project as it is now as a version; never raises. Returns the number of a
+    version that is new, None when nothing new was kept (or it could not be)."""
+    from bricksnap import versions
+
+    try:
+        before = versions.current(project)
+        n = versions.record(project, kind, label, note)
+    except Exception as e:  # keeping a version must never fail the work itself
+        (say or _note)(
+            f"This could not be kept in the list of versions: {_why_not_kept(e)} The model "
+            "itself is fine."
+        )
+        return None
+    return None if n == before else n
+
+
+def adopt_versions(project: Project, say: Any = None) -> None:
+    """A project made before versions were kept: keep its present state first; never raises."""
+    from bricksnap import versions
+
+    try:
+        versions.adopt(project)
+    except Exception as e:
+        (say or _note)(
+            f"The model as it was could not be kept in the list of versions: {_why_not_kept(e)}"
+        )
+
+
+def _print_kept(n: int | None, project: Project) -> None:
+    if n is not None:
+        print(f"Kept as version {n}; '{RUN} versions {_ref(project)}' lists them all.")
+
+
 # ---- commands -----------------------------------------------------------------------------
 
 
@@ -523,12 +648,15 @@ def cmd_new(args: argparse.Namespace) -> int:
         hollow=args.hollow,
     )
     build, picture = _build_and_render(project)
+    kept = keep_version(project, "converted", converted_label(project))
     inside = "hollow inside, to save parts" if args.hollow else "solid inside"
     print()
     print(f'Made the project "{project.name}".')
     print(f"  Folder: {_show(project.path)}")
     print(f"  Size:   {args.studs} studs ({args.studs * 8} mm) along its longest side, {inside}.")
     print(f"  Result: {_verdict(build)}")
+    if kept is not None:
+        print(f"  Kept as version {kept}, so you can always come back to it.")
     _print_notes(build)
     print()
     print("Check report:")
@@ -540,9 +668,13 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 def cmd_build(args: argparse.Namespace) -> int:
     project = open_project(args.project)
+    load_design(project)  # a plain message, not a traceback, when the design is damaged
+    adopt_versions(project)
     build, picture = _build_and_render(project)
+    kept = keep_version(project, "manual", rebuild_label(project, build))
     print(f'Rebuilt "{project.name}" from its current design.')
     print(f"Result: {_verdict(build)}")
+    _print_kept(kept, project)
     _print_notes(build)
     print()
     print("Check report:")
@@ -789,6 +921,8 @@ def cmd_ops(args: argparse.Namespace) -> int:
     project = open_project(args.project)
     ops = read_ops(args.ops)
     design = load_design(project)
+    if args.build:
+        adopt_versions(project)
     results = apply_ops(design, ops, load_catalog())
     applied = sum(r.applied for r in results)
     for r in results:
@@ -810,7 +944,9 @@ def cmd_ops(args: argparse.Namespace) -> int:
             print(f"The bricks are not rebuilt yet. To see the change: {RUN} build {_ref(project)}")
         return 0 if all_applied else 1
     build, picture = _build_and_render(project)
+    kept = keep_version(project, "manual", rebuild_label(project, build))
     print(f"Rebuilt the bricks. Result: {_verdict(build)}")
+    _print_kept(kept, project)
     _print_notes(build)
     print()
     print("Check report:")
@@ -987,12 +1123,14 @@ def cmd_design(args: argparse.Namespace) -> int:
     kind = run_kind(project, request)
     log_before = len(design_before.log)
     parts_before = 0
+    adopt_versions(project)
     if kind == EDIT:
         # Build the design as it is now, with this version of BrickSnap, so "before" is not
         # a saved build that is older than the design or was made by older code.
         from bricksnap.pipeline import rebuild
 
         parts_before = len(rebuild(project).parts)
+        adopt_versions(project)
     brief_before = _read_brief(project)
     print(f'Starting the AI designer for "{project.name}".')
     _print_kind(project, kind, request)
@@ -1040,7 +1178,12 @@ def cmd_design(args: argparse.Namespace) -> int:
         else:
             print("Making sure the build matches the design...")
         build, picture = _build_and_render(project)
+        what, label, note = design_label(kind, request)
+        if not run.ok:
+            label += " (stopped before it finished)"
+        kept = keep_version(project, what, label, note)
         _print_verdict(build, project)
+        _print_kept(kept, project)
         ok = bool(build.report and build.report.ok)
         if kind == EDIT:
             _print_edit_summary(project, run, build, log_before, parts_before, brief_before)
@@ -1136,13 +1279,18 @@ def _design_best_of(args: argparse.Namespace, request: str | None, n: int) -> in
         print(f"It usually takes {low} to {high} minutes. Press Ctrl+C to stop it.")
         print()
         sys.stdout.flush()
+        adopt_versions(project)
         result = judge.judge_candidates(project, on_event=_best_of_progress, **options)
+        what, label, note = "designed", "AI design, judged again", ""
     else:
         kind = run_kind(project, request)
+        adopt_versions(project)
         if kind == EDIT:  # the designs start from a build made from the design as it is now
             from bricksnap.pipeline import rebuild
 
             rebuild(project)
+            adopt_versions(project)
+        what, label, note = design_label(kind, request, n)
         low, high = (m * (n + 1) for m in MINUTES_PER_RUN)
         print(f'Starting the AI designer for "{project.name}" {n} times, then a judge.')
         _print_kind(project, kind, request)
@@ -1169,8 +1317,11 @@ def _design_best_of(args: argparse.Namespace, request: str | None, n: int) -> in
     _print_ranking(project, result, folder)
     _print_brief(project)
     print()
+    project = Project(project.path)  # the winner's files are in place now
+    kept = keep_version(project, what, label, note)
     build = load_build(project)
     _print_verdict(build, project)
+    _print_kept(kept, project)
     ok = bool(build.report and build.report.ok)
     _print_outputs(project, project.renders_dir / "compare.png")
     _print_next(project, ok)
@@ -1486,6 +1637,108 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 1
 
 
+def _when(created: str) -> str:
+    """A version's time (UTC, ISO 8601) as local time, as a person reads it."""
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(created).astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return "at an unknown time"
+
+
+def keep_present(project: Project, say: Any = None) -> None:
+    """Before going back to another version: keep the model as it is now in the list, building
+    it first when its design was changed after its build, so nothing the person had is lost."""
+    from bricksnap.pipeline import rebuild
+
+    adopt_versions(project, say)
+    if project.has_design() and project.has_build() and not project.build_is_current():
+        load_design(project)  # a plain message when it is damaged
+        rebuild(project)
+    if project.has_build() and project.build_is_current():
+        keep_version(project, "manual", rebuild_label(project, load_build(project)), say=say)
+
+
+def cmd_versions(args: argparse.Namespace) -> int:
+    from bricksnap import versions
+
+    project = open_project(args.project)
+    if args.restore is not None:
+        return _restore_version(project, args.restore)
+    found = versions.versions(project)
+    ref = _ref(project)
+    if not found:
+        print(f'"{project.name}" has no versions yet.')
+        print(
+            "A version is kept each time the model is made, built again with a change, or "
+            "designed, so you can compare them and go back to one."
+        )
+        return 0
+    now = versions.current(project)
+    print(f'Versions of "{project.name}", oldest first:')
+    for v in found:
+        mark = "  <- current" if v.n == now else ""
+        holds = "holds together" if v.valid else "does NOT hold together"
+        print(f"  {v.n:>3}. {v.label}{mark}")
+        print(
+            f"       {_when(v.created)} · {KIND_WORDS.get(v.kind, v.kind)} · "
+            f"{_plural(v.parts, 'part')} · {holds}"
+        )
+        if v.note and v.note != v.label:
+            print(f"       {_shorten(v.note, 200)}")
+    others = [v.n for v in found if v.n != now]
+    if others:
+        print()
+        print(f"To go back to one, for example version {others[-1]}:")
+        print(f"  {RUN} versions {ref} --restore {others[-1]}")
+        print("The model as it is now stays in the list, so you can come back to it.")
+    return 0
+
+
+def _restore_version(project: Project, n: int) -> int:
+    from bricksnap import versions
+
+    if n < 1 or not any(v.n == n for v in versions.versions(project)):
+        known = ", ".join(str(v.n) for v in versions.versions(project)) or "none yet"
+        raise UserError(
+            f'"{project.name}" has no version {n} (its versions: {known}). See them with: '
+            f"{RUN} versions {_ref(project)}"
+        )
+    keep_present(project)
+    version = next(v for v in versions.versions(project) if v.n == n)
+    build = versions.restore(project, n)
+    print(f'Brought back version {n} of "{project.name}": {version.label}.')
+    print("The model as it was a moment ago is still in the list, so you can go back to it.")
+    print(f"Result: {_verdict(build)}")
+    stale = [
+        (name, what)
+        for name, what in (
+            ("parts.csv", "the parts list"),
+            ("wanted_list.xml", "the BrickLink wanted list"),
+            ("instructions.pdf", "the instruction booklet"),
+            ("renders/compare.png", "the comparison picture"),
+        )
+        if _is_file(project.path / name)
+    ]
+    if stale:
+        ref = _ref(project)
+        words = [what for _, what in stale]
+        listed = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+        print()
+        print(
+            f"Still from the build you had before: {listed}. Make them again for this version with:"
+        )
+        names = {name for name, _ in stale}
+        if names & {"parts.csv", "wanted_list.xml"}:
+            print(f"  {RUN} export {ref}")
+        if "instructions.pdf" in names:
+            print(f"  {RUN} instructions {ref}")
+        if "renders/compare.png" in names:
+            print(f"  {RUN} render {ref}")
+    return 0 if build.report is not None and build.report.ok else 1
+
+
 def cmd_view(args: argparse.Namespace) -> int:
     from bricksnap.viewserver import serve
 
@@ -1717,6 +1970,23 @@ def _parser() -> _Parser:
     )
     p.add_argument("--judge-again", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_design)
+
+    p = sub.add_parser(
+        "versions",
+        help="list the versions of a model, or go back to one",
+        description=(
+            "List every version of the model that was kept (each time it was made, changed or "
+            "designed), or bring one back with --restore N."
+        ),
+    )
+    p.add_argument("project", metavar="PROJECT", help=project_help)
+    p.add_argument(
+        "--restore",
+        type=int,
+        metavar="N",
+        help="bring back version N (the model as it is now stays in the list)",
+    )
+    p.set_defaults(func=cmd_versions)
 
     p = sub.add_parser("view", help="look at the project in 3D in your web browser")
     p.add_argument("project", metavar="PROJECT", help=project_help)
