@@ -143,6 +143,12 @@ A brick layer that comes out with many small parts is tiled again with the other
 direction and with the cells taken in the opposite order, and the best tiling is kept, so
 odd-sized boxes do not fill up with 1x1s and 1x2s.
 
+The work repair may do follows the size of the build (``REPAIR_TILES_PER_PART`` and
+``REPAIR_PLACES_PER_PART`` per part, between a floor and the old fixed ceiling). A design that
+cannot be one piece uses the whole allowance, and the make-buildable pass solves such designs
+several times over, so a 30-part model used to cost as much as a 300-part one: most of a
+second per solve. Builds of about 250 parts or more have the allowance they always had.
+
 Building steps grow from one part through parts beside it. A part that touches no part of
 its height joins the nearest step of that height with room, and a part whose neighbours
 all have steps already joins one of those steps if it has room. When all of a height is
