@@ -23,7 +23,9 @@ names it), "manual" (edit operations applied by hand).
 
 ``record(project, kind, label, note="") -> int``
     Keep the project's current Design and Build as a new version and make it the current
-    one. The Build must be the one made from the Design (``Project.build_is_current``),
+    one. The brief is read from project.json as it is on disk at that moment, not from the
+    ``project`` object, which may have been opened before the designer's tools wrote it.
+    The Build must be the one made from the Design (``Project.build_is_current``),
     otherwise ``ProjectError`` says to build first. If nothing differs from the current
     version (same Design fingerprint, same parts, same brief) no version is added and that
     version's number is returned, so building again does not pile up copies. Numbers start
@@ -150,8 +152,20 @@ def version_dir(project: Project, n: int) -> Path:
     return _folder(project, n)
 
 
+def _meta(project: Project) -> dict[str, Any]:
+    """The project's notes as they are on disk now. ``project`` may have been opened before
+    another process (the designer's tools) wrote the brief, so its own copy is not trusted."""
+    try:
+        data = json.loads((project.path / "project.json").read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return dict(project.meta)
+
+
 def _brief(project: Project) -> dict[str, Any] | None:
-    brief = project.meta.get("brief")
+    brief = _meta(project).get("brief")
     return brief if isinstance(brief, dict) else None
 
 
@@ -226,10 +240,12 @@ def restore(project: Project, n: int) -> Build:
     project.save_design(design)
     project.save_build(build)
     write_text_atomic(project.ldraw_path, to_ldraw(build, load_catalog(), title=project.name))
+    meta = _meta(project)  # as on disk now, so nothing another process wrote is lost
     if version.brief is None:
-        project.meta.pop("brief", None)
+        meta.pop("brief", None)
     else:
-        project.meta["brief"] = version.brief
+        meta["brief"] = version.brief
+    project.meta = meta
     project.save_meta()
     card = project.renders_dir / "card.png"
     if (folder / "card.png").is_file():

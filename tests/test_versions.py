@@ -174,3 +174,23 @@ def test_adopting_a_designed_project_or_one_whose_build_is_old(pawn):
     assert [(v.kind, v.label, v.brief) for v in versions.versions(pawn)] == [
         ("designed", "The design as it was", BRIEF)
     ]
+
+
+def test_the_brief_is_read_from_disk_not_from_a_project_opened_earlier(pawn):
+    """The designer's tools write the brief from another process while the command that
+    started them still holds the project as it was."""
+    versions.record(pawn, "converted", "First")
+    other = Project(pawn.path)  # the other process
+    other.meta["brief"] = BRIEF
+    other.meta["extra"] = "written meanwhile"
+    other.save_meta()
+    assert not pawn.meta.get("brief")  # pawn was opened before
+    assert versions.record(pawn, "designed", "AI design") == 2
+    assert versions.versions(pawn)[1].brief == BRIEF
+    # bringing a version back keeps what was written meanwhile, and only changes the brief
+    stale = pawn
+    versions.restore(stale, 1)
+    on_disk = Project(pawn.path).meta
+    assert not on_disk.get("brief") and on_disk["extra"] == "written meanwhile"
+    versions.restore(stale, 2)
+    assert Project(pawn.path).meta["brief"] == BRIEF and stale.meta["brief"] == BRIEF
