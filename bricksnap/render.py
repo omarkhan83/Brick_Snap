@@ -217,6 +217,20 @@ Implementation notes for stage 4
 - ``render_part`` draws the part at rot 0 in a grid exactly its own size, "iso", without
   labels, so parts of different sizes come out at the same scale. An unknown part id is a
   plain ``ValueError``; a colour not in the catalogue is drawn magenta, as everywhere.
+
+STUDIO ADDITION TO THE CONTRACT: cut-through views and zooms (tests in tests/test_studio.py)
+- ``render_section(obj, catalog, axis, at, px_per_stud=16, labels=True)``: a Build or a Design
+  cut open at cell ``at`` across ``axis``, seen in ``SECTION_VIEWS`` (x from the +x side,
+  keeping x <= at; y from the front, keeping y >= at; z from above, keeping z <= at), with
+  that view's numbered axes. The cut face is drawn in full colour and everything beyond it
+  ``SECTION_SHADE`` darker, so a hollow reads at a glance. Cells are cut one by one; a shaped
+  part is kept whole when its middle is on the kept side, else left out. A bad axis or an
+  ``at`` outside the grid is a ``ValueError``.
+- ``zoom_box(picture, frame, lo, hi)`` cuts a picture down to the cells ``lo`` .. ``hi`` (with
+  room for studs); in a labelled straight view the left and bottom margins come along, so
+  the numbers still read. ``render_zoom(obj, catalog, view, lo, hi, px_per_stud=32,
+  grid_shape=None, seed_offset=...)`` draws a seed, Build or Design and zooms it.
+None of this changes any picture drawn before.
 """
 
 from __future__ import annotations
@@ -2027,3 +2041,159 @@ def _compare_items(
     else:
         title = what.capitalize()
     return items, title
+
+
+# ---- the studio: cut-through views and zooms -------------------------------------------------
+
+SECTION_SHADE = 0.45  # how much darker what lies beyond the cut face is drawn
+SECTION_VIEWS = {"x": "right", "y": "front", "z": "top"}
+"""The view a cut-through along each axis is seen in: across x from the +x side (picture
+right is +y), across y from the front, across z from above."""
+
+
+def _kept_range(axis: int, at: int, n: int) -> tuple[float, float]:
+    """The continuous range along ``axis`` that a cut at cell ``at`` keeps: the cell itself
+    and everything beyond it, seen from the view in ``SECTION_VIEWS``."""
+    if axis == 1:  # seen from the front: keep the cut cell and what lies behind it
+        return float(at), float(n)
+    return 0.0, float(at + 1)  # x seen from +x, z seen from above: the cell and what is below
+
+
+def _cut_scene(scene: _Scene, axis: int, lo: float, hi: float) -> _Scene:
+    """``scene`` with only the cells, studs and shaped parts between ``lo`` and ``hi`` along
+    ``axis`` (continuous coordinates)."""
+    n = scene.cells.shape
+    cells = scene.cells.copy()
+    studs = scene.studs.copy()
+    index = np.arange(n[axis])
+    gone = (index < lo) | (index >= hi)
+    sel: list = [slice(None)] * 3
+    sel[axis] = gone
+    cells[tuple(sel)] = -1
+    if axis == 2:  # a stud stands in the layer above the cell it is on
+        studs[:, :, int(hi) + 1 :] = -1
+        studs[:, :, : int(lo) + 1] = -1
+    else:
+        studs[tuple(sel)] = -1
+    out = _Scene(cells=cells, studs=studs, rgb=scene.rgb)
+    if len(scene.inst_key):
+        centre = scene.inst_pos[:, axis] + scene.inst_size[:, axis] / 2.0
+        keep = (centre >= lo) & (centre <= hi)
+        renumber = np.cumsum(keep) - 1
+        tri_keep = keep[scene.shape_inst]
+        out.shape_tris = scene.shape_tris[tri_keep]
+        out.shape_group = scene.shape_group[tri_keep]
+        out.shape_face = scene.shape_face[tri_keep]
+        out.shape_normal = scene.shape_normal[tri_keep]
+        out.shape_round = scene.shape_round[tri_keep]
+        out.shape_inst = renumber[scene.shape_inst[tri_keep]]
+        out.inst_key = scene.inst_key[keep]
+        out.inst_pos = scene.inst_pos[keep]
+        out.inst_size = scene.inst_size[keep]
+    return out
+
+
+def render_section(
+    obj: Build | Design,
+    catalog: Catalog,
+    axis: str,
+    at: int,
+    *,
+    px_per_stud: int = 16,
+    labels: bool = True,
+) -> Image.Image:
+    """A cut-through of a Build or a Design at cell ``at`` along ``axis`` ("x", "y", "z").
+
+    Everything on the near side of the cut is left out and the rest is drawn from the view in
+    ``SECTION_VIEWS``, so the picture shows the cut face at ``at`` in full colour and, through
+    any hollow, what lies beyond it, drawn ``SECTION_SHADE`` darker. Parts that
+    cross the cut are cut with it, cell by cell; a shaped part (a slope, a round part) is
+    kept whole when its middle lies on the kept side and left out otherwise. The axes are
+    numbered as in the matching straight view.
+    """
+    if axis not in SECTION_VIEWS:
+        raise ValueError(f'A cut runs across "x", "y" or "z", not {axis!r}.')
+    a = _AXIS_NAMES.index(axis)
+    shape = _check_shape(obj.shape)
+    if not 0 <= at < shape[a]:
+        raise ValueError(f"A cut across {axis} must be at a cell from 0 to {shape[a] - 1}.")
+    if isinstance(obj, Build):
+        scene = _build_scene(obj, catalog, None)
+    elif isinstance(obj, Design):
+        scene = _design_scene(obj, catalog)
+    else:
+        raise ValueError("A cut can be made of a Design or a Build only.")
+    frame = view_frame(shape, SECTION_VIEWS[axis], px_per_stud=px_per_stud, labels=labels)
+    lo, hi = _kept_range(a, at, shape[a])
+    color, group = _scene_pixels(_cut_scene(scene, a, lo, hi), frame)
+    _, face = _scene_pixels(_cut_scene(scene, a, float(at), float(at + 1)), frame)
+    beyond = (group >= 0) & (face < 0)
+    color = color.copy()
+    color[beyond] = color[beyond] * (1.0 - SECTION_SHADE)
+    return _finish(color, group, frame)
+
+
+def zoom_box(
+    picture: Image.Image,
+    frame: Frame,
+    lo: Sequence[int],
+    hi: Sequence[int],
+) -> Image.Image:
+    """The part of ``picture`` (drawn in ``frame``) that shows the cells ``lo`` .. ``hi``
+    (both corners included), with room for studs on top. In a straight view drawn with
+    labels, the left and bottom margins are kept beside the crop, so its numbers still give
+    the cell indices along both edges."""
+    xs = (lo[0], hi[0] + 1)
+    ys = (lo[1], hi[1] + 1)
+    zs = (lo[2], hi[2] + 1 + STUD_HEIGHT)
+    corners = [[x, y, z] for x in xs for y in ys for z in zs]
+    cols, rows, _ = frame.project(corners).T
+    pad = max(2, frame.px_per_stud // 4)
+    c0 = max(int(math.floor(cols.min())) - pad, 0)
+    c1 = min(int(math.ceil(cols.max())) + pad, picture.width)
+    r0 = max(int(math.floor(rows.min())) - pad, 0)
+    r1 = min(int(math.ceil(rows.max())) + pad, picture.height)
+    if not (frame.straight and frame.labels):
+        return picture.crop((c0, r0, c1, r1))
+    bottom = frame.top + frame.area_height
+    c0 = max(c0, frame.left)
+    r1 = min(r1, bottom)
+    body_w, body_h = c1 - c0, r1 - r0
+    margin_h = picture.height - bottom
+    out = Image.new("RGB", (frame.left + body_w, body_h + margin_h), BACKGROUND)
+    out.paste(picture.crop((0, r0, frame.left, r1)), (0, 0))
+    out.paste(picture.crop((c0, r0, c1, r1)), (frame.left, 0))
+    out.paste(picture.crop((0, bottom, frame.left, picture.height)), (0, body_h))
+    out.paste(picture.crop((c0, bottom, c1, picture.height)), (frame.left, body_h))
+    return out
+
+
+def render_zoom(
+    obj: Seed | Build | Design,
+    catalog: Catalog,
+    view: str,
+    lo: Sequence[int],
+    hi: Sequence[int],
+    *,
+    px_per_stud: int = 32,
+    grid_shape: tuple[int, int, int] | None = None,
+    seed_offset: tuple[int, int, int] = (0, 0, 0),
+) -> Image.Image:
+    """``view`` of a seed, Build or Design at ``px_per_stud``, cut down to the cells ``lo`` ..
+    ``hi`` (``zoom_box``). Everything in the view is drawn, also what lies in front of the
+    box. A seed needs ``grid_shape`` and ``seed_offset`` as in ``render_seed``."""
+    if isinstance(obj, Seed):
+        if grid_shape is None:
+            raise ValueError("To zoom on the model, say how big the grid it sits in is.")
+        shape = _check_shape(grid_shape)
+        picture = render_seed(
+            obj, view, shape, seed_offset=seed_offset, px_per_stud=px_per_stud, labels=True
+        )
+    elif isinstance(obj, Build):
+        shape = _check_shape(obj.shape)
+        picture = render_build(obj, catalog, view, px_per_stud=px_per_stud)
+    else:
+        shape = _check_shape(obj.shape)
+        picture = render_design(obj, catalog, view, px_per_stud=px_per_stud)
+    frame = view_frame(shape, view, px_per_stud=px_per_stud, labels=view not in ISO_VIEWS)
+    return zoom_box(picture, frame, lo, hi)

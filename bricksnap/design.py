@@ -211,6 +211,42 @@ brick course that would work. Applied: appended to ``design.details`` with its `
   sideways detail with its face ("... at x=3, y=0, z=9, on the front face").
 - ``OP_SCHEMA`` gains the "face" property of place_detail, with its rule in a short
   description; unknown-field messages list the optional fields "rot", "face" and "mirror".
+
+STUDIO ADDITION TO THE CONTRACT (tests in tests/test_studio.py)
+The studio (``bricksnap.designer.studio``) builds a model from an empty grid and measures it
+against the conversion. ``apply_ops(design, ops, catalog, reference=conversion)`` accepts
+three more shapes when it is given the conversion (the project's base Design); without
+``reference`` nothing above changes (the first way's shapes, messages and ``OP_SCHEMA`` are
+exactly as before):
+
+    {"type": "cylinder", "axis": "z", "min": [x, y, z], "max": [x, y, z]}
+        A round column filling its box along "axis" ("x", "y" or "z"). Each layer across
+        the axis is the ellipse that just fits the box's rectangle there: a cell is inside
+        when its centre is, so the ellipse touches the middle of each side. One or two cells
+        across is a full square.
+    {"type": "cone", "axis": "z", "min": [...], "max": [...], "narrow_end": "max",
+     "narrow_size": 0}
+        The same, but the rectangle shrinks evenly, in steps of two cells so it stays
+        centred, from the box's at the far end to ``narrow_size`` (0 to 1, default 0) of it
+        at ``narrow_end`` ("min" or "max" along the axis): at least one cell across, two
+        when the width is even. ``narrow_size`` 1 is a cylinder.
+    {"type": "seed", "min": [...], "max": [...]}
+        The cells the conversion filled inside the box. ``add`` without "color" copies them
+        with the conversion's colours and finish marks (with "color", they take it and keep
+        the finish marks); ``paint`` without "color" gives cells back the conversion's
+        colours; ``remove`` and ``set_finish`` act on those cells. "mirror" takes the
+        conversion's own cells inside the mirrored box. A box with none of them is
+        rejected, saying so.
+Box corners of all three are whole cells; messages for a missing or wrong "axis",
+"narrow_end" or "narrow_size" say what the field means and give an example.
+``validate_op(op, catalog, studio=True)`` checks against the studio's shapes.
+``studio_op_schema(ops)`` is the studio's schema: these shapes (add and paint without
+"color" only with a seed shape) and only the operations in ``ops``; ``STUDIO_OP_SCHEMA``
+offers them all. ``cleared(design)`` is an empty copy (no cells, finish marks or details;
+the same grid, seed offset, skin and regions) whose log ends with ``CLEAR_OP``
+(``{"op": "clear"}``); ``replay`` empties the design at that entry and gives the base as
+the reference, so a studio design replays from its base like any other. "clear" is never
+an edit operation: ``apply_ops`` rejects it.
 """
 
 from __future__ import annotations
@@ -334,11 +370,49 @@ _SHAPE_HELP = (
     f'"box" (for example {_BOX_EXAMPLE}) or "ellipsoid" (for example {_ELLIPSOID_EXAMPLE})'
 )
 
+# ---- the studio's shapes ------------------------------------------------------------------
+STUDIO_SHAPE_TYPES = ("box", "ellipsoid", "cylinder", "cone", "seed")
+"""Shapes the studio may use: the two above, round columns and tapers, and a copy of the
+conversion. ``apply_ops`` accepts the last three only when it is given the conversion
+(``reference``)."""
+ROUND_AXES = ("x", "y", "z")
+NARROW_ENDS = ("min", "max")
+_SHAPE_FIELDS.update(
+    {
+        "cylinder": ("type", "axis", "min", "max"),
+        "cone": ("type", "axis", "min", "max", "narrow_end", "narrow_size"),
+        "seed": ("type", "min", "max"),
+    }
+)
+_OPTIONAL_SHAPE_FIELDS = ("narrow_size",)
+_CYLINDER_EXAMPLE = '{"type": "cylinder", "axis": "z", "min": [2, 2, 0], "max": [7, 7, 8]}'
+_CONE_EXAMPLE = (
+    '{"type": "cone", "axis": "z", "min": [2, 2, 9], "max": [7, 7, 20], "narrow_end": "max"}'
+)
+_SEED_EXAMPLE = '{"type": "seed", "min": [3, 0, 24], "max": [10, 7, 35]}'
+_EXAMPLES = {
+    "box": _BOX_EXAMPLE,
+    "ellipsoid": _ELLIPSOID_EXAMPLE,
+    "cylinder": _CYLINDER_EXAMPLE,
+    "cone": _CONE_EXAMPLE,
+    "seed": _SEED_EXAMPLE,
+}
+_STUDIO_SHAPE_HELP = (
+    f'"box" (for example {_BOX_EXAMPLE}), "ellipsoid" (for example {_ELLIPSOID_EXAMPLE}), '
+    f'"cylinder" (for example {_CYLINDER_EXAMPLE}), "cone" (for example {_CONE_EXAMPLE}) or '
+    f'"seed" (the cells the conversion filled inside a box, for example {_SEED_EXAMPLE})'
+)
+CLEAR_OP = {"op": "clear"}
+"""The log entry ``cleared`` leaves: everything before it was emptied (see ``replay``)."""
+
 
 # ---- the schema ---------------------------------------------------------------------------
 
 
-def _build_schema() -> dict[str, Any]:
+def _build_schema(studio: bool = False, ops: tuple[str, ...] = OPS) -> dict[str, Any]:
+    """The JSON Schema of one operation. Without ``studio`` it is ``OP_SCHEMA``. With it
+    the shapes are ``STUDIO_SHAPE_TYPES`` (add and paint need no colour with a seed shape)
+    and only the operations in ``ops`` are offered (``studio_op_schema``)."""
     catalog = load_catalog()
     codes = sorted(catalog.colours)
     names = ", ".join(f"{c} {catalog.colours[c].name}" for c in codes)
@@ -395,6 +469,66 @@ def _build_schema() -> dict[str, Any]:
         ),
         "anyOf": [box, ellipsoid],
     }
+    seed_shape: dict[str, Any] = {}
+    if studio:
+        whole = {"type": "integer"}
+        corners = {
+            "min": triple(whole, "Lowest corner [x, y, z] of its box (inclusive)."),
+            "max": triple(whole, "Highest corner [x, y, z] of its box (inclusive)."),
+        }
+        axis = {
+            "type": "string",
+            "enum": list(ROUND_AXES),
+            "description": 'The direction it runs along ("z": upright).',
+        }
+        cylinder = {
+            "type": "object",
+            "description": (
+                "A round column along axis, filling its box from min to max: each layer "
+                "across the axis is the ellipse that just fits the box (a cell is in when its "
+                "centre is). Remember z counts plates."
+            ),
+            "properties": {"type": {"const": "cylinder"}, "axis": axis, **corners},
+            "required": ["type", "axis", "min", "max"],
+            "additionalProperties": False,
+        }
+        cone = {
+            "type": "object",
+            "description": (
+                "A taper along axis in its box: full width at one end, narrowing evenly "
+                "towards narrow_end."
+            ),
+            "properties": {
+                "type": {"const": "cone"},
+                "axis": axis,
+                **corners,
+                "narrow_end": {
+                    "type": "string",
+                    "enum": list(NARROW_ENDS),
+                    "description": 'The narrow end along axis ("max": an upright cone points up).',
+                },
+                "narrow_size": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Width of the narrow end as a share of the wide end, 0 to 1 "
+                    "(default 0: a point one or two cells across).",
+                },
+            },
+            "required": ["type", "axis", "min", "max", "narrow_end"],
+            "additionalProperties": False,
+        }
+        seed_shape = {
+            "type": "object",
+            "description": (
+                "The cells the conversion filled inside the box. add copies them with the "
+                "conversion's colours and finish marks unless color is given; paint without "
+                "color gives cells back the conversion's colours."
+            ),
+            "properties": {"type": {"const": "seed"}, **corners},
+            "required": ["type", "min", "max"],
+            "additionalProperties": False,
+        }
+        shape = {**shape, "anyOf": [box, ellipsoid, cylinder, cone]}
     color = {
         "type": "integer",
         "enum": codes,
@@ -402,17 +536,24 @@ def _build_schema() -> dict[str, Any]:
     }
     # The full descriptions appear once (in "add"); later copies carry only the rules, to
     # keep the schema small, since it is sent to the model with every call.
-    same_shape = {**_bare(shape), "description": "A shape, as for add."}
-    same_color = {**_bare(color), "description": "A colour code, as for add."}
+    first = next(n for n in ops if n in SHAPE_OPS) if set(ops) & set(SHAPE_OPS) else ""
+    first_colour = next((n for n in ops if n in ("add", "paint", "place_detail")), "")
+    as_for = f"as for {first}" if first else ""
+    same_shape = {**_bare(shape), "description": f"A shape, {as_for}."}
+    same_color = {**_bare(color), "description": f"A colour code, as for {first_colour}."}
     mirror = {"type": "boolean"}
 
-    def operation(name: str, description: str, props: dict[str, Any]) -> dict[str, Any]:
+    def operation(
+        name: str, description: str, props: dict[str, Any], optional: tuple[str, ...] = ()
+    ) -> dict[str, Any]:
         props = {"op": {"const": name}, **props, "mirror": mirror}
         return {
             "type": "object",
             "description": description,
             "properties": props,
-            "required": [f for f in _OP_FIELDS[name] if f not in _OPTIONAL_FIELDS],
+            "required": [
+                f for f in _OP_FIELDS[name] if f not in _OPTIONAL_FIELDS and f not in optional
+            ],
             "additionalProperties": False,
         }
 
@@ -463,46 +604,103 @@ def _build_schema() -> dict[str, Any]:
         ),
     }
 
-    return {
-        "title": "Edit operation",
-        "description": (
-            "One edit to the Design grid. add fills empty cells, remove empties filled cells, "
-            "paint recolours filled cells, set_finish says what the tops of filled cells "
-            "should be, place_detail stands a small part on free studs, remove_detail takes "
-            'one off. Any operation may add "mirror": true to do the same to the mirror image '
-            "across the left-right middle as well (cell x becomes nx-1-x)."
-        ),
-        "type": "object",
-        "required": ["op"],
-        "anyOf": [
+    def shape_of(name: str) -> dict[str, Any]:
+        return shape if name == first else same_shape
+
+    def colour_of(name: str) -> dict[str, Any]:
+        return color if name == first_colour else same_color
+
+    variants = {
+        "add": [
             operation(
                 "add",
                 "Fill the EMPTY cells inside the shape with a colour.",
-                {"shape": shape, "color": color},
-            ),
-            operation("remove", "Empty the filled cells inside the shape.", {"shape": same_shape}),
+                {"shape": shape_of("add"), "color": colour_of("add")},
+            )
+        ],
+        "remove": [
+            operation(
+                "remove", "Empty the filled cells inside the shape.", {"shape": shape_of("remove")}
+            )
+        ],
+        "paint": [
             operation(
                 "paint",
                 "Recolour the filled cells inside the shape.",
-                {"shape": same_shape, "color": same_color},
-            ),
+                {"shape": shape_of("paint"), "color": colour_of("paint")},
+            )
+        ],
+        "set_finish": [
             operation(
                 "set_finish",
                 "Set what the top of the filled cells inside the shape should be.",
-                {"shape": same_shape, "finish": finish},
-            ),
+                {"shape": shape_of("set_finish"), "finish": finish},
+            )
+        ],
+        "place_detail": [
             operation(
                 "place_detail",
                 "Stand a small part in empty cells directly on top of filled cells. The part "
                 "must be made in the colour.",
-                {"part": part, "color": same_color, "at": at, "rot": rot, "face": face},
-            ),
+                {
+                    "part": part,
+                    "color": colour_of("place_detail"),
+                    "at": at,
+                    "rot": rot,
+                    "face": face,
+                },
+            )
+        ],
+        "remove_detail": [
             operation(
                 "remove_detail",
                 "Remove the detail part that covers a cell.",
                 {"at": {**_bare(at), "description": "Any cell the detail covers."}},
-            ),
+            )
         ],
+    }
+    description = (
+        "One edit to the Design grid. add fills empty cells, remove empties filled cells, "
+        "paint recolours filled cells, set_finish says what the tops of filled cells "
+        "should be, place_detail stands a small part on free studs, remove_detail takes "
+        'one off. Any operation may add "mirror": true to do the same to the mirror image '
+        "across the left-right middle as well (cell x becomes nx-1-x)."
+    )
+    if studio:
+        for name in ("add", "remove", "paint", "set_finish"):
+            with_seed: dict[str, Any] = {
+                "shape": seed_shape if name == first else _bare(seed_shape)
+            }
+            optional: tuple[str, ...] = ()
+            if name in ("add", "paint"):
+                with_seed["color"] = same_color if name != first_colour else color
+                optional = ("color",)
+            if name == "set_finish":
+                with_seed["finish"] = _bare(finish)
+            variants[name].append(
+                operation(name, f"{name} on the conversion's own cells.", with_seed, optional)
+            )
+        words = {
+            "add": "add fills empty cells",
+            "remove": "remove empties filled cells",
+            "paint": "paint recolours filled cells",
+            "set_finish": "set_finish says what the tops of filled cells should be",
+            "place_detail": "place_detail stands a small part on the model",
+            "remove_detail": "remove_detail takes one off",
+        }
+        description = (
+            "One edit to the Design grid: "
+            + "; ".join(words[n] for n in ops)
+            + '. Any operation may add "mirror": true to do the same to the mirror image '
+            "across the left-right middle as well (cell x becomes nx-1-x)."
+        )
+
+    return {
+        "title": "Edit operation",
+        "description": description,
+        "type": "object",
+        "required": ["op"],
+        "anyOf": [v for name in OPS if name in ops for v in variants[name]],
     }
 
 
@@ -558,6 +756,18 @@ def _parts_text(catalog: Catalog) -> str:
 
 
 OP_SCHEMA: dict[str, Any] = _build_schema()
+
+
+def studio_op_schema(ops: tuple[str, ...] = OPS) -> dict[str, Any]:
+    """The schema of one operation as the studio offers it: its shapes (see
+    ``STUDIO_SHAPE_TYPES``) and only the operations in ``ops``, in the order of ``OPS``."""
+    unknown = [n for n in ops if n not in OPS]
+    if unknown or not ops:
+        raise ValueError(f"unknown operations {unknown}; choose from {', '.join(OPS)}")
+    return _build_schema(studio=True, ops=tuple(ops))
+
+
+STUDIO_OP_SCHEMA: dict[str, Any] = studio_op_schema()
 
 
 @dataclass
@@ -694,8 +904,9 @@ def _check_fields(obj: dict, allowed: tuple[str, ...], what: str) -> None:
             synonym = _FIELD_SYNONYMS.get(key.lower())
             if not hint and synonym in allowed:
                 hint = f' Did you mean "{synonym}"?'
-        needed = [f for f in allowed if f not in _OPTIONAL_FIELDS]
-        optional = [f for f in allowed if f in _OPTIONAL_FIELDS]
+        optional_fields = _OPTIONAL_FIELDS + _OPTIONAL_SHAPE_FIELDS
+        needed = [f for f in allowed if f not in optional_fields]
+        optional = [f for f in allowed if f in optional_fields]
         takes = ", ".join(f'"{f}"' for f in needed)
         if optional:
             words = [f'"{f}"' for f in optional]
@@ -711,6 +922,8 @@ def _triple_field(
 ) -> tuple:
     if name not in shape:
         example = _BOX_EXAMPLE if what == "The box" else _ELLIPSOID_EXAMPLE
+        if what.startswith("The ") and what[4:] in ("cylinder", "cone", "seed"):
+            example = _EXAMPLES[what[4:]]
         raise _OpError(f'{what} is missing "{name}". Write it like this: {example}')
     value = shape[name]
     kind = "whole numbers" if whole else "numbers"
@@ -755,23 +968,31 @@ def _triple_field(
     return tuple(out)
 
 
-def _parse_shape(shape: Any) -> tuple[str, tuple, tuple]:
-    """Check a shape and return (type, first triple, second triple)."""
+def _parse_shape(shape: Any, studio: bool = False) -> tuple[str, tuple, tuple]:
+    """Check a shape and return (type, first triple, second triple). With ``studio`` the
+    studio's shapes (``STUDIO_SHAPE_TYPES``) are allowed too."""
+    kinds = STUDIO_SHAPE_TYPES if studio else SHAPE_TYPES
+    help_text = _STUDIO_SHAPE_HELP if studio else _SHAPE_HELP
     if not isinstance(shape, dict):
         raise _OpError(
             f'"shape" must be an object such as {_BOX_EXAMPLE}, but it is {_show(shape)}.'
         )
     if "type" not in shape:
-        raise _OpError(f'The shape is missing "type". Use {_SHAPE_HELP}.')
+        raise _OpError(f'The shape is missing "type". Use {help_text}.')
     kind = shape["type"]
-    if not isinstance(kind, str) or kind not in SHAPE_TYPES:
-        hint = _hint(kind, SHAPE_TYPES) if isinstance(kind, str) else ""
-        raise _OpError(f"Unknown shape type {_show(kind)}.{hint} Use {_SHAPE_HELP}.")
+    if not isinstance(kind, str) or kind not in kinds:
+        hint = _hint(kind, kinds) if isinstance(kind, str) else ""
+        raise _OpError(f"Unknown shape type {_show(kind)}.{hint} Use {help_text}.")
     what = f"The {kind}"
     _check_fields(shape, _SHAPE_FIELDS[kind], what)
-    if kind == "box":
-        lo = _triple_field(shape, "min", what, whole=True)
-        hi = _triple_field(shape, "max", what, whole=True)
+    if kind in ("box", "cylinder", "cone", "seed"):
+        if kind != "box":
+            _parse_round_fields(shape, kind)
+        whole_help = None
+        if kind != "box":
+            whole_help = f"the corners of a {kind}'s box must be whole cells."
+        lo = _triple_field(shape, "min", what, whole=True, whole_help=whole_help)
+        hi = _triple_field(shape, "max", what, whole=True, whole_help=whole_help)
         bad = [a for a, low, high in zip(_AXES, lo, hi, strict=True) if low > high]
         if bad:
             detail = "; ".join(
@@ -780,8 +1001,9 @@ def _parse_shape(shape: Any) -> tuple[str, tuple, tuple]:
             )
             fixed_lo = [min(a, b) for a, b in zip(lo, hi, strict=True)]
             fixed_hi = [max(a, b) for a, b in zip(lo, hi, strict=True)]
+            whose = "The box" if kind == "box" else f"The {kind}'s"
             raise _OpError(
-                f"The box min is greater than its max ({detail}). Each min must be less than "
+                f"{whose} min is greater than its max ({detail}). Each min must be less than "
                 f'or equal to the matching max; perhaps you meant "min": {_vec(fixed_lo)}, '
                 f'"max": {_vec(fixed_hi)}.'
             )
@@ -796,6 +1018,51 @@ def _parse_shape(shape: Any) -> tuple[str, tuple, tuple]:
             "A radius of 0.5 covers a single cell on that axis."
         )
     return kind, center, radius
+
+
+def _parse_round_fields(shape: dict, kind: str) -> None:
+    """Check "axis" (cylinder, cone), "narrow_end" and "narrow_size" (cone)."""
+    if kind == "seed":
+        return
+    example = _EXAMPLES[kind]
+    if "axis" not in shape:
+        raise _OpError(
+            f'The {kind} is missing "axis": the direction it runs along, "x", "y" or "z" ("z" '
+            f"for an upright {'column' if kind == 'cylinder' else 'cone'}). For example "
+            f"{example}"
+        )
+    axis = shape["axis"]
+    if not isinstance(axis, str) or axis not in ROUND_AXES:
+        hint = ""
+        if isinstance(axis, str) and axis.strip().lower().lstrip("+-") in ROUND_AXES:
+            hint = f' Write it as "{axis.strip().lower().lstrip("+-")}".'
+        raise _OpError(
+            f'"axis" must be "x", "y" or "z", the direction the {kind} runs along, but it is '
+            f"{_show(axis)}.{hint} The cross-section is the round shape that fits the box "
+            "across the other two directions."
+        )
+    if kind != "cone":
+        return
+    if "narrow_end" not in shape:
+        raise _OpError(
+            'The cone is missing "narrow_end": "max" if it narrows towards the high end of '
+            '"axis" (an upright cone pointing up), "min" if towards the low end. For example '
+            f"{example}"
+        )
+    end = shape["narrow_end"]
+    if not isinstance(end, str) or end not in NARROW_ENDS:
+        raise _OpError(
+            f'"narrow_end" must be "min" or "max" (the end of the cone\'s box along "axis" that '
+            f'is narrow; "max" is the top of an upright cone), but it is {_show(end)}.'
+        )
+    if "narrow_size" in shape:
+        size = shape["narrow_size"]
+        if not _is_number(size) or not math.isfinite(float(size)) or not 0 <= float(size) <= 1:
+            raise _OpError(
+                f'"narrow_size" must be a number from 0 to 1, but it is {_show(size)}: how wide '
+                "the narrow end is, as a share of the wide end (0, the default, is a point one "
+                "or two studs across; 0.5 is half as wide; 1 is a cylinder)."
+            )
 
 
 def _made_in(catalog: Catalog, part: Part) -> str:
@@ -977,7 +1244,7 @@ class _Parsed:
 _REMOVE_VERBS = ("delete", "erase", "clear", "unplace", "remov")
 
 
-def _parse_op(op: Any, catalog: Catalog) -> _Parsed:
+def _parse_op(op: Any, catalog: Catalog, studio: bool = False) -> _Parsed:
     if not isinstance(op, dict):
         raise _OpError(
             "Each operation must be an object such as "
@@ -1005,9 +1272,10 @@ def _parse_op(op: Any, catalog: Catalog) -> _Parsed:
     if name in SHAPE_OPS:
         if "shape" not in op:
             raise _OpError(f'"{name}" needs a "shape", for example {_BOX_EXAMPLE}.')
-        _parse_shape(op["shape"])
+        _parse_shape(op["shape"], studio)
         parsed.shape = op["shape"]
-        if name in ("add", "paint"):
+        copies = op["shape"]["type"] == "seed" and "color" not in op
+        if name in ("add", "paint") and not copies:  # a seed brings the conversion's colours
             parsed.color = _parse_color(op, name, catalog)
         elif name == "set_finish":
             parsed.finish = _parse_finish(op)
@@ -1043,13 +1311,14 @@ def _parse_op(op: Any, catalog: Catalog) -> _Parsed:
     return parsed
 
 
-def validate_op(op: Any, catalog: Catalog) -> None:
+def validate_op(op: Any, catalog: Catalog, *, studio: bool = False) -> None:
     """Raise ValueError, worded for the writer, if ``op`` is not a well-formed operation.
 
     It does not look at a Design, so it cannot tell whether the operation would change
-    anything or whether its shape lies inside the grid.
+    anything or whether its shape lies inside the grid. With ``studio`` the studio's shapes
+    are allowed (``STUDIO_OP_SCHEMA``).
     """
-    _parse_op(op, catalog)
+    _parse_op(op, catalog, studio)
 
 
 # ---- shapes -------------------------------------------------------------------------------
@@ -1073,9 +1342,13 @@ def _round_bound(rounding: Any, value: float) -> int:
     return 10**309 if value > 0 else -(10**309)
 
 
-def _region(shape: Any, grid_shape: tuple[int, int, int]) -> _Region:
-    kind, a, b = _parse_shape(shape)
-    if kind == "box":
+def _region(
+    shape: Any, grid_shape: tuple[int, int, int], reference: Design | None = None
+) -> _Region:
+    """Where ``shape`` meets the grid. ``reference`` (the conversion) allows the studio's
+    shapes; a "seed" shape is the reference's filled cells inside its box."""
+    kind, a, b = _parse_shape(shape, reference is not None)
+    if kind in ("box", "cylinder", "cone", "seed"):
         lo = [int(v) for v in a]
         hi = [int(v) for v in b]
     else:
@@ -1099,11 +1372,60 @@ def _region(shape: Any, grid_shape: tuple[int, int, int]) -> _Region:
     )
     if kind == "box":
         mask = np.ones([chi[i] - clo[i] + 1 for i in range(3)], dtype=bool)
+    elif kind in ("cylinder", "cone"):
+        mask = _round_mask(lo, hi, clo, chi, shape)
+    elif kind == "seed":
+        assert reference is not None
+        if reference.shape != tuple(grid_shape):
+            raise _OpError(
+                "The conversion's grid is not the size of this design's grid, so a seed shape "
+                "cannot be copied from it."
+            )
+        mask = reference.filled[slices].copy()
     else:
         mask = _ellipsoid_mask(clo, chi, a, b)
         if clipped:
             clipped = _ellipsoid_cells_beyond(lo, hi, clo, chi, a, b, grid_shape)
     return _Region(slices, mask, False, clipped, [])
+
+
+def _round_mask(lo: list[int], hi: list[int], clo: list[int], chi: list[int], shape: dict):
+    """Cells of the block ``clo..chi`` inside a cylinder or cone whose box is ``lo..hi``.
+
+    Along ``axis`` each layer's cross-section is the ellipse that just fits a rectangle
+    centred in the box across the other two axes (a cell is in when its centre is inside).
+    For a cylinder the rectangle is the box's own; for a cone it shrinks evenly, in steps of
+    two cells so it stays centred, from the box's at the wide end to ``narrow_size`` of it
+    (at least one cell, or two when the width is even) at the narrow end.
+    """
+    a = _AXES.index(shape["axis"])
+    u, v = (i for i in range(3) if i != a)
+    length = hi[a] - lo[a] + 1
+    size = float(shape.get("narrow_size", 0)) if shape["type"] == "cone" else 1.0
+    mask = np.zeros([chi[i] - clo[i] + 1 for i in range(3)], dtype=bool)
+
+    def narrowest(width: int) -> int:
+        shrink = math.ceil(width * (1 - size) / 2 - 0.5)
+        return max(width - 2 * shrink, 2 - width % 2, min(width, 1))
+
+    widths = (hi[u] - lo[u] + 1, hi[v] - lo[v] + 1)
+    ends = (narrowest(widths[0]), narrowest(widths[1]))
+    cu = np.arange(clo[u], chi[u] + 1, dtype=np.float64) - (lo[u] + hi[u]) / 2
+    cv = np.arange(clo[v], chi[v] + 1, dtype=np.float64) - (lo[v] + hi[v]) / 2
+    for g in range(clo[a], chi[a] + 1):
+        from_wide = g - lo[a] if shape.get("narrow_end", "max") == "max" else hi[a] - g
+        t = from_wide / (length - 1) if length > 1 else 0.0
+        if shape["type"] == "cylinder":
+            t = 0.0
+        w = [
+            width - 2 * math.ceil(t * (width - end) / 2 - 0.5)
+            for width, end in zip(widths, ends, strict=True)
+        ]
+        layer = (cu[:, None] / (w[0] / 2)) ** 2 + (cv[None, :] / (w[1] / 2)) ** 2 <= 1.0 + _EPS
+        index: list[Any] = [slice(None)] * 3
+        index[a] = g - clo[a]
+        mask[tuple(index)] = layer
+    return mask
 
 
 # Most cells looked at beyond the grid to tell whether an ellipsoid really loses any there.
@@ -1155,23 +1477,36 @@ def _ellipsoid_cells_beyond(
     )
 
 
-def shape_mask(shape: dict[str, Any], grid_shape: tuple[int, int, int]) -> np.ndarray:
+def shape_mask(
+    shape: dict[str, Any], grid_shape: tuple[int, int, int], reference: Design | None = None
+) -> np.ndarray:
     """Boolean array of ``grid_shape``, True for every cell inside ``shape``.
 
     Parts of the shape outside the grid are dropped; a shape entirely outside gives an
     all-False array. A malformed shape raises ValueError with a message saying what to fix.
+    With ``reference`` (the conversion) the studio's shapes are allowed too.
     """
     grid = (int(grid_shape[0]), int(grid_shape[1]), int(grid_shape[2]))
     out = np.zeros(grid, dtype=bool)
-    region = _region(shape, grid)
+    region = _region(shape, grid, reference)
     if not region.outside:
         out[region.slices] = region.mask
     return out
 
 
 def _describe_shape(shape: dict) -> str:
-    if shape["type"] == "box":
+    kind = shape["type"]
+    if kind == "box":
         return f"box {_vec(shape['min'])}..{_vec(shape['max'])}"
+    if kind == "seed":
+        return f"seed shape (the conversion's cells) in {_vec(shape['min'])}..{_vec(shape['max'])}"
+    if kind == "cylinder":
+        return f"cylinder along {shape['axis']} filling {_vec(shape['min'])}..{_vec(shape['max'])}"
+    if kind == "cone":
+        return (
+            f"cone along {shape['axis']} filling {_vec(shape['min'])}..{_vec(shape['max'])}, "
+            f"narrow at its {shape['narrow_end']} end"
+        )
     return f"ellipsoid centred at {_vec(shape['center'])} with radius {_vec(shape['radius'])}"
 
 
@@ -1207,6 +1542,14 @@ def _mirror_shape(shape: dict, nx: int) -> dict:
             "min": [nx - 1 - hi[0], *lo[1:]],
             "max": [nx - 1 - lo[0], *hi[1:]],
         }
+    if shape["type"] != "ellipsoid":  # cylinder, cone and seed are boxes with more fields
+        lo = [_whole(v) for v in shape["min"]]
+        hi = [_whole(v) for v in shape["max"]]
+        assert lo[0] is not None and hi[0] is not None
+        twin = {**shape, "min": [nx - 1 - hi[0], *lo[1:]], "max": [nx - 1 - lo[0], *hi[1:]]}
+        if shape["type"] == "cone" and shape["axis"] == "x":
+            twin["narrow_end"] = "min" if shape["narrow_end"] == "max" else "max"
+        return twin
     center = [float(v) for v in shape["center"]]
     return {
         "type": "ellipsoid",
@@ -1314,13 +1657,22 @@ def _drop_details(design: Design, catalog: Catalog, changed: np.ndarray, *, adde
     return f" This also removed {len(gone)} details, because {reason}: {'; '.join(gone)}."
 
 
-def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool, int, str]:
+def _apply_shape_op(
+    design: Design, p: _Parsed, catalog: Catalog, reference: Design | None = None
+) -> tuple[bool, int, str]:
     """add, remove, paint or set_finish. Returns (applied, cells_changed, message)."""
     name, shape, color = p.name, p.shape, p.color
     assert shape is not None
     grid = design.shape
-    region = _region(shape, grid)
+    region = _region(shape, grid, reference)
     where = _describe_shape(shape)
+    seed = shape["type"] == "seed"
+    if seed and not region.outside and not region.mask.any():
+        raise _OpError(
+            f"The conversion has no filled cells inside that box ({_box_text(region.slices)}), "
+            "so a seed shape there is empty. Use a box that holds part of the conversion "
+            "(describe gives the conversion's extent layer by layer)."
+        )
     if region.outside:
         raise _OpError(
             f"That {where} lies entirely outside the grid: its {' and '.join(region.out_axes)} "
@@ -1346,6 +1698,8 @@ def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool,
         # The grid is symmetric under the mirror, so mirroring the clipped mask is the same
         # as clipping the mirrored shape.
         image = mask[::-1, :, :]
+        if seed:  # the conversion's own cells inside the mirrored box, not a flipped copy
+            image = shape_mask(_mirror_shape(shape, grid[0]), grid, reference)
         if np.array_equal(image, mask):
             where = f"{where} (which is its own mirror image)"
         else:
@@ -1363,7 +1717,6 @@ def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool,
     extra = ""
 
     if name == "add":
-        assert color is not None
         change = mask & ~filled
         n = int(change.sum())
         if n == 0:
@@ -1373,10 +1726,19 @@ def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool,
                 f'Nothing to add: every cell inside that {where} is already filled. Use "paint" '
                 "to recolour filled cells.",
             )
-        colors[change] = color
-        finish[change] = FINISH_STUDS
+        if seed:  # the conversion's cells come with its finish marks, and its colours
+            assert reference is not None and reference.finish is not None
+            colors[change] = reference.colors[change] if color is None else color
+            finish[change] = reference.finish[change]
+        else:
+            assert color is not None
+            colors[change] = color
+            finish[change] = FINISH_STUDS
         extra = _drop_details(design, catalog, change, added=True)
-        verb = f"Added {n} cell{'s' if n != 1 else ''} of {_colour_name(catalog, color)}"
+        if color is None:
+            verb = f"Added {n} cell{'s' if n != 1 else ''} in the conversion's own colours"
+        else:
+            verb = f"Added {n} cell{'s' if n != 1 else ''} of {_colour_name(catalog, color)}"
     elif name == "remove":
         change = mask & filled
         n = int(change.sum())
@@ -1393,7 +1755,6 @@ def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool,
         extra = _drop_details(design, catalog, change, added=False)
         verb = f"Removed {n} cell{'s' if n != 1 else ''}"
     elif name == "paint":
-        assert color is not None
         inside = mask & filled
         if not inside.any():
             return (
@@ -1402,17 +1763,32 @@ def _apply_shape_op(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool,
                 f'Nothing to paint: every cell inside that {where} is empty. "paint" only '
                 'recolours filled cells; use "add" to fill empty ones.',
             )
-        change = inside & (colors != color)
-        n = int(change.sum())
-        if n == 0:
-            return (
-                False,
-                0,
-                f"Nothing to paint: every filled cell inside that {where} is already "
-                f"{_colour_name(catalog, color)}.",
-            )
-        colors[change] = color
-        verb = f"Painted {n} cell{'s' if n != 1 else ''} {_colour_name(catalog, color)}"
+        if color is None:  # a seed shape without a colour: the conversion's own colours
+            assert reference is not None
+            wanted = reference.colors
+            change = inside & (colors != wanted)
+            n = int(change.sum())
+            if n == 0:
+                return (
+                    False,
+                    0,
+                    f"Nothing to paint: every filled cell inside that {where} already has the "
+                    "conversion's colour.",
+                )
+            colors[change] = wanted[change]
+            verb = f"Painted {n} cell{'s' if n != 1 else ''} in the conversion's own colours"
+        else:
+            change = inside & (colors != color)
+            n = int(change.sum())
+            if n == 0:
+                return (
+                    False,
+                    0,
+                    f"Nothing to paint: every filled cell inside that {where} is already "
+                    f"{_colour_name(catalog, color)}.",
+                )
+            colors[change] = color
+            verb = f"Painted {n} cell{'s' if n != 1 else ''} {_colour_name(catalog, color)}"
     else:
         assert p.finish is not None
         word = next(w for w, code in FINISH_NAMES.items() if code == p.finish)
@@ -1908,11 +2284,13 @@ def _remove_detail(design: Design, p: _Parsed, catalog: Catalog) -> tuple[bool, 
     return True, 0, message
 
 
-def _apply_one(design: Design, op: Any, catalog: Catalog) -> tuple[bool, int, str]:
+def _apply_one(
+    design: Design, op: Any, catalog: Catalog, reference: Design | None = None
+) -> tuple[bool, int, str]:
     """Apply one operation. Returns (applied, cells_changed, message); raises _OpError."""
-    parsed = _parse_op(op, catalog)
+    parsed = _parse_op(op, catalog, reference is not None)
     if parsed.name in SHAPE_OPS:
-        applied, n, message = _apply_shape_op(design, parsed, catalog)
+        applied, n, message = _apply_shape_op(design, parsed, catalog, reference)
     elif parsed.name == "place_detail":
         applied, n, message = _place_detail(design, parsed, catalog)
     else:
@@ -1922,8 +2300,17 @@ def _apply_one(design: Design, op: Any, catalog: Catalog) -> tuple[bool, int, st
     return applied, n, message
 
 
-def apply_ops(design: Design, ops: list[dict[str, Any]], catalog: Catalog) -> list[OpResult]:
-    """Apply ``ops`` to ``design`` in place, in order; see the module docstring."""
+def apply_ops(
+    design: Design,
+    ops: list[dict[str, Any]],
+    catalog: Catalog,
+    *,
+    reference: Design | None = None,
+) -> list[OpResult]:
+    """Apply ``ops`` to ``design`` in place, in order; see the module docstring.
+
+    ``reference`` is the conversion (the base Design). When it is given the studio's shapes
+    (cylinder, cone, and seed, which copies from it) are accepted too."""
     if not isinstance(ops, list | tuple):
         raise ValueError(
             f"apply_ops expects a list of operations, but got {_show(ops)}. Wrap a single "
@@ -1934,7 +2321,7 @@ def apply_ops(design: Design, ops: list[dict[str, Any]], catalog: Catalog) -> li
         name = op.get("op") if isinstance(op, dict) else None
         label = name if isinstance(name, str) else ""
         try:
-            applied, n, message = _apply_one(design, op, catalog)
+            applied, n, message = _apply_one(design, op, catalog, reference)
         except _OpError as err:
             results.append(OpResult(i, label, False, 0, f"Rejected: {err}"))
             continue
@@ -1950,10 +2337,29 @@ def replay(base: Design, log: list[dict[str, Any]], catalog: Catalog) -> Design:
     """
     out = base.copy()
     for i, op in enumerate(log):
-        (result,) = apply_ops(out, [op], catalog)
+        if op == CLEAR_OP:
+            out = cleared(out)
+            continue
+        (result,) = apply_ops(out, [op], catalog, reference=base)
         if not result.applied:
             raise ValueError(
                 f"Edit {i + 1} of {len(log)} in the log could not be replayed on the base "
                 f"design, so the log does not belong to it. {result.message}"
             )
+    return out
+
+
+def cleared(design: Design) -> Design:
+    """An empty copy of ``design``, where the studio starts its outline.
+
+    No cells, finish marks or details; the same grid, seed offset, skin and regions; the log
+    is the old one followed by ``CLEAR_OP``, which ``replay`` understands, so the Design still
+    replays from its base. ``apply_ops`` never takes "clear": only the program clears.
+    """
+    out = design.copy()
+    assert out.finish is not None
+    out.colors[...] = EMPTY
+    out.finish[...] = FINISH_STUDS
+    out.details = []
+    out.log.append(dict(CLEAR_OP))
     return out

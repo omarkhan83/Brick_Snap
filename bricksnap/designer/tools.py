@@ -130,6 +130,10 @@ Implementation notes
   them are listed, followed by "and N more", so an error stays short however much was sent.
 - Part counts by kind use plain words (``_KIND_WORDS``): "round tiles", "dishes", "clip or
   jumper plates" (the catalogue kind "detail"), never the catalogue's identifiers.
+- The studio (``studio_tools``) reuses these tools: ``_describe(project, before_build=...)``
+  puts its plan and conversion sections between the brief and the build, and
+  ``_apply_ops(project, args, reference=...)`` passes the conversion to ``apply_ops`` so its
+  shapes work. Without those arguments both are exactly as above.
 """
 
 from __future__ import annotations
@@ -919,7 +923,9 @@ def _middle_words(nx: int) -> str:
     )
 
 
-def _describe(project: Project) -> list[dict[str, Any]]:
+def _describe(project: Project, before_build: list[str] | None = None) -> list[dict[str, Any]]:
+    """The describe text. ``before_build`` (the studio's plan and conversion sections) goes
+    between the brief and the build."""
     catalog = _catalog()
     design = project.load_design()
     nx, ny, nz = design.shape
@@ -960,6 +966,8 @@ def _describe(project: Project) -> list[dict[str, Any]]:
             "colours, finish) before your first apply_ops; apply_ops refuses until there is one."
         )
     out.append("")
+    if before_build:
+        out.extend(before_build)
 
     out.append("BUILD")
     build = project.load_build() if project.has_build() else None
@@ -1149,7 +1157,10 @@ def _render(project: Project, args: dict[str, Any]) -> list[dict[str, Any]]:
 _NO_CELL_OPS = ("place_detail", "remove_detail")
 
 
-def _apply_ops(project: Project, args: dict[str, Any]) -> list[dict[str, Any]]:
+def _apply_ops(
+    project: Project, args: dict[str, Any], reference: Any = None
+) -> list[dict[str, Any]]:
+    """The apply_ops tool. ``reference`` (the studio's conversion) allows its shapes."""
     if not _has_brief(project):
         if not project.has_design():
             raise ProjectError("no design")  # reported as a problem the model cannot fix
@@ -1184,7 +1195,7 @@ def _apply_ops(project: Project, args: dict[str, Any]) -> list[dict[str, Any]]:
 
     catalog = _catalog()
     design = project.load_design()
-    results = apply_ops(design, ops, catalog)
+    results = apply_ops(design, ops, catalog, reference=reference)
     applied = [r for r in results if r.applied]
     if applied:
         project.save_design(design)

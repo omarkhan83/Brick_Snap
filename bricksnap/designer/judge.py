@@ -163,6 +163,13 @@ Implementation notes
   bool}``. An ``on_event`` that raises never stops the work.
 - ``n`` outside 2 to 5 raises ``ValueError`` (the command line checks it first); a project
   without a design raises ``ProjectError`` before anything is created.
+
+STUDIO ADDITION TO THE CONTRACT: comparing versions (tests in tests/test_studio.py)
+``judge_versions(project, numbers, model=..., effort=..., on_event=None) -> VersionVerdict``
+shows two to five of the project's versions (``bricksnap.versions``) to the same blind judge
+as anonymous candidates, prepared as ``design_best_of`` prepares its own, in
+``<project>/comparisons/v<a>-v<b>.../``, and returns its ranking as version numbers, its
+reasons and summary. It changes nothing in the project. See its docstring for the details.
 """
 
 from __future__ import annotations
@@ -930,3 +937,156 @@ def judge_candidates(
         on_event=on_event,
         catalog=catalog,
     )
+
+
+# ---- comparing versions -------------------------------------------------------------------
+
+COMPARISONS_DIR = "comparisons"
+
+
+@dataclass
+class VersionVerdict:
+    """The judge's ranking of some of a project's versions (``judge_versions``)."""
+
+    ranking: list[int] = field(default_factory=list)  # version numbers, best first
+    reasons: dict[int, str] = field(default_factory=dict)
+    summary: str = ""
+    letters: dict[str, int] = field(default_factory=dict)  # letter -> version number
+    judge: DesignerRun | None = None
+    by_measurement: bool = False
+    folder: Path | None = None
+    error: str = ""
+
+
+def judge_versions(
+    project: Project,
+    numbers: list[int],
+    *,
+    model: str = DEFAULT_MODEL,
+    effort: str = "high",
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> VersionVerdict:
+    """Have the blind judge rank two to five of the project's versions (see below).
+
+    The versions are shown as anonymous candidates, exactly as ``design_best_of`` shows its
+    own: the same pictures, facts, prompt and tools, letters dealt by ``deal_letters``
+    (seeded with the project's name, "versions" and the numbers, so the deal is repeatable).
+    The judge is not told which version is which, how each was made or in what order.
+    Everything is prepared in ``<project>/comparisons/v<a>-v<b>-.../judging/`` and the
+    outcome written to ``result.json`` beside it. Nothing in the project is changed: no
+    version is restored or kept. A version whose build does not hold is not shown (the
+    judge's prompt says every candidate holds); with fewer than two left, or when the judge
+    fails or gives no complete ranking, the versions are ranked by measurement (outline
+    match with the seed) and ``by_measurement`` says so. ``ValueError`` for fewer than two
+    or more than five numbers, or one given twice; ``ProjectError`` for a version the
+    project does not have.
+    """
+    from bricksnap import pipeline, versions
+    from bricksnap.bench import VIEWS, outline_match, weak_spot_count
+    from bricksnap.catalog import load_catalog
+    from bricksnap.connect import sturdiness
+    from bricksnap.render import compare_sheet
+    from bricksnap.types import Build, Design
+
+    numbers = [int(n) for n in numbers]
+    if not MIN_CANDIDATES <= len(numbers) <= MAX_CANDIDATES or len(set(numbers)) != len(numbers):
+        raise ValueError(
+            f"Choose {MIN_CANDIDATES} to {MAX_CANDIDATES} different versions to compare, not "
+            f"{numbers}."
+        )
+    known = {v.n: v for v in versions.versions(project)}
+    for n in numbers:
+        versions.version_dir(project, n)  # ProjectError for a version that is not there
+    catalog = load_catalog()
+    folder = project.path / COMPARISONS_DIR / "-".join(f"v{n}" for n in numbers)
+    if folder.exists():
+        shutil.rmtree(folder)
+    (folder / "judging").mkdir(parents=True)
+    result = VersionVerdict(folder=folder)
+    try:
+        seed = pipeline.load_project_seed(project)
+    except Exception:
+        seed = None
+    loaded: dict[int, tuple[Any, Any]] = {}
+    facts: dict[int, _Candidate] = {}
+    for n in numbers:
+        where = versions.version_dir(project, n)
+        design = Design.load(where / "design.npz", where / "design.json")
+        build = Build.load(where / "build.json")
+        loaded[n] = (design, build)
+        c = _Candidate(number=n, path=where)
+        c.parts = len(build.parts)
+        c.weak_spots = weak_spot_count(build.report) if build.report is not None else 0
+        c.most_hanging = sturdiness(build, catalog)[0]
+        if seed is not None:
+            matches = [outline_match(seed, build, catalog, v, design.seed_offset) for v in VIEWS]
+            c.outline_match = sum(matches) / len(matches)
+        c.valid = bool(known[n].valid)
+        c.why_not_valid = "" if c.valid else "its build does not hold together."
+        facts[n] = c
+    valid = [n for n in numbers if facts[n].valid]
+    letters = deal_letters(f"{project.name}/versions/{'-'.join(map(str, numbers))}", 0, valid)
+    result.letters = letters
+    for letter, n in letters.items():
+        facts[n].letter = letter
+
+    verdict = None
+    if len(letters) >= 2:
+        judging = folder / "judging"
+        try:
+            builds = []
+            for letter, n in letters.items():
+                design, build = loaded[n]
+                compare_sheet(seed, design, build, catalog).save(judging / f"{letter}.png")
+                builds.append((letter, build))
+            all_sheet(seed, loaded[valid[0]][0], builds, catalog).save(judging / "all.png")
+            from bricksnap.designer.judge_server import JUDGING_FILE
+
+            setup = {
+                "letters": list(letters),
+                "facts": {letter: facts[n].facts() for letter, n in letters.items()},
+            }
+            write_text_atomic(judging / JUDGING_FILE, json.dumps(setup, indent=1) + "\n")
+            _tell(on_event, event="judging", candidates=len(letters))
+            result.judge = run_judge(
+                folder, list(letters), model=model, effort=effort, on_event=on_event
+            )
+        except Exception as e:
+            result.judge = _failed_judging("The judge could not be run", e)
+        verdict = _read_verdict(folder, list(letters))
+        _tell(on_event, event="judged", ok=result.judge.ok, error=result.judge.error)
+    if result.judge is not None and result.judge.ok and verdict is not None:
+        result.ranking = [letters[x] for x in verdict["ranking"]]
+        result.reasons = {letters[x]: verdict["reasons"][x] for x in verdict["ranking"]}
+        result.summary = verdict["summary"]
+    else:
+        result.by_measurement = True
+        order = sorted(numbers, key=lambda n: (not facts[n].valid, -facts[n].outline_match, n))
+        result.ranking = order
+        result.reasons = {
+            n: (
+                f"Its outline matches the seed's by {facts[n].outline_match:.0%}."
+                + ("" if facts[n].valid else " Its build does not hold together.")
+            )
+            for n in order
+        }
+        why = "fewer than two of the versions hold together"
+        if result.judge is not None:
+            why = result.judge.error or "the judge gave no complete ranking"
+        result.error = f"Ranked by measurement, not by the judge: {why}."
+    for rank, n in enumerate(result.ranking, start=1):
+        facts[n].rank, facts[n].reason = rank, result.reasons.get(n, "")
+    record = {
+        "versions": numbers,
+        "letters": letters,
+        "ranking": result.ranking,
+        "summary": result.summary,
+        "by_measurement": result.by_measurement,
+        "error": result.error,
+        "candidates": [
+            {**facts[n].record(), "version": n, "label": known[n].label, "kind": known[n].kind}
+            for n in numbers
+        ],
+    }
+    write_text_atomic(folder / RESULT_FILE, json.dumps(record, indent=1) + "\n")
+    return result
