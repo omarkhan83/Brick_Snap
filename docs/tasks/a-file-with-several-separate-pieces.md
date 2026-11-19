@@ -1,6 +1,6 @@
 # A model file that holds several separate pieces laid out side by side
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-19)
 - stage: 4
 
 Some files are not one object but a layout of separate pieces, for example the parts of a kit arranged
