@@ -54,6 +54,10 @@ details, the weak spots that remain in thin models, and fewer small plates on cu
   the designed build, start the designer, type a change, download the files (`docs/tasks/web-app.md`).
 - Carried over from stage 3: details on the side of a model (round eyes on a face), the weak spots that
   remain in thin models, fewer small plates on curved models, and a test suite that runs in a few minutes.
+- The AI leading the design in passes instead of touching up the conversion, with every version kept
+  and any two shown side by side (`docs/tasks/ai-led-design-in-passes.md`,
+  `docs/tasks/versions-and-compare.md`); interiors; more kinds of parts
+  (`docs/tasks/more-kinds-of-parts.md`). Added on 19 November after Alec tried the web app.
 - An instruction booklet made from our own steps and pictures (`docs/tasks/instruction-booklet.md`).
 - The same models through BrickLink Studio's sculpture import, pictured next to ours.
 - Saved example projects in `samples/projects/` so nothing depends on a live run.

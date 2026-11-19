@@ -290,6 +290,7 @@ bricksnap/
   bench.py        the scorecard over the test models
   render.py       pictures of a mesh, a Design, or a Build (plain numpy, no GPU)
   project.py      read and write a project folder
+  versions.py     keep, list and bring back versions of a project
   cli.py          the `bricksnap` command
   viewserver.py   the small local server behind `bricksnap view`
   webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads
