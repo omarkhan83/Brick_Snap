@@ -1834,8 +1834,12 @@ def test_browser_versions_can_be_compared_and_one_brought_back(
         page.wait_for_function(
             "() => { const c = window.__bricksnap.choice; return c.left === 3 && c.right === 4 }"
         )
-        assert tab.text("#roughTag .pane-title") == passes[1]
-        assert tab.text("#designedTag .pane-title") == passes[2]
+        # the titles follow once each version's build has been fetched and drawn: wait for them
+        page.wait_for_function(
+            "(t) => document.querySelector('#roughTag .pane-title').textContent === t[0]"
+            " && document.querySelector('#designedTag .pane-title').textContent === t[1]",
+            arg=[passes[1], passes[2]],
+        )
         assert tab.text("#stepsFor") == "The steps are for version 4."
         state = page.evaluate("() => window.__bricksnap.inspect().compare")
         assert state == {"active": True, "show": "both"}
