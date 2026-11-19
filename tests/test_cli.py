@@ -28,6 +28,10 @@ from bricksnap.pipeline import create_project, rebuild, render_compare
 from bricksnap.project import Project, ProjectError
 from bricksnap.types import Build, Placement, Report
 
+# Rebuilds are made once per distinct design and replayed (see conftest.py): these tests
+# change nothing inside the engine, and rebuild the same few pawns many times.
+pytestmark = pytest.mark.usefixtures("remembered_rebuild")
+
 STUDS = "8"
 # Adds a second, separate block on the ground in a corner of the pawn's grid (10 x 10 x 26
 # at 8 studs; the pawn stands on x and y = 2 to 7), so the build is in two pieces and fails

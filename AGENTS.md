@@ -134,7 +134,7 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
 ## Verifying a change
 
 1. Run all three; all must pass:
-   - `uv run pytest`
+   - `uv run pytest` (about four minutes)
    - `uv run ruff check`
    - `uv run ty check`
 2. If the change affects what a user sees (the viewer page, a picture, an exported file), look at the result
@@ -146,6 +146,9 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
    your user what it reports against the saved scorecard, `samples/scorecard.json`. Every model must still
    build with no loose parts. Save a new scorecard (`--save`) in the same commit only when the numbers and
    the pictures show an improvement.
+   Also run `uv run pytest -m thorough` (about two minutes): the slow sweeps that the everyday run leaves
+   out, such as every sample model at three sizes, long random runs, and speed checks on big models. The
+   lead's agent runs them again before closing a stage.
 4. A change to documents only needs no checks beyond making sure the files it mentions exist.
 
 ## Setup and common snags

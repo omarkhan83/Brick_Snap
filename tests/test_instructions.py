@@ -584,6 +584,7 @@ def two_hundred_small_steps() -> Build:
     return Build((16, 16, z), parts)
 
 
+@pytest.mark.thorough
 @pytest.mark.parametrize(
     "make, n_parts", [(two_hundred_steps, 1600), (two_hundred_small_steps, 600)]
 )
@@ -602,12 +603,29 @@ def test_a_200_step_booklet_is_quick_and_not_too_big(tmp_path, catalog, make, n_
         f"200 steps, {n_parts} parts: {elapsed:.1f} s, HTML {size / 1e6:.1f} MB, "
         f"PDF {out['pdf'].stat().st_size / 1e6:.1f} MB"
     )
-    assert elapsed < 30, elapsed
+    assert elapsed < 55, elapsed  # about 18 s on the lead's machine
     assert size < 15e6, size
     # the step pictures together keep within the booklet's budget, whatever the part count
     sizes = re.findall(r'<img class="model" width="(\d+)" height="(\d+)"', text)
     assert len(sizes) == 200
     assert sum(int(w) * int(h) for w, h in sizes) <= I.STEP_BUDGET
+
+
+def test_step_pictures_shrink_to_keep_within_the_budget(tmp_path, catalog, monkeypatch):
+    """The 200-step test's last promise, quickly: when the budget is too small for full-size
+    pictures, every step's picture is made smaller so that together they keep within it."""
+    pattern = r'<img class="model" width="(\d+)" height="(\d+)"'
+    project = make_project(tmp_path, small_tower(), catalog)
+    text = I.make_instructions(project, catalog)["html"].read_text(encoding="utf-8")
+    full = [int(w) * int(h) for w, h in re.findall(pattern, text)]
+    assert len(full) > 1 and sum(full) <= I.STEP_BUDGET
+    budget = sum(full) // 4
+    monkeypatch.setattr(I, "STEP_BUDGET", budget)
+    text = I.make_instructions(project, catalog)["html"].read_text(encoding="utf-8")
+    small = [int(w) * int(h) for w, h in re.findall(pattern, text)]
+    assert len(small) == len(full)
+    assert sum(small) <= budget
+    assert all(a < b for a, b in zip(small, full, strict=True))
 
 
 def plate_under_a_tile() -> Build:

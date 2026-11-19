@@ -984,6 +984,7 @@ def test_small_builds_get_enough_work_for_sturdiness(catalog):
     assert sturdiness(build, catalog)[0] <= 5
 
 
+@pytest.mark.thorough
 def test_sturdiness_never_makes_random_blobs_worse(catalog):
     from bricksnap.layout import sturdiness
 

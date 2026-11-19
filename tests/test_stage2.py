@@ -129,7 +129,14 @@ def test_a_feature_stuck_on_the_side_is_held_without_changing_the_saved_design(t
     assert project.build_is_current()
 
 
-@pytest.mark.parametrize("studs", [12, 16, 24])
+@pytest.mark.parametrize(
+    "studs",
+    [
+        pytest.param(12, marks=pytest.mark.thorough),
+        16,
+        pytest.param(24, marks=pytest.mark.thorough),
+    ],
+)
 def test_every_sample_model_builds_with_all_passes(tmp_path, catalog, studs):
     import pathlib
 
@@ -341,7 +348,7 @@ _SPAN = r"\d+(?: to \d+)?"
 _LINK = rf"(?:a single stud|one part, the [A-Za-z ]+? part) at (x={_SPAN}, y={_SPAN}, z={_SPAN})"
 
 
-@pytest.mark.parametrize("name", ["cat", "pineapple"])
+@pytest.mark.parametrize("name", [pytest.param("cat", marks=pytest.mark.thorough), "pineapple"])
 def test_the_weak_spot_phase_never_leaves_a_finished_model_weaker(tmp_path_factory, catalog, name):
     """Finishing comes after the make-buildable pass. With the weak-spot phase the finished
     build must not hang more on one link, nor by more threads, than without it (the cat at
@@ -362,7 +369,13 @@ def test_the_weak_spot_phase_never_leaves_a_finished_model_weaker(tmp_path_facto
 
 @pytest.mark.parametrize(
     ("name", "studs", "most"),
-    [("pineapple", 16, 6), ("spaceship", 16, 6), ("hat", 16, 6), ("pawn", 12, 15), ("hat", 12, 15)],
+    [
+        ("pineapple", 16, 6),
+        ("spaceship", 16, 6),
+        ("hat", 16, 6),
+        pytest.param("pawn", 12, 15, marks=pytest.mark.thorough),
+        ("hat", 12, 15),
+    ],
 )
 def test_the_weak_spot_phase_fills_few_cells_and_only_beside_what_it_cures(
     tmp_path_factory, catalog, name, studs, most

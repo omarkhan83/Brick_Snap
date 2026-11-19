@@ -48,5 +48,6 @@ testpaths = ["tests"]
 markers = [
     "browser: drives the viewer page in headless Chromium",
     "designer: starts a real AI design run through headless Claude Code (uses subscription quota)",
+    "thorough: slow, thorough sweeps; run with -m thorough before closing a stage",
 ]
-addopts = "-m 'not designer'"
+addopts = "-m 'not designer and not thorough'"

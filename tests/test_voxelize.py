@@ -1161,7 +1161,8 @@ def test_colour_snapping_is_fast_with_many_distinct_colours(catalog):
     start = time.perf_counter()
     codes, index = _snap(colours, catalog)
     elapsed = time.perf_counter() - start
-    assert elapsed < 1.0, f"took {elapsed:.1f} s"
+    # about 0.5 s on the lead's machine: the limit allows a slower or busy one
+    assert elapsed < 1.5, f"took {elapsed:.1f} s"
     assert len(index) == 200_000 and set(codes.tolist()) <= set(catalog.colours)
 
 
@@ -1327,15 +1328,19 @@ def tall_cylinder(sections: int, studs: int) -> Seed:
     return seed
 
 
-@pytest.mark.parametrize("sections, studs", [(5000, 48), (5000, 96), (20_000, 96)])
+@pytest.mark.parametrize(
+    "sections, studs",
+    [(5000, 48), (5000, 96), pytest.param(20_000, 96, marks=pytest.mark.thorough)],
+)
 def test_long_thin_triangles_are_fast(catalog, sections, studs):
     """A CAD-style cylinder: every side triangle runs the full height (240 plates at 96
-    studs) and every cap triangle runs from the centre to the rim."""
+    studs) and every cap triangle runs from the centre to the rim. (On the lead's machine
+    0.4 s, 0.9 s and 2.5 s: the limit allows a slower or busy machine.)"""
     seed = tall_cylinder(sections, studs)
     start = time.perf_counter()
     design = voxelize(seed, catalog, margin_studs=0)
     elapsed = time.perf_counter() - start
-    assert elapsed < 6.0, f"took {elapsed:.1f} s"
+    assert elapsed < 8.0, f"took {elapsed:.1f} s"
     across = studs // 3  # radius 10 against height 60: the diameter is a third of the height
     f = design.filled
     assert f.shape == (across, across, studs * 5 // 2)

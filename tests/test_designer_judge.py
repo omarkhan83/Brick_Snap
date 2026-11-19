@@ -17,9 +17,11 @@ from pathlib import Path
 
 import anyio
 import pytest
+from conftest import remember_rebuilds
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from PIL import Image
 
+from bricksnap import pipeline
 from bricksnap.designer import judge, runner
 from bricksnap.designer.judge import (
     BestOf,
@@ -61,6 +63,12 @@ def built_pawn(tmp_path_factory, pawn_path) -> Path:
     rebuild(project)
     render_compare(project)
     return project.path
+
+
+@pytest.fixture(autouse=True)
+def _remembered(remembered_rebuild, monkeypatch):
+    """Every rebuild here goes through ``remembered_rebuild`` (see conftest.py)."""
+    monkeypatch.setattr(sys.modules[__name__], "rebuild", pipeline.rebuild)
 
 
 @pytest.fixture
@@ -173,6 +181,26 @@ def prepared(pawn: Project, fakes, n: int = 3) -> BestOf:
     return design_best_of(pawn, n)
 
 
+@pytest.fixture(scope="module")
+def prepared_pair(built_pawn, tmp_path_factory) -> Path:
+    """``prepared(pawn, fakes, n=2)`` done once for the module. Read-only: copy its
+    candidates folder (``judged_pair`` does) before calling a tool that may write."""
+    dest = tmp_path_factory.mktemp("judge-pair") / "pawn"
+    shutil.copytree(built_pawn, dest)
+    with pytest.MonkeyPatch.context() as mp:
+        remember_rebuilds(mp)
+        mp.setattr(runner, "run_designer", FakeDesigner({1: paint(4), 2: paint(1)}))
+        mp.setattr(judge, "run_judge", FakeJudge())
+        design_best_of(Project(dest), 2)
+    return dest / "candidates"
+
+
+@pytest.fixture
+def judged_pair(prepared_pair, tmp_path) -> Path:
+    """A fresh copy of the candidates folder of two designed and judged candidates."""
+    return shutil.copytree(prepared_pair, tmp_path / "candidates")
+
+
 def test_look_all_and_look_one(pawn: Project, fakes):
     prepared(pawn, fakes)
     folder = pawn.path / "candidates"
@@ -276,9 +304,8 @@ def test_choose_checks_everything_and_records_nothing_until_right(pawn: Project,
     ],
 )
 @pytest.mark.parametrize("name", ["look", "choose", None, 5])
-def test_nothing_the_model_sends_makes_a_tool_raise(pawn: Project, fakes, name, args):
-    prepared(pawn, fakes, n=2)
-    reply = Judging(pawn.path / "candidates").call(name, args)
+def test_nothing_the_model_sends_makes_a_tool_raise(judged_pair: Path, name, args):
+    reply = Judging(judged_pair).call(name, args)
     assert isinstance(reply, list) and reply
     for block in reply:
         if block["type"] == "text":

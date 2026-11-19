@@ -1399,6 +1399,7 @@ def never_fall_back(why: str) -> None:
     raise AssertionError(f"the pass had to fall back on its safety net ({why})")
 
 
+@pytest.mark.thorough
 def test_random_blobs_keep_every_promise(catalog, monkeypatch):
     # the pass checks its own result and falls back to the input if it ever broke a promise
     # (section 5 or the sturdiness rule); here that must never be needed
@@ -1457,6 +1458,7 @@ def parts_fingerprint(builds: list[Build]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+@pytest.mark.thorough
 def test_speed_3000_parts(catalog):
     design = mark_open(shapes.sphere(36), FINISH_SLOPED)
     fin(design)[:18][fin(design)[:18] == FINISH_SLOPED] = FINISH_SMOOTH  # left half smooth
@@ -1465,7 +1467,8 @@ def test_speed_3000_parts(catalog):
     start = time.perf_counter()
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
-    assert elapsed < 5.0, f"{elapsed:.1f} s"
+    # about 2 s on the lead's machine: the limit allows a slower or busy one
+    assert elapsed < 6.0, f"{elapsed:.1f} s"
     c = assert_finished(build, after, design, catalog)
     assert c["tiles"] > 0 and sum(c["slopes"].values()) > 0
 
@@ -1506,19 +1509,21 @@ def test_a_refusal_searches_only_the_piece_that_would_come_loose(catalog):
     assert state._joined([{0}, {far}]) is True
 
 
+@pytest.mark.thorough
 def test_speed_thin_slab_3000_parts(catalog):
     """A smooth slab two plates thick, where many tiles are refused because they would
     loosen a plate: each refusal must be decided without searching the whole model. The
     input has no lone link at all, and tiles that split its 2 x 8 top plates easily leave a
     big part of the slab hanging on one part (before the sturdiness rule, 2,265 parts on
-    one), so the rule refuses some: almost all of the top still gets tiles."""
+    one), so the rule refuses some: almost all of the top still gets tiles. The finishing
+    takes about 4 s on the lead's machine: the limit allows a slower or busy one."""
     design = mark_open(design_of(np.ones((153, 153, 2), dtype=bool)), FINISH_SMOOTH)
     build = solve(design, catalog)
     assert len(build.parts) >= 3000
     start = time.perf_counter()
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
-    assert elapsed < 5.0, f"{elapsed:.1f} s"
+    assert elapsed < 12.0, f"{elapsed:.1f} s"
     c = assert_finished(build, after, design, catalog)  # includes the sturdiness rule
     assert c["smooth_left"] <= 0.02 * c["smooth"], c["smooth_left"]
 
@@ -1675,10 +1680,23 @@ def sample_builds(
     return out
 
 
+class _ByStuds(dict):
+    """Sample builds by size, each size made the first time a test asks for it."""
+
+    def __init__(self, root, catalog) -> None:
+        super().__init__()
+        self.root, self.catalog = root, catalog
+
+    def __missing__(self, studs: int) -> dict[str, tuple[Design, Build]]:
+        self[studs] = sample_builds(studs, self.root, self.catalog)
+        return self[studs]
+
+
 @pytest.fixture(scope="module")
 def samples(tmp_path_factory, catalog) -> dict[int, dict[str, tuple[Design, Build]]]:
-    root = tmp_path_factory.mktemp("samples")
-    return {studs: sample_builds(studs, root, catalog) for studs in (12, 16)}
+    """At 12 and 16 studs; the 12-stud ones are made only when asked for (by the thorough
+    run), so the quick run does not pay for them."""
+    return _ByStuds(tmp_path_factory.mktemp("samples"), catalog)
 
 
 def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
@@ -1709,7 +1727,7 @@ def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
 UNCHANGED_AT_16 = {"bottle": "49bd6a50cd03b78f", "cat": "dce7b135fb28f6a2"}
 
 
-@pytest.mark.parametrize("studs", [12, 16])
+@pytest.mark.parametrize("studs", [pytest.param(12, marks=pytest.mark.thorough), 16])
 def test_every_sample_is_no_less_sturdy_after_finishing(catalog, samples, monkeypatch, studs):
     for name, (design, build) in samples[studs].items():
         _, after, _ = run(design, catalog, build)  # run checks the rule, among the rest
@@ -1848,6 +1866,7 @@ def samples_at_24(tmp_path_factory, catalog) -> dict[str, tuple[Design, Build]]:
     return sample_builds(24, root, catalog, names=("duck", "knight", "pineapple"))
 
 
+@pytest.mark.thorough
 def test_larger_builds_keep_what_the_rule_allows(catalog, samples_at_24, monkeypatch):
     """A class of swaps that breaks the rule is judged in rounds, refusing the swaps found
     from the weak spots, which refuses more than the rule needs; the swaps refused that way
