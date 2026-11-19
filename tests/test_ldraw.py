@@ -31,12 +31,22 @@ REAL_BOXES: dict[str, tuple[tuple[float, float, float], tuple[float, float, floa
     "3024": ((-10.0, -4.0, -10.0), (10.0, 8.0, 10.0)),  # plate 1 x 1
     "3040b": ((-10.0, -4.0, -30.0), (10.0, 24.0, 10.0)),  # slope 45 2 x 1, origin on stud
     "3665b": ((-10.0, -4.0, -30.0), (10.0, 24.0, 10.0)),  # inverted slope 45 2 x 1
+    "3660b": ((-20.0, -4.0, -30.0), (20.0, 24.0, 10.0)),  # inverted slope 45 2 x 2
+    "4287c": ((-10.0, -4.0, -50.0), (10.0, 24.0, 10.0)),  # inverted slope 33 3 x 1
     "4286": ((-10.0, -4.0, -50.0), (10.0, 24.0, 10.0)),  # slope 33 3 x 1, origin on stud
     "54200": ((-10.0, -15.6, -10.0), (10.0, 0.0, 10.0)),  # cheese slope, origin on bottom
     "85984": ((-20.0, -15.6, -10.0), (20.0, 0.0, 10.0)),  # cheese slope 1 x 2
     "11477": ((-10.0, -16.00006098, -20.0), (10.0, 0.0, 20.0)),  # curved slope, origin bottom
 }
-STUD_HEIGHT = {"3001": 4.0, "3024": 4.0, "3040b": 4.0, "3665b": 4.0, "4286": 4.0}
+STUD_HEIGHT = {
+    "3001": 4.0,
+    "3024": 4.0,
+    "3040b": 4.0,
+    "3665b": 4.0,
+    "3660b": 4.0,
+    "4287c": 4.0,
+    "4286": 4.0,
+}
 # LDraw models the cheese slopes 15.6 LDU tall (flattened top) instead of 16.
 TOP_SLACK = {"54200": 0.4, "85984": 0.4, "11477": 0.001}
 
@@ -624,3 +634,20 @@ def test_a_sideways_tile_lies_on_the_side_stud_of_its_brick(face):
     assert (min(ys), max(ys)) == (-8 * (z + 3), -8 * z - 4)
     if face == "front":
         assert tp == (110, -62, 112) and tm == (1, 0, 0, 0, 0, -1, 0, 1, 0)
+
+
+def test_inverted_slopes_are_written_under_names_leocad_and_studio_both_know():
+    """Studio's parts table pairs 3665.dat and 4287.dat (LDraw's "moved to" stubs, which
+    LeoCAD draws as 3665a and 4287a, the same outside shape) and 3660b.dat with their
+    BrickLink numbers; it has no row for 3665b.dat or 4287c.dat (see the catalogue's
+    SOURCES.md)."""
+    from bricksnap.catalog import load_catalog
+
+    catalog = load_catalog()
+    parts = [
+        Placement("3665b", 4, 0, 0, 0),
+        Placement("3660b", 4, 2, 0, 0, rot=90),
+        Placement("4287c", 4, 0, 3, 0, rot=270),
+    ]
+    text = to_ldraw(Build((6, 6, 3), parts), catalog)
+    assert [f for *_, f in _parse(text)] == ["3665.dat", "3660b.dat", "4287.dat"]

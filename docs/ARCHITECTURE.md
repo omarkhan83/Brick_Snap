@@ -161,7 +161,8 @@ designer or the person made, and what the pass did is written in the Build's not
 
 **Finish (Build to Build).** Swaps plain parts for better-looking ones covering exactly the same cells:
 tiles where the finish is smooth; 45-degree slopes where a sloped cell steps down by a brick; cheese slopes
-where it steps down by two plates. A slope takes the corner off a step and never adds material. Then the
+where it steps down by two plates; and inverted slopes under an overhang, where the underside steps up
+beside a sloped cell. A slope takes the corner off a step and never adds material. Then the
 Design's detail parts are stood on their studs, or pushed onto the side stud of the brick behind them. A
 swap that would loosen any part of the model is not made, and a part that does not exist in the cell's
 colour is never substituted. Last, the small bricks and plates the swaps left behind are merged into

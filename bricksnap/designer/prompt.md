@@ -22,7 +22,7 @@ You never place bricks. You edit the design, and the software chooses the parts 
 # What you can edit
 
 - Shape and colour: `add` (fill empty cells), `remove` (empty filled cells), and `paint` (recolour filled cells), each applied to a `box` or an `ellipsoid`.
-- Surface: `set_finish` marks what the top of cells should be. `studs` is the default. `smooth` asks for tiles. `sloped` asks for a slope part wherever the surface steps down beside the cell. A mark only shows on a cell with nothing above it.
+- Surface: `set_finish` marks what the top of cells should be. `studs` is the default. `smooth` asks for tiles. `sloped` asks for a slope part wherever the surface steps down beside the cell, and under an overhang for an inverted slope wherever the underside steps up beside it. A mark shows on a cell with nothing above it, and a sloped mark also on the underside of an overhang.
 - Details: `place_detail` stands a small part on free studs, or lays a small one flat on a face of the model, and `remove_detail` takes it away. A detail occupies empty cells directly above filled ones, or in front of the face.
 - Any edit can carry `"mirror": true`, which also applies it to the mirror image across the model's left-right middle. Use it for anything that comes in pairs.
 
@@ -31,7 +31,7 @@ You never place bricks. You edit the design, and the software chooses the parts 
 You state what the model should look like. The software then does three things on every rebuild, and `describe` and `rebuild` tell you what it did.
 
 - It chooses the bricks and plates and overlaps them so the model is one piece.
-- It finishes the surface from your marks: tiles on smooth cells, slope parts on sloped cells. A slope takes the corner off a step. It never adds material, so to get a slanted surface you build the staircase and mark it sloped. A step one brick high (three plates) per stud becomes a 45-degree slope; a step two plates high becomes a shallow one. The conversion has already marked the cells where the seed's own surface is slanted.
+- It finishes the surface from your marks: tiles on smooth cells, slope parts on sloped cells. A slope takes the corner off a step. It never adds material, so to get a slanted surface you build the staircase and mark it sloped. A step one brick high (three plates) per stud becomes a 45-degree slope; a step two plates high becomes a shallow one. Under an overhang an inverted slope takes the lower corner off a step in the same way. The conversion has already marked the cells where the seed's own surface is slanted.
 - It repairs what would otherwise fall off. Parts hold each other only through studs, which means vertically, and each part has one colour. A feature in its own colour stuck on the side of the model would be loose, so the software continues that colour into cells nobody can see (the one exception: the three cells behind a detail on a face must be one colour, and if a later paint made them differ the software repaints them and says so). If it has to add visible cells to make something hold, it says where. Look at what it added and decide whether you like it or want to solve it differently.
 
 # How to work

@@ -1545,7 +1545,8 @@ def test_roof_made_of_thin_sheets_is_sloped(catalog):
     )
     design, sloped, open_top = hints(seed_from(roof), catalog)
     assert design.shape[:2] == (8, 5)
-    assert not (sloped & ~open_top).any()
+    # where a sheet spans two cells its lower one is an underside, slanted too (stage 4)
+    assert not (sloped & ~open_top & ~undersides(design)).any()
     assert top_sloped(design, sloped).all(), top_sloped(design, sloped).astype(int).T
 
 
@@ -1600,7 +1601,7 @@ def test_sphere_has_a_band_on_its_upper_half(catalog):
     seed = sphere_seed()
     design, sloped, open_top = hints(seed, catalog)
     assert design.shape == (16, 16, 40)
-    assert not (sloped & ~open_top).any()
+    assert not (sloped & ~open_top & ~undersides(design)).any()  # the rest: stage 4, below
     # how far above level the sphere is at each open cell's middle (its latitude)
     xs, ys, zs = np.nonzero(open_top)
     middle = (np.c_[xs, ys, zs] + 0.5) * CELL - 64.0
@@ -1610,10 +1611,65 @@ def test_sphere_has_a_band_on_its_upper_half(catalog):
     assert marked[(latitude > 30) & (latitude < 62)].all()  # the band
     assert not marked[latitude > 78].any()  # not on the very top
     assert not marked[latitude < 0].any()  # not below the equator
-    assert not sloped[:, :, :20].any()
+    assert not (sloped & open_top)[:, :, :20].any()
     # the band goes all the way round
     angle = np.degrees(np.arctan2(middle[marked, 1], middle[marked, 0]))
     assert np.histogram(angle, bins=8, range=(-180, 180))[0].min() > 0
+
+
+def undersides(design: Design) -> np.ndarray:
+    """Underside cells: filled, an empty cell below (not in the bottom layer), filled above."""
+    f = design.filled
+    out = np.zeros_like(f)
+    out[:, :, 1:-1] = f[:, :, 1:-1] & ~f[:, :, :-2] & f[:, :, 2:]
+    return out
+
+
+def without_undersides(monkeypatch) -> None:
+    """Switch off the stage 4 underside marks: the tops are then marked as before."""
+    import bricksnap.voxelize as voxelize_module
+
+    monkeypatch.setattr(
+        voxelize_module, "_sloped_undersides", lambda tris, body, *rest: np.zeros(body, bool)
+    )
+
+
+def test_sphere_lifted_off_the_ground_has_a_band_on_its_lower_half(catalog, monkeypatch):
+    """Stage 4: the underside is judged as the top is, turned upside down. A sphere resting
+    on a thin stalk (so its lower half is an overhang) gets a band of sloped underside cells
+    around its lower half, not on its very bottom; every sloped cell is an open top or an
+    underside cell; and the tops are marked exactly as with undersides switched off."""
+    ball = trimesh.creation.icosphere(4, radius=64.0)
+    ball.apply_translation((64.0, 64.0, 64.0 + 16.0))
+    stalk = box_seed((4.0, 4.0, 20.0), (62.0, 62.0, 0.0))
+    seed = seed_from(concat(ball, stalk))
+    design, sloped, open_top = hints(seed, catalog)
+    under = undersides(design)
+    assert not (sloped & ~open_top & ~under).any()
+    xs, ys, zs = np.nonzero(under)
+    middle = (np.c_[xs, ys, zs] + 0.5) * CELL - np.array([64.0, 64.0, 64.0 + 16.0])
+    latitude = np.degrees(np.arcsin(middle[:, 2] / np.linalg.norm(middle, axis=1)))
+    marked = sloped[xs, ys, zs]
+    assert marked.sum() > 60
+    assert marked[(latitude < -30) & (latitude > -62)].mean() > 0.9  # the band
+    assert not marked[latitude < -80].any()  # not on the very bottom
+    assert not marked[latitude > 0].any()  # not above the equator
+    angle = np.degrees(np.arctan2(middle[marked, 1], middle[marked, 0]))
+    assert np.histogram(angle, bins=8, range=(-180, 180))[0].min() > 0  # all the way round
+    with monkeypatch.context() as m:
+        without_undersides(m)
+        before, before_sloped, _ = hints(seed, catalog)
+    assert np.array_equal(before.colors, design.colors)
+    assert np.array_equal(before_sloped, sloped & ~under)
+
+
+def test_nothing_on_the_ground_is_an_underside(catalog):
+    """A sphere standing on the ground: its bottom layer stands on the table and is never
+    marked, and the cells right above it only where the layer below steps in."""
+    design, sloped, open_top = hints(sphere_seed(), catalog)
+    assert not sloped[:, :, 0].any()
+    assert not (sloped & ~open_top & ~undersides(design)).any()
+    assert (sloped & undersides(design)).any()
 
 
 def test_inside_out_mesh_gets_no_sloped_cells(catalog):
@@ -1784,12 +1840,19 @@ def test_seed_starting_at_zero_gives_the_same_design_as_before(catalog, pawn_pat
     slope hint of tops, standing), and again in stage 3, when the Design gained its skin
     and rule 1 began to judge each axis on its own (box corners), and for the pawn once more
     when a ray that only grazes the model began to count in part (5 cells of the pawn); the
-    values before that also predate the catalogue's colour matching by eye."""
+    values before that also predate the catalogue's colour matching by eye. The underside
+    marks of stage 4 changed them once more; with those switched off they are as before."""
     cat = at_zero(load_seed(CAT, studs=16))
-    assert voxelize(cat, catalog).fingerprint() == "5ba8ff8858ce9110"
-    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "844c7e6d36ce691b"
     pawn = at_zero(load_seed(pawn_path, studs=24))
-    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "1d5504448be23355"
+    assert voxelize(cat, catalog).fingerprint() == "a3e59ab6274160a9"
+    assert voxelize(cat, catalog, hollow=True, shell_studs=1).fingerprint() == "0bfa449ed8cf7e06"
+    assert voxelize(pawn, catalog, hollow=True).fingerprint() == "ad49552650a9dbe4"
+    with pytest.MonkeyPatch.context() as m:
+        without_undersides(m)
+        assert voxelize(cat, catalog).fingerprint() == "5ba8ff8858ce9110"
+        hollow = voxelize(cat, catalog, hollow=True, shell_studs=1)
+        assert hollow.fingerprint() == "844c7e6d36ce691b"
+        assert voxelize(pawn, catalog, hollow=True).fingerprint() == "1d5504448be23355"
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])

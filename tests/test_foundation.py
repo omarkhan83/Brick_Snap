@@ -456,3 +456,72 @@ def test_the_side_stud_brick_colour_is_the_most_common_behind(catalog):
     assert brick_colour([1, 4, 4]) == 4
     assert brick_colour([1, 2, 3]) == 2  # a tie: the middle cell
     assert brick_colour([71, 71, 71]) == 71
+
+
+# ---- stage 4: inverted slopes ---------------------------------------------------------------
+
+INVERTED = {"3665b": (1, 2), "3660b": (2, 2), "4287c": (1, 3)}  # id: (sx, sz)
+
+
+def test_the_inverted_slopes_are_in_the_table_as_derived(catalog):
+    """The rows come from the LDraw files (see bricksnap/catalog/SOURCES.md): a stud on every
+    cell of the top, the underside reaching the bottom only under the full row, the thin edge
+    on the side opposite ``low_side``; and the file names both LeoCAD and Studio know."""
+    files = {"3665b": "3665.dat", "3660b": "3660b.dat", "4287c": "4287.dat"}
+    bricklink = {"3665b": "3665", "3660b": "3660", "4287c": "4287"}
+    for pid, (sx, sz) in INVERTED.items():
+        part = catalog.parts[pid]
+        assert part.kind == "slope_inverted" and (part.sx, part.sz, part.h) == (sx, sz, 3)
+        assert part.ldraw_file == files[pid] and part.bricklink_id == bricklink[pid]
+        assert sorted(part.studs_top) == [(i, j) for i in range(sx) for j in range(sz)]
+        assert not part.antistuds_bottom
+        assert part.slope is not None and part.slope["low_side"] == "+z"
+        assert part.slope["thin_side"] == "-z" and part.slope["sloped_face"] == "down"
+        assert sorted(part.bottom_cells) == [(i, sz - 1) for i in range(sx)]  # the +z row
+        assert part.body_min == (-10.0 * sx, 0.0, -20.0 * sz + 10.0)
+        assert part.body_max == (10.0 * sx, 24.0, 10.0)
+        assert len(part.colours) >= 20 and part.colours <= set(catalog.colours)
+    assert catalog.parts["4287c"].slope["angle_deg"] < 30  # the shallow one
+    # every row's file is its own, so an LDraw file names one part
+    assert len({p.ldraw_file for p in catalog.parts.values()}) == len(catalog.parts)
+
+
+def test_an_inverted_slope_grips_only_under_its_full_row(catalog):
+    for pid, (sx, _sz) in INVERTED.items():
+        for rot in (0, 90, 180, 270):
+            p = Placement(pid, 0, 3, 4, 2, rot)
+            w, d, _ = catalog.footprint(p)
+            cells = {(3 + i, 4 + j) for i in range(w) for j in range(d)}
+            assert set(catalog.stud_cells(p)) == cells  # studs everywhere on top
+            grips = catalog.grip_cells(p)
+            thin = tuple(-v for v in catalog.low_side(p))
+            assert len(grips) == sx and set(grips) <= cells
+            for x, y in grips:  # the full row is the one furthest from the thin edge
+                assert (x - thin[0], y - thin[1]) not in cells
+                assert catalog.grips_at(p, x, y)
+            for x, y in cells - set(grips):
+                assert not catalog.grips_at(p, x, y)
+    plain = Placement("3001", 0, 0, 0, 1)
+    assert len(catalog.grip_cells(plain)) == 8
+    assert catalog.grip_cells(Placement("11477", 0, 0, 0, 1)) == []  # as before: none
+    assert catalog.grip_cells(Placement("3070b", 0, 0, 0, 1, face="front")) == []
+
+
+def test_connections_of_an_inverted_slope(catalog):
+    """It holds what stands on any of its studs, and is held only by a stud under its full
+    row: a stud under a slanted cell (cut away underneath) engages nothing."""
+    slope = Placement("3665b", 4, 0, 0, 1)  # rot 0: thin edge to -y, full row at y = 1
+    under_full = Placement("3024", 4, 0, 1, 0)
+    under_thin = Placement("3024", 4, 0, 0, 0)
+    on_thin = Placement("3024", 4, 0, 0, 4)
+    on_full = Placement("3024", 4, 0, 1, 4)
+    build = Build(shape=(1, 2, 5), parts=[slope, under_full, under_thin, on_thin, on_full])
+    g = connection_graph(build, catalog)
+    assert sorted(g.edges()) == [(0, 1), (0, 3), (0, 4)]
+    assert all(g.edges[e]["studs"] == 1 for e in g.edges())
+    wide = Placement("3660b", 4, 0, 0, 1, 180)  # thin edge to +y, full row at y = 0
+    plate = Placement("3020", 4, 0, 0, 0, 90)  # 2 x 4 plate under all four cells
+    build = Build(shape=(2, 4, 4), parts=[wide, plate])
+    assert occupancy(build, catalog)[1:] == ([], [], [])
+    g = connection_graph(build, catalog)
+    assert g.edges[0, 1]["studs"] == 2

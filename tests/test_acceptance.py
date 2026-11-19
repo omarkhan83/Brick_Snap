@@ -90,8 +90,9 @@ def test_pawn_from_file_to_checked_build(tmp_path, pawn_path, catalog):
     build = rebuild(project, catalog=catalog)
     assert build.report is not None
     assert build.report.ok, build.report.text
-    # the finishing pass may swap bricks and plates for tiles and slopes covering the same cells
-    finished = ("brick", "plate", "tile", "slope", "curved_slope")
+    # the finishing pass may swap bricks and plates for tiles and slopes covering the same
+    # cells, and for inverted slopes under the overhangs (the pawn's head has some)
+    finished = ("brick", "plate", "tile", "slope", "curved_slope", "slope_inverted")
     assert_build_matches_design(design, build, catalog, kinds=finished)
     text = project.ldraw_path.read_text()
     assert text.count("\n1 ") == len(build.parts) and "0 STEP" in text

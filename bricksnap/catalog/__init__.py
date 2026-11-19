@@ -46,6 +46,19 @@ that face of the model, pushed onto the side stud of a brick directly behind it 
   stud points to ``face``, and ``side_stud_exists(colour)`` whether it is made in a colour.
 - ``brick_colour(colours)``: the colour the side-stud brick behind a sideways part takes from
   the three cells it covers (bottom first): the most common of them, the middle one on a tie.
+
+STAGE 4 ADDITION TO THE CONTRACT: inverted slopes
+An inverted slope (kind "slope_inverted": 3665b, 3660b, 4287c) is full at the top, with a stud
+on every cell, and slanted underneath: its underside reaches the bottom of the part only under
+its full row, the cells ``bottom_cells`` in ``parts.json`` name, and rises towards its thin
+edge, on the side opposite ``low_side`` (``low_side`` is where its slanted face runs down
+to, as for any slope; the thin edge points the other way).
+- ``Part.bottom_cells``: those cells, as (dx, dz) offsets in the part's own axes.
+- ``Catalog.grip_cells(p)``: the grid cells where a placed part grips the studs under it:
+  every footprint cell of a part whose whole underside takes studs (``antistuds_bottom``),
+  only the full row of an inverted slope, none for anything else (11477, a sideways part).
+  ``grips_at(p, x, y)`` says the same of one cell. ``bricksnap.connect`` holds a part on a
+  stud only where it grips.
 """
 
 from __future__ import annotations
@@ -135,6 +148,10 @@ class Part:
     studs_side: tuple[tuple[str, float], ...] = ()
     """Side studs: (direction in the part's own axes, height of the stud's centre below the top
     of the body in LDU), for example (("-z", 10.0),) for 87087."""
+    bottom_cells: tuple[tuple[int, int], ...] = ()
+    """(dx, dz) offsets inside the footprint where the underside reaches the bottom of the
+    part (``bottom_cells`` in ``parts.json``): every cell for a plain part, only the full row
+    of an inverted slope (see ``Catalog.grip_cells``)."""
 
 
 @dataclass(frozen=True)
@@ -191,6 +208,33 @@ class Catalog:
         if p.face != "top":
             return []
         return [self.local_to_cell(p, dx, dz) for dx, dz in part.studs_top]
+
+    def grip_cells(self, p: Placement) -> list[tuple[int, int]]:
+        """Grid (x, y) of every cell where the part grips the studs under it, at z = p.z - 1.
+
+        Every footprint cell of a part whose whole underside takes studs
+        (``Part.antistuds_bottom``); for an inverted slope, only its ``bottom_cells`` (the full
+        row, whose underside reaches the bottom of the part; the rest is cut away by the
+        slant); none for any other part, and none for a sideways part.
+        """
+        part = self.parts[p.part]
+        if p.face != "top":
+            return []
+        if part.antistuds_bottom:
+            w, d, _ = self.footprint(p)
+            return [(p.x + i, p.y + j) for i in range(w) for j in range(d)]
+        if part.kind != "slope_inverted":
+            return []
+        return [self.local_to_cell(p, dx, dz) for dx, dz in part.bottom_cells]
+
+    def grips_at(self, p: Placement, x: int, y: int) -> bool:
+        """Whether the part grips a stud under grid cell (x, y) (see ``grip_cells``)."""
+        part = self.parts[p.part]
+        if p.face != "top":
+            return False
+        if part.antistuds_bottom:
+            return True
+        return part.kind == "slope_inverted" and (x, y) in self.grip_cells(p)
 
     def side_stud_faces(self, p: Placement) -> list[str]:
         """The faces ("front", "right", "back", "left") of an upright part that carry a side
@@ -472,6 +516,7 @@ def load_catalog_from(parts_path: Path, colours_path: Path) -> Catalog:
                 studs_side=tuple(
                     (str(sd["dir"]), float(sd.get("y_ldu", 10.0))) for sd in p.get("studs_side", [])
                 ),
+                bottom_cells=tuple((int(a), int(b)) for a, b in p.get("bottom_cells", [])),
             )
         )
     return Catalog(parts, colours)

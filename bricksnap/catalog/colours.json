@@ -24,7 +24,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 1 == LDConfig LEGOID 1": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 0,
@@ -51,7 +51,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 26 == LDConfig LEGOID 26": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 4,
@@ -78,7 +78,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 21 == LDConfig LEGOID 21": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 1,
@@ -105,7 +105,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 23 == LDConfig LEGOID 23": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 14,
@@ -132,7 +132,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 24 == LDConfig LEGOID 24": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 2,
@@ -159,7 +159,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 28 == LDConfig LEGOID 28": true
   },
-  "num_parts_available": 49
+  "num_parts_available": 51
  },
  {
   "ldraw_code": 71,
@@ -186,7 +186,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 194 == LDConfig LEGOID 194": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 72,
@@ -213,7 +213,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 199 == LDConfig LEGOID 199": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 70,
@@ -240,7 +240,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 192 == LDConfig LEGOID 192": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 19,
@@ -267,7 +267,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 5 == LDConfig LEGOID 5": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 28,
@@ -294,7 +294,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 138 == LDConfig LEGOID 138": true
   },
-  "num_parts_available": 45
+  "num_parts_available": 46
  },
  {
   "ldraw_code": 25,
@@ -321,7 +321,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 106 == LDConfig LEGOID 106": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 320,
@@ -348,7 +348,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 154 == LDConfig LEGOID 154": true
   },
-  "num_parts_available": 50
+  "num_parts_available": 52
  },
  {
   "ldraw_code": 272,
@@ -375,7 +375,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 140 == LDConfig LEGOID 140": true
   },
-  "num_parts_available": 47
+  "num_parts_available": 49
  },
  {
   "ldraw_code": 27,
@@ -402,7 +402,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 119 == LDConfig LEGOID 119": true
   },
-  "num_parts_available": 49
+  "num_parts_available": 51
  },
  {
   "ldraw_code": 29,
@@ -429,7 +429,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 222 == LDConfig LEGOID 222": true
   },
-  "num_parts_available": 47
+  "num_parts_available": 48
  },
  {
   "ldraw_code": 5,
@@ -483,7 +483,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 322 == LDConfig LEGOID 322": true
   },
-  "num_parts_available": 43
+  "num_parts_available": 44
  },
  {
   "ldraw_code": 321,
@@ -510,7 +510,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 321 == LDConfig LEGOID 321": true
   },
-  "num_parts_available": 46
+  "num_parts_available": 48
  },
  {
   "ldraw_code": 191,
@@ -537,7 +537,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 191 == LDConfig LEGOID 191": true
   },
-  "num_parts_available": 45
+  "num_parts_available": 47
  },
  {
   "ldraw_code": 288,
@@ -564,7 +564,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 141 == LDConfig LEGOID 141": true
   },
-  "num_parts_available": 45
+  "num_parts_available": 47
  },
  {
   "ldraw_code": 378,
@@ -591,7 +591,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 151 == LDConfig LEGOID 151": true
   },
-  "num_parts_available": 45
+  "num_parts_available": 47
  },
  {
   "ldraw_code": 330,
@@ -645,7 +645,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 312 == LDConfig LEGOID 312": true
   },
-  "num_parts_available": 45
+  "num_parts_available": 47
  },
  {
   "ldraw_code": 92,
@@ -726,7 +726,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 38 == LDConfig LEGOID 38": true
   },
-  "num_parts_available": 44
+  "num_parts_available": 45
  },
  {
   "ldraw_code": 308,
@@ -753,7 +753,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 308 == LDConfig LEGOID 308": true
   },
-  "num_parts_available": 37
+  "num_parts_available": 38
  },
  {
   "ldraw_code": 226,
@@ -780,7 +780,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 226 == LDConfig LEGOID 226": true
   },
-  "num_parts_available": 39
+  "num_parts_available": 41
  },
  {
   "ldraw_code": 73,
@@ -807,7 +807,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 102 == LDConfig LEGOID 102": true
   },
-  "num_parts_available": 47
+  "num_parts_available": 48
  },
  {
   "ldraw_code": 212,
@@ -834,7 +834,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 212 == LDConfig LEGOID 212": true
   },
-  "num_parts_available": 42
+  "num_parts_available": 43
  },
  {
   "ldraw_code": 379,
@@ -861,7 +861,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 135 == LDConfig LEGOID 135": true
   },
-  "num_parts_available": 43
+  "num_parts_available": 44
  },
  {
   "ldraw_code": 85,
@@ -888,7 +888,7 @@
    "ldraw name ~ bricklink name": false,
    "LEGO id SetDB 268 == LDConfig LEGOID 268": true
   },
-  "num_parts_available": 46
+  "num_parts_available": 47
  },
  {
   "ldraw_code": 30,
@@ -915,7 +915,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 324 == LDConfig LEGOID 324": true
   },
-  "num_parts_available": 43
+  "num_parts_available": 44
  },
  {
   "ldraw_code": 31,
@@ -1050,7 +1050,7 @@
    "ldraw name ~ bricklink name": true,
    "LEGO id SetDB 42 == LDConfig LEGOID 42": true
   },
-  "num_parts_available": 34
+  "num_parts_available": 35
  },
  {
   "ldraw_code": 46,

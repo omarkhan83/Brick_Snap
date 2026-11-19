@@ -5054,7 +5054,7 @@
  },
  {
   "id": "3665b",
-  "ldraw_file": "3665b.dat",
+  "ldraw_file": "3665.dat",
   "bricklink_id": "3665",
   "rebrickable_id": "3665",
   "name": "Slope Brick 45  2 x  1 Inverted with Inner Stopper Ring",
@@ -5180,6 +5180,259 @@
   "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
   "ldraw_author": "Owen Burgoyne [C3POwen]",
   "requested_as": "3665"
+ },
+ {
+  "id": "3660b",
+  "ldraw_file": "3660b.dat",
+  "bricklink_id": "3660",
+  "rebrickable_id": "3660",
+  "name": "Slope Brick 45  2 x  2 Inverted with Flat Bottom Pin with Inner Stopper Ring",
+  "kind": "slope_inverted",
+  "sx": 2,
+  "sz": 2,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -20.0,
+    -4.0,
+    -30.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -20.0,
+    0.0,
+    -30.0
+   ],
+   "max": [
+    20.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=10.0 LDU from centre (footprint x -20.0..20.0, z -30.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 2,
+   "stud2a.dat": 2
+  },
+  "has_bottom_antistuds": false,
+  "bottom_cells": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "slope": {
+   "low_side": "+z",
+   "thin_side": "-z",
+   "sloped_face": "down",
+   "angle_deg": 45.0,
+   "angle_range_deg": [
+    45.0,
+    45.0
+   ],
+   "nominal_angle_deg_in_ldraw_name": 45,
+   "sloped_area_ldu2": 1131.4
+  },
+  "bricklink_name": "Slope, Inverted 45 2 x 2 with Flat Bottom Pin",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "3660",
+    "result": "found: Slope, Inverted 45 2 x 2 with Flat Bottom Pin"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "3660"
+   ],
+   "rebrickable": [
+    "3660"
+   ]
+  },
+  "rebrickable_name": "Brick Sloped Inverted 45\u00b0 2 x 2 [Ovoid Bottom Pin, Bar-sized Stud Holes]",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   28,
+   30,
+   43,
+   70,
+   71,
+   72,
+   73,
+   84,
+   85,
+   191,
+   212,
+   226,
+   272,
+   288,
+   308,
+   320,
+   321,
+   322,
+   378,
+   379,
+   484
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Magnus Forsberg [MagFors]",
+  "requested_as": "3660"
+ },
+ {
+  "id": "4287c",
+  "ldraw_file": "4287.dat",
+  "bricklink_id": "4287",
+  "rebrickable_id": "4287c",
+  "name": "Slope Brick 33  3 x  1 Inverted with Notch, Stud Blocker and Thin Front",
+  "kind": "slope_inverted",
+  "sx": 1,
+  "sz": 3,
+  "h_plates": 3,
+  "h_ldu": 24.0,
+  "bbox_ldu": {
+   "min": [
+    -10.0,
+    -4.0,
+    -50.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "body_bbox_ldu": {
+   "min": [
+    -10.0,
+    0.0,
+    -50.0
+   ],
+   "max": [
+    10.0,
+    24.0,
+    10.0
+   ]
+  },
+  "origin_note": "X/Z offset from footprint centre: origin is at dx=0.0, dz=20.0 LDU from centre (footprint x -10.0..10.0, z -50.0..10.0); Y=0 is the top face of the body (body spans y 0..24.0)",
+  "studs_top": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ]
+  ],
+  "studs_top_offgrid": [],
+  "studs_side": [],
+  "stud_primitives": {
+   "stud.dat": 1,
+   "stud2a.dat": 2
+  },
+  "has_bottom_antistuds": false,
+  "bottom_cells": [
+   [
+    0,
+    2
+   ]
+  ],
+  "slope": {
+   "low_side": "+z",
+   "thin_side": "-z",
+   "sloped_face": "down",
+   "angle_deg": 27.7,
+   "angle_range_deg": [
+    27.69,
+    27.7
+   ],
+   "nominal_angle_deg_in_ldraw_name": 33,
+   "sloped_area_ldu2": 872.3
+  },
+  "bricklink_name": "Slope, Inverted 33 3 x 1",
+  "bricklink_alternates": [],
+  "bricklink_lookup": [
+   {
+    "tried": "4287",
+    "result": "found: Slope, Inverted 33 3 x 1"
+   }
+  ],
+  "ldraw_keywords_ids": {
+   "bricklink": [
+    "4287"
+   ],
+   "rebrickable": []
+  },
+  "rebrickable_name": "Brick Sloped Inverted 33\u00b0 3 x 1 with Internal Stopper and No Front Stud Connection",
+  "colours": [
+   0,
+   1,
+   2,
+   4,
+   14,
+   15,
+   19,
+   25,
+   27,
+   29,
+   70,
+   71,
+   72,
+   84,
+   191,
+   226,
+   272,
+   288,
+   320,
+   321,
+   378
+  ],
+  "ldraw_license": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "ldraw_author": "Massimo Maso [Sirio]",
+  "requested_as": "4287"
  },
  {
   "id": "4286",

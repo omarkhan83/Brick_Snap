@@ -85,6 +85,37 @@ Transparent colours: Trans-Clear is always included. The other three were picked
 | Colour "Trans-Light Blue" | LDraw **43**, Rebrickable **41**. LDraw 41 is Trans_Medium_Blue. Trans-Orange (dropped) is LDraw 57, RB 182. |
 | Licence | Most LDraw parts are now **CC BY 4.0**, not 2.0 (see below). |
 
+## Added 2026-11-19: inverted slopes 3660b and 4287c, and the file name the LDraw output uses
+
+Two rows were added for the finishing pass's inverted slopes, and 3665b's `ldraw_file` changed. The
+sources were downloaded again on 2026-11-19 into a cache folder outside the repository
+(`~/.cache/bricksnap/catalog/downloads`, same layout as `download.sh` makes: LDraw `complete.zip`
+(LDConfig.ldr still `UPDATE 2026-05-29`), Rebrickable CSVs, the BrickLink colour guide, SetDB, and
+BrickLink catalog pages for 3665, 3665b, 3660, 3660b, 4287, 4287a, 4287b and 4287c
+fetched with `fetch_bricklink_parts.sh`). `build_catalog.py` was run unchanged, with these entries
+appended to its `PARTS` list (by a wrapper outside the repository):
+
+```
+("3660b", "3660",  "slope_inverted", "3660"),
+("4287c", "4287c", "slope_inverted", "4287"),
+```
+
+(and, to compare, 3665, 3665a, 3660, 4287 and 4287a). Every field of the two new rows is the script's
+output, copied as it came, except `ldraw_file` of 4287c (below) and `requested_as`. The same run
+reproduces the shipped 3665b row exactly, field for field, and leaves the colour list (40 codes)
+unchanged; only the BrickLink fields of rows whose pages were not fetched this time differ, and those
+rows were not touched. `num_parts_available` in `colours.json` was recounted over the 52 rows.
+
+| Part | What was chosen and why |
+|---|---|
+| 2 x 2 inverted `3660` | LDraw `3660.dat` is a stub moved to 3660a, which is marked obsolete. **3660b.dat** ("with Flat Bottom Pin with Inner Stopper Ring", 2026) is the current mould and is keyworded BrickLink 3660 / Rebrickable 3660, so the row is derived from it with Rebrickable id 3660. Its studs are all four plain `stud.dat`/`stud2a.dat` at the top face, so `studs_top` comes out as all four cells; `bottom_cells` is the full row `[0,1],[1,1]`. |
+| 3 x 1 inverted `4287` | `4287.dat` is a stub moved to 4287a. LDraw has 4287a, 4287b and 4287c; Rebrickable has no `4287`, only 4287a, 4287b and 4287c. **4287c** ("with Notch, Stud Blocker and Thin Front", Rebrickable "with Internal Stopper and No Front Stud Connection") is derived with its own Rebrickable id, so `colours` lists only the colours that mould was made in (21). 4287a's file models its two front studs as stretched `stud2a.dat` (scaled 4 and 1.5 along Y), which the script does not recognise as top studs (it warns "stud with odd orientation"), so 4287a would have come out with one stud instead of three; 4287c's studs are plain and all three are found. The body boxes of 4287, 4287a and 4287c are identical. |
+| File names written | BrickLink Studio's parts table (`StudioPartDefinition2.txt`, read on this machine only to cross-check, nothing copied) pairs `3665.dat` with BrickLink 3665, `4287.dat` with BrickLink 4287, and both `3660.dat` and `3660b.dat` with BrickLink 3660; it has no row for `3665b.dat` or `4287c.dat`, although it has the files. LeoCAD 26.09's library (`library.bin` in its AppImage) has the official files: `3665.dat` and `4287.dat` are the "moved to" stubs, which it draws as 3665a and 4287a (the same outside shape; checked by rendering), and `3660b.dat` is a real part. So `ldraw_file` is **3665.dat** for 3665b, **4287.dat** for 4287c and **3660b.dat** for 3660b: each a name both programs draw and Studio pairs with the right BrickLink part. 3665.dat and 4287.dat are stubs, against the rule above that a file is never a stub; the geometry still comes from the real file (3665b, 4287c), whose body box is the same as the stub's. |
+
+How an inverted slope holds: `bottom_cells` is where its underside reaches the bottom of the part (its
+full row); `bricksnap.catalog.Catalog.grip_cells` takes that as the cells it grips studs under
+(`has_bottom_antistuds` stays false). Its top has a stud on every cell.
+
 ## Not verified (stated plainly)
 
 - **Rebrickable's licence or terms of use.** I could not read them: the site returned 403/402. Check `https://rebrickable.com/downloads/` and the API terms yourself before redistributing the RB-derived fields (`rebrickable_*`, `colours`, `num_parts_available`, `current_production`).
@@ -98,7 +129,7 @@ Transparent colours: Trans-Clear is always included. The other three were picked
 
 ## Licence and attribution
 
-**LDraw-derived data** comes from the LDraw.org Parts Library (`CAreadme.txt`). Each part is licensed under CC BY 2.0 and/or CC BY 4.0 according to its `!LICENSE` header. Our 50 parts: 49 are "CC BY 4.0" and one is "CC BY 2.0 and CC BY 4.0". Each record carries `ldraw_license` and `ldraw_author`. LDConfig.ldr is from the same library. Suggested attribution:
+**LDraw-derived data** comes from the LDraw.org Parts Library (`CAreadme.txt`). Each part is licensed under CC BY 2.0 and/or CC BY 4.0 according to its `!LICENSE` header. Our 50 parts: 49 are "CC BY 4.0" and one is "CC BY 2.0 and CC BY 4.0". The two rows added on 2026-11-19 (3660b by Magnus Forsberg, 4287c by Massimo Maso) are both "CC BY 4.0". Each record carries `ldraw_license` and `ldraw_author`. LDConfig.ldr is from the same library. Suggested attribution:
 
 > Part geometry, names and colour definitions derived from the LDraw.org Parts Library (https://www.ldraw.org), © the respective LDraw part authors (see `ldraw_author` per part), licensed under CC BY 2.0 / CC BY 4.0 (https://creativecommons.org/licenses/by/2.0/, https://creativecommons.org/licenses/by/4.0/). Values were computed from the original files; the files themselves are not redistributed.
 

@@ -59,6 +59,19 @@ STAGE 2 ADDITION TO THE CONTRACT: where the seed's surface is slanted
 - With ``slope_hints=False`` the finish is all FINISH_STUDS.
 - Hollowing does not change the finish of the cells that remain.
 
+STAGE 4 ADDITION TO THE CONTRACT: where the seed's underside is slanted
+- An *underside cell* is a filled cell with an empty cell below it, not in the bottom layer
+  (z = 0 stands on the table) and not open at the top (a cell open at the top is a top, and
+  keeps exactly the mark the rules above give it). Each underside cell is judged by the rules
+  above turned upside down: the mean normal of the seed's downward-facing surface inside it
+  (n_z below -cos(70 degrees)), with the emptied surface cells stacked right below it counted
+  as its own, and its walls seen from "downhill" (here: the way the underside rises), is
+  FINISH_SLOPED when its downward part -n_z is between cos(70 degrees) and cos(20 degrees).
+  bricksnap/finish.py puts inverted slopes there.
+- So a sphere also gets a band of sloped cells around its lower half (but not on the layer
+  it stands on, nor on its very bottom), a box and an upright cylinder still get none, and
+  every top cell is marked exactly as without this addition.
+
 STAGE 2 ADDITION TO THE CONTRACT: the seed keeps its place on the grid
 - ``load_seed`` leaves the model standing on z = 0 and centred, in x and y, in the smallest
   whole number of studs that holds it, so its minimum corner is (sx, sy, 0) with sx and sy
@@ -531,6 +544,7 @@ def voxelize(
             (xs[on_top], ys[on_top], top[on_top]), body
         )
         finish[_sloped(tris, body, open_top, home)] = FINISH_SLOPED
+        finish[_sloped_undersides(tris, body, filled, dropped, open_top)] = FINISH_SLOPED
 
     # 5. rule 4: the skin nobody can see thickens the wall it lines (after the slope hints,
     # so the cells already filled keep theirs; a cell filled here is FINISH_STUDS)
@@ -1754,6 +1768,37 @@ def _sloped(
         seen = np.concatenate(wall_area) * np.maximum(facing, 0.0)
         slanted &= total[3] >= np.bincount(where, seen, minlength=n_cells)
     return (slanted & top_flat).reshape(body)
+
+
+def _sloped_undersides(
+    tris: np.ndarray,
+    body: tuple[int, int, int],
+    filled: np.ndarray,
+    dropped: np.ndarray,
+    open_top: np.ndarray,
+) -> np.ndarray:
+    """Which underside cells (filled, an empty cell below, not in the bottom layer, not open
+    at the top) hold a slanted downward surface: ``_sloped`` of the model turned upside down
+    (z to nz - z, each triangle's winding reversed so that its normal still points out of the
+    model), where those cells are the open tops and the emptied surface cells stacked right
+    below them their skin. Returns a bool array of shape ``body``."""
+    nx, ny, nz = body
+    turned = tris[:, ::-1].copy()
+    turned[:, :, 2] = nz - turned[:, :, 2]
+    up = filled[:, :, ::-1]
+    gone = dropped[:, :, ::-1]
+    bottom = up & ~np.concatenate([up[:, :, 1:], np.ones((nx, ny, 1), bool)], 2)
+    bottom &= ~open_top[:, :, ::-1]
+    z = np.arange(nz)
+    base = np.maximum.accumulate(np.where(gone, -1, z), axis=2)
+    home = np.full(body, -1, dtype=np.int64)
+    xs, ys, zs = np.nonzero(gone & (base >= 0))
+    top = base[xs, ys, zs]
+    on_top = bottom[xs, ys, top]
+    home[xs[on_top], ys[on_top], zs[on_top]] = np.ravel_multi_index(
+        (xs[on_top], ys[on_top], top[on_top]), body
+    )
+    return _sloped(turned, body, bottom, home)[:, :, ::-1]
 
 
 def _batches(items: np.ndarray, estimate: np.ndarray) -> list[np.ndarray]:

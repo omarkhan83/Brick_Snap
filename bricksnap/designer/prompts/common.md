@@ -23,7 +23,7 @@ You never place bricks. You state what the model should look like, and the softw
 On every rebuild the software does three things, and `rebuild` and `describe` tell you what it did.
 
 - It chooses the bricks and plates and overlaps them so the model is one piece.
-- It finishes the surface from the finish marks: tiles on smooth cells, slope parts on sloped cells. A slope takes the corner off a step. It never adds material, so to get a slanted surface you build the staircase and mark it sloped. A step one brick high (three plates) per stud becomes a 45-degree slope; a step two plates high becomes a shallow one.
+- It finishes the surface from the finish marks: tiles on smooth cells, slope parts on sloped cells. A slope takes the corner off a step. It never adds material, so to get a slanted surface you build the staircase and mark it sloped. A step one brick high (three plates) per stud becomes a 45-degree slope; a step two plates high becomes a shallow one. Under an overhang an inverted slope takes the lower corner off a step in the same way.
 - It repairs what would otherwise fall off. Parts hold each other only through studs, which means vertically, and each part has one colour. A feature in its own colour stuck on the side of the model would be loose, so the software continues that colour into cells nobody can see. If it has to add visible cells to make something hold, it says where. Look at what it added and decide whether you like it or want to solve it differently.
 
 # What makes a small brick model read

@@ -2,7 +2,8 @@
 
 Shared by the layout solver, the finishing pass, the checks and the renderer so they all
 agree on what "connected" means: part B is held by part A when B's underside sits directly
-on at least one of A's studs. Parts side by side in the same layer do not hold each other.
+on at least one of A's studs (where B grips: see the stage 4 addition on inverted slopes).
+Parts side by side in the same layer do not hold each other.
 
 Sturdiness is measured here too, so the solver and the finishing pass share one definition
 of it. ``lone_links(build, catalog)`` lists a Build's *lone links*, heaviest first, and
@@ -43,6 +44,15 @@ in front of a brick (see ``Placement``).
 - ``on_base_z(p)``: the level at which a part counts as standing on the ground or the base:
   its own z, or z + 1 for a sideways part, which never rests on the ground (its lower edge
   is above the bottom of its column). The checks and the lone links use it.
+
+STAGE 4 ADDITION TO THE CONTRACT: inverted slopes
+A part holds on a stud below it only where its underside grips (``Catalog.grip_cells``). For
+every part placed before inverted slopes that is its whole footprint, so nothing changes for
+them. An inverted slope (3665b, 3660b, 4287c) has a stud on every cell of its top, so it holds
+whatever stands on any of them, but grips the studs under it only under its full row: the
+slanted cells are cut away underneath and hold nothing, so a stud under one of them (where the
+finishing pass never leaves one) engages nothing. 11477, whose underside does not reach the
+bottom across its footprint either, still grips nothing, as before.
 """
 
 from __future__ import annotations
@@ -158,8 +168,11 @@ def connection_graph(build: Build, catalog: Catalog, occ: np.ndarray | None = No
                 continue
             above = build.parts[j]
             above_part = catalog.parts.get(above.part)
-            # the part above must start exactly on this layer and accept studs underneath
-            if above_part is None or above.z != top or not above_part.antistuds_bottom:
+            # the part above must start exactly on this layer and grip the stud there (an
+            # inverted slope grips only under its full row: ``Catalog.grip_cells``)
+            if above_part is None or above.z != top:
+                continue
+            if not above_part.antistuds_bottom and not catalog.grips_at(above, x, y):
                 continue
             if above.face != "top":  # a sideways part's underside faces its brick
                 continue

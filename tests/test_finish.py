@@ -10,6 +10,7 @@ input's parts (the largest load in cells no higher, no more lone links; see
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import json
@@ -111,6 +112,68 @@ def slanted_cells(catalog, p: Placement) -> list[tuple[int, int, int]]:
     ]
 
 
+def underside_mask(design: Design) -> np.ndarray:
+    """Underside cells: filled, an empty cell below (not in the bottom layer), filled above."""
+    filled = design.filled
+    out = np.zeros_like(filled)
+    out[:, :, 1:-1] = filled[:, :, 1:-1] & ~filled[:, :, :-2] & filled[:, :, 2:]
+    return out
+
+
+def cut_cells(catalog, p: Placement) -> list[tuple[int, int, int]]:
+    """The bottom cells of an inverted slope's slanted columns (those it does not grip under)."""
+    w, d, _ = catalog.footprint(p)
+    grips = set(catalog.grip_cells(p))
+    return [
+        (p.x + i, p.y + j, p.z)
+        for i in range(w)
+        for j in range(d)
+        if (p.x + i, p.y + j) not in grips
+    ]
+
+
+def assert_inverted_slopes(
+    before: Build, after: Build, design: Design, catalog, occ1: np.ndarray
+) -> None:
+    """The stage 4 addition on undersides, checked from the contract: each inverted slope's
+    slanted columns stand over an empty cell on a sloped underside cell, outward is clear
+    below its top level, no open top it covers wants a tile or a slope, and it holds where
+    the input parts it was cut from were held (a random layout may have loose ones)."""
+    nx_, ny_, nz_ = design.shape
+    above = np.zeros_like(design.filled)
+    above[:, :, :-1] = design.filled[:, :, 1:]
+    wanted_top = design.filled & ~above & (fin(design) != FINISH_STUDS)
+    for q in detail_parts(after, design):  # a cell under a detail keeps its stud
+        if q.face == "top":
+            w, d, _ = catalog.footprint(q)
+            wanted_top[q.x : q.x + w, q.y : q.y + d, q.z - 1] = False
+    graph = connection_graph(after, catalog)
+    graph0 = connection_graph(before, catalog)
+    occ0 = occupancy(before, catalog)[0]
+    for i, p in enumerate(after.parts):
+        if kind(catalog, p) != "slope_inverted":
+            continue
+        was = {int(j) for j in np.unique(occ0[catalog.cells(p)]) if j >= 0}
+        if all(graph0.degree[j] > 0 for j in was):
+            assert graph.degree[i] > 0, f"{p} holds nothing and is held by nothing"
+        w, d, h = catalog.footprint(p)
+        assert not wanted_top[catalog.cells(p)].any(), f"{p} covers a top that wants a part"
+        for x, y, z in cut_cells(catalog, p):
+            assert z > 0 and not design.filled[x, y, z - 1], f"{p} has something under its slant"
+            assert fin(design)[x, y, z] == FINISH_SLOPED
+        thin = tuple(-v for v in catalog.low_side(p))
+        for i_ in range(w):
+            for j in range(d):
+                x, y = p.x + i_, p.y + j
+                if p.x <= x + thin[0] < p.x + w and p.y <= y + thin[1] < p.y + d:
+                    continue  # not on the thin edge
+                ox, oy = x + thin[0], y + thin[1]
+                if 0 <= ox < nx_ and 0 <= oy < ny_:
+                    for z in range(p.z, p.z + h - 1):
+                        assert not design.filled[ox, oy, z], f"{p} faces into the model"
+                        assert occ1[ox, oy, z] < 0, f"{p} faces into a detail part"
+
+
 def assert_finished(before: Build, after: Build, design: Design, catalog) -> dict:
     """Independent check of sections 1, 5 and 6 of the contract. Returns some counts."""
     assert after is not before
@@ -193,6 +256,7 @@ def assert_finished(before: Build, after: Build, design: Design, catalog) -> dic
             for a in range(len(ordered))
             for b in range(len(ordered))
         )
+    assert_inverted_slopes(before, after, design, catalog, occ1)
     assert_no_less_sturdy(before, after, design, catalog)
     c = counts(after, design, catalog)
     assert_summary_note(before, after, design, c, len(details))
@@ -333,8 +397,13 @@ def assert_steps_follow_the_input(before, after, details, occ0, occ1, catalog) -
     assert got == {i: dense[s] for i, s in want.items()}, "the steps do not follow the input's"
 
 
-SUMMARY = re.compile(r"Finishing placed (\d+) tiles?, (\d+) slopes? and (\d+) detail parts?\.$")
-REASON = re.compile(r"(\d+) cells? marked (smooth|sloped) (at x=\d|in \d+ places \(x=\d)")
+SUMMARY = re.compile(
+    r"Finishing placed (\d+) tiles?, (\d+) slopes?(?:, (\d+) inverted slopes?)? and "
+    r"(\d+) detail parts?\.$"
+)
+REASON = re.compile(
+    r"(\d+) cells? marked (smooth|sloped on the underside|sloped) (at x=\d|in \d+ places \(x=\d)"
+)
 MERGED = re.compile(
     r"And (\d+) more cells? in other places (?:was|were) left as (?:it was|they were)\.$"
 )
@@ -352,12 +421,20 @@ def assert_summary_note(before, after, design, c, n_details) -> None:
     kept its stud and every sloped cell that got no slope, plus marked cells under a detail),
     then one sentence per skipped detail; nothing at all when there was nothing to do."""
     own = after.notes[len(before.notes) :]
-    if c["smooth"] == 0 and c["sloped"] == 0 and not design.details:
+    if c["smooth"] == 0 and c["sloped"] == 0 and c["underside"] == 0 and not design.details:
         assert own == []
         return
     m = SUMMARY.match(own[0])
     assert m, own[0]
-    assert [int(v) for v in m.groups()] == [c["tiles"], sum(c["slopes"].values()), n_details]
+    tiles, slopes, inverted, placed = m.groups()
+    assert [int(tiles), int(slopes), int(placed)] == [
+        c["tiles"],
+        sum(c["slopes"].values()),
+        n_details,
+    ]
+    # inverted slopes are counted exactly when some underside cell is marked sloped
+    assert (inverted is not None) == (c["underside"] > 0), own[0]
+    assert int(inverted or 0) == sum(c["inverted"].values())
     reasons = reason_notes(before, after)
     assert own[1 : 1 + len(reasons)] == reasons, "the reasons come before the detail notes"
     assert len(own) == 1 + len(reasons) + len(design.details) - n_details
@@ -375,14 +452,12 @@ def assert_summary_note(before, after, design, c, n_details) -> None:
     want = {
         "smooth": c["smooth_left"] + c["smooth_held"],
         "sloped": c["sloped_left"] + c["sloped_held"],
+        "sloped on the underside": c["underside_left"],
     }
     if by_name["merged"]:
         assert sum(by_name.values()) == sum(want.values()), (reasons, want)
     else:
-        assert by_name["smooth"] == want["smooth"] and by_name["sloped"] == want["sloped"], (
-            reasons,
-            want,
-        )
+        assert all(by_name[k] == want[k] for k in want), (reasons, want)
 
 
 def detail_parts(build: Build, design: Design) -> list[Placement]:
@@ -406,6 +481,7 @@ def counts(build: Build, design: Design, catalog) -> dict:
     opened = open_mask(design) & ~under
     smooth = opened & (fin(design) == FINISH_SMOOTH)
     sloped = opened & (fin(design) == FINISH_SLOPED)
+    underside = underside_mask(design) & (fin(design) == FINISH_SLOPED)
     tiled = np.zeros(design.shape, dtype=bool)
     slanted = np.zeros(design.shape, dtype=bool)
     for p in build.parts:
@@ -415,6 +491,9 @@ def counts(build: Build, design: Design, catalog) -> dict:
             tiled[catalog.cells(p)] = True
         if kind(catalog, p) == "slope":
             for c in slanted_cells(catalog, p):
+                slanted[c] = True
+        if kind(catalog, p) == "slope_inverted":
+            for c in cut_cells(catalog, p):
                 slanted[c] = True
     assert not (tiled & ~smooth).any(), "a tile where no smooth open cell was"
     assert np.all(occ[under] >= 0)
@@ -426,6 +505,9 @@ def counts(build: Build, design: Design, catalog) -> dict:
         "smooth_left": int((smooth & ~tiled).sum()),
         "sloped": int(sloped.sum()),
         "sloped_left": int((sloped & ~slanted).sum()),
+        "underside": int(underside.sum()),
+        "underside_left": int((underside & ~slanted).sum()),
+        "inverted": Counter(p.part for p in build.parts if kind(catalog, p) == "slope_inverted"),
         "slopes": Counter(
             p.part for p in build.parts if kind(catalog, p) == "slope" and p not in details
         ),
@@ -1280,14 +1362,53 @@ def without_the_sturdiness_rule(monkeypatch) -> None:
     monkeypatch.setattr(finish_module._Sturdy, "holds", lambda self, parts: True)
 
 
+def no_undersides(cases: dict[str, list[tuple[Design, Build]]]) -> dict:
+    """The cases with every underside cell marked sloped marked "studs" instead."""
+    out: dict[str, list[tuple[Design, Build]]] = {}
+    for name, group in cases.items():
+        out[name] = []
+        for design, build in group:
+            plainer = copy.deepcopy(design)
+            under = underside_mask(design) & (fin(design) == FINISH_SLOPED)
+            fin(plainer)[under] = FINISH_STUDS
+            out[name].append((plainer, build))
+    return out
+
+
+# The fingerprints of ``test_the_notes_change_nothing_in_the_build`` with inverted slopes
+# (stage 4 addition on undersides): only the random blobs mark undersides sloped.
+WITH_UNDERSIDES = {
+    "unmerged": "b6196c2c4328c551",
+    "unmerged, no rule": "48cac275d357020e",
+    "merged": "55e8e727a12c3d35",
+    "merged, no rule": "62b7bd5385c34675",
+}
+
+
 def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
     """Finding the reasons must not change what the pass builds: these fingerprints of the
     parts (with their steps and order) were recorded before the reasons were added, and
     before the sturdiness rule, so they hold with the rule switched off; with it, the
     first set (recorded when the rule took its present form) holds. Both are of the pass
     with merging switched off (it came later and changes no tile or slope); the last two
-    sets, with merging, were recorded when it was added."""
-    cases = mixed_cases(catalog)
+    sets, with merging, were recorded when it was added. They were recorded before inverted
+    slopes too, so they hold for the cases with no underside cell marked sloped (byte for
+    byte); the random blobs mark some, and their fingerprints with them are recorded in
+    ``WITH_UNDERSIDES``."""
+    full = mixed_cases(catalog)
+    cases = no_undersides(full)
+    blobs = full["blobs"]
+    assert not any(
+        (underside_mask(d) & (fin(d) == FINISH_SLOPED)).any() for g in cases.values() for d, _ in g
+    )
+    assert all(
+        not (underside_mask(d) & (fin(d) == FINISH_SLOPED)).any()
+        for d, _ in full["stairs"] + full["shaped"]
+    )
+
+    def blob_print() -> str:
+        return parts_fingerprint([finish(build, design, catalog) for design, build in blobs])
+
     with monkeypatch.context() as m:
         without_merging(m)
         want = {
@@ -1301,6 +1422,7 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
         # and these cases do have tiles, slopes, details and cells left for every sort of reason
         notes = " ".join(n for b in builds for n in b.notes)
         assert "detail part stands on" in notes and "would come loose" in notes
+        assert blob_print() == WITH_UNDERSIDES["unmerged"]
         without_the_sturdiness_rule(m)
         want = {
             "blobs": "cb27a5fdc520506e",
@@ -1310,15 +1432,24 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
         for name, group in cases.items():
             builds = [finish(build, design, catalog) for design, build in group]
             assert parts_fingerprint(builds) == want[name], name
+        assert blob_print() == WITH_UNDERSIDES["unmerged, no rule"]
     want = {"blobs": "9975c0dfc0f3508a", "stairs": "6ed0b4d017052265", "shaped": "168f8170b8a0be96"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
+    assert blob_print() == WITH_UNDERSIDES["merged"]
     without_the_sturdiness_rule(monkeypatch)
     want = {"blobs": "a4dfcb839870ddf1", "stairs": "5e3974e110b7e9c4", "shaped": "47e87f92bfdefcdc"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
+    assert blob_print() == WITH_UNDERSIDES["merged, no rule"]
+    # the blobs do get inverted slopes
+    assert any(
+        kind(catalog, p) == "slope_inverted"
+        for design, build in blobs
+        for p in finish(build, design, catalog).parts
+    )
 
 
 def test_nothing_changes_where_no_swap_threatens_sturdiness(catalog, monkeypatch):
@@ -1514,6 +1645,24 @@ def test_speed_3000_parts(catalog):
     assert elapsed < 10.0, f"{elapsed:.1f} s"
     c = assert_finished(build, after, design, catalog)
     assert c["tiles"] > 0 and sum(c["slopes"].values()) > 0
+
+
+@pytest.mark.thorough
+def test_speed_3000_parts_with_undersides(catalog):
+    """The same sphere with its underside marked sloped too: the inverted slopes are measured
+    on a budget, so the pass still takes about 4.3 s (3.2 s without them) on the lead's
+    machine; the limit, as above, allows a slower or busy one."""
+    design = mark_open(shapes.sphere(36), FINISH_SLOPED)
+    fin(design)[:18][fin(design)[:18] == FINISH_SLOPED] = FINISH_SMOOTH
+    fin(design)[underside_mask(design)] = FINISH_SLOPED
+    build = solve(design, catalog)
+    assert len(build.parts) >= 3000
+    start = time.perf_counter()
+    after = finish(build, design, catalog)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 13.0, f"{elapsed:.1f} s"
+    c = assert_finished(build, after, design, catalog)
+    assert sum(c["inverted"].values()) > 0
 
 
 class CountingAdjacency(dict):
@@ -2015,6 +2164,9 @@ def test_how_the_sturdiness_sentences_read(catalog):
 # ---- stage 4: merging what the swaps leave ------------------------------------------------
 
 
+INVERTED_PARTS = finish_module.INVERTED_SLOPE_PARTS
+
+
 def shaped_parts(build: Build, catalog) -> Counter:
     """Every part that is not a plain brick or plate, as placed (steps aside)."""
     return Counter(
@@ -2064,7 +2216,14 @@ def test_merging_needs_a_part_the_pass_made(catalog):
 def test_merging_on_the_samples(catalog, samples, monkeypatch):
     """At 16 studs merging takes the duck under 450 parts (503 before it) and the eleven
     samples from 2,809 to about 2,400, moving no tile, slope or detail part, and leaving no
-    model with a heavier weak spot or more of them, counted as the checks count."""
+    model with a heavier weak spot or more of them, counted as the checks count. (Inverted
+    slopes are placed after the merges, in the build the merges left, so with merging
+    switched off they go elsewhere: they are left out of the comparison.)"""
+
+    def on_top(build: Build) -> Counter:
+        shaped = shaped_parts(build, catalog)
+        return Counter({k: n for k, n in shaped.items() if k[0] not in INVERTED_PARTS})
+
     total = 0
     for name, (design, build) in samples[16].items():
         after = finish(build, design, catalog)
@@ -2072,7 +2231,7 @@ def test_merging_on_the_samples(catalog, samples, monkeypatch):
             without_merging(m)
             unmerged = finish(build, design, catalog)
         assert len(after.parts) <= len(unmerged.parts), name
-        assert shaped_parts(after, catalog) == shaped_parts(unmerged, catalog), name
+        assert on_top(after) == on_top(unmerged), name
         most, count = checks_weak_spots(after, catalog)
         most0, count0 = checks_weak_spots(unmerged, catalog)
         assert most <= most0 and count <= count0, (name, most, most0, count, count0)
@@ -2157,3 +2316,121 @@ def test_a_smooth_top_on_a_side_stud_brick_says_why_it_keeps_its_stud(catalog):
     assert (
         "top of a brick with a stud on its side (87087)" in note and "one brick course down" in note
     )
+
+
+# ---- stage 4: inverted slopes under overhangs -----------------------------------------------
+
+
+def overhang_cross(arm: int = 2, width: int = 2) -> Design:
+    """A grey column standing on the ground with an arm of its own colour reaching out on
+    each side a brick above the ground, all under a grey cap that holds them; the outer cells
+    of each arm's underside are marked sloped (all but the cell next to the column)."""
+    n = 2 + 2 * arm
+    colors = np.full((n, n, 10), EMPTY, dtype=np.int16)
+    lo, hi = arm, arm + 2
+    colors[lo:hi, lo:hi, 0:9] = DEFAULT_COLOUR
+    colors[:, :, 9] = DEFAULT_COLOUR
+    across = slice(lo, lo + width)
+    colors[0:lo, across, 3:9] = RED
+    colors[hi:n, across, 3:9] = 1  # blue
+    colors[across, 0:lo, 3:9] = 14  # yellow
+    colors[across, hi:n, 3:9] = 2  # green
+    design = Design(colors=colors)
+    under = underside_mask(design)
+    under[lo - 1 : hi + 1, lo - 1 : hi + 1] = False  # not next to the column
+    fin(design)[under] = FINISH_SLOPED
+    return design
+
+
+@pytest.mark.parametrize(
+    ("arm", "width", "part"), [(2, 2, "3660b"), (2, 1, "3665b"), (3, 1, "4287c")]
+)
+def test_inverted_slopes_go_under_an_overhang_on_every_side(catalog, arm, width, part):
+    design = overhang_cross(arm, width)
+    before, after, c = run(design, catalog)
+    inverted = [p for p in after.parts if kind(catalog, p) == "slope_inverted"]
+    assert sorted(p.part for p in inverted) == [part] * 4
+    thin = {tuple(-v for v in catalog.low_side(p)) for p in inverted}
+    assert thin == set(DIRECTIONS)  # each faces down and outwards, one on each side
+    assert c["underside_left"] == 0
+    assert after.notes[-1] == (
+        "Finishing placed 0 tiles, 0 slopes, 4 inverted slopes and 0 detail parts."
+    )
+
+
+def test_an_inverted_slope_is_held_only_where_it_grips(catalog):
+    """Nothing is under the slanted cells (they hold nothing below), and every part on its
+    studs, the slanted cells' included, holds it: here the arm above, hung from the cap."""
+    design = overhang_cross(2, 2)
+    _, after, _ = run(design, catalog)
+    g = connection_graph(after, catalog)
+    occ = occupancy(after, catalog)[0]
+    for i, p in enumerate(after.parts):
+        if kind(catalog, p) != "slope_inverted":
+            continue
+        for x, y, z in cut_cells(catalog, p):
+            assert occ[x, y, z - 1] < 0
+        w, d, h = catalog.footprint(p)
+        on_top = occ[p.x : p.x + w, p.y : p.y + d, p.z + h]
+        above = {int(j) for j in np.unique(on_top) if j >= 0}
+        assert above <= set(g.adj[i]) and above  # what stands on its studs holds it
+
+
+def test_no_underside_marks_no_change(catalog):
+    """With no underside cell marked sloped the pass gives exactly what it gave before inverted
+    slopes existed: here, the build of the same Design with the marks taken off, which has
+    none, and no count of inverted slopes in its note."""
+    design = overhang_cross(2, 2)
+    marks = mark_open(overhang_cross(2, 2), FINISH_SLOPED)
+    fin(marks)[underside_mask(marks)] = FINISH_STUDS
+    build = solve(design, catalog)
+    out = finish(build, marks, catalog)
+    assert not any(kind(catalog, p) == "slope_inverted" for p in out.parts)
+    assert "inverted" not in " ".join(out.notes)
+    plain_design = overhang_cross(2, 2)
+    fin(plain_design)[...] = FINISH_STUDS
+    same = finish(build, plain_design, catalog)
+    assert same.parts == build.parts and same.notes == build.notes
+
+
+def test_a_flat_bottom_marked_sloped_says_so(catalog):
+    """A slab held up by a column, its whole underside marked sloped: the cells in the middle
+    of a flat bottom get the note that the underside does not step up beside them."""
+    colors = np.full((10, 10, 9), EMPTY, dtype=np.int16)
+    colors[4:6, 4:6, 0:6] = RED
+    colors[:, :, 6:9] = RED
+    design = Design(colors=colors)
+    fin(design)[underside_mask(design)] = FINISH_SLOPED
+    _, after, c = run(design, catalog)
+    notes = " ".join(after.notes)
+    assert "marked sloped on the underside" in notes
+    assert "the underside does not step up beside" in notes
+    assert c["underside"] > 0
+
+
+def test_an_inverted_slope_that_would_cut_parts_into_pieces_is_not_placed(catalog, monkeypatch):
+    """At most one part more than it took out: with that limit at zero, none goes in where
+    the bricks around it would be cut, and the note says why."""
+    design = overhang_cross(2, 2)
+    monkeypatch.setattr(finish_module, "_INVERTED_MOST_NEW", -10)
+    _, after, c = run(design, catalog)
+    assert not any(kind(catalog, p) == "slope_inverted" for p in after.parts)
+    assert "cut the parts around it into more pieces" in " ".join(after.notes)
+
+
+def test_inverted_slopes_never_add_a_weak_spot_on_the_samples(catalog, samples):
+    """Counted as the checks count them, no sample has a heavier weak spot or more of them
+    than with no underside marked sloped; the duck, the teapot and the pawn get inverted
+    slopes; and no model needs more than a few more parts."""
+    got = {}
+    for name, (design, build) in samples[16].items():
+        after = finish(build, design, catalog)
+        plainer = copy.deepcopy(design)
+        fin(plainer)[underside_mask(design) & (fin(design) == FINISH_SLOPED)] = FINISH_STUDS
+        was = finish(build, plainer, catalog)
+        most, count = checks_weak_spots(after, catalog)
+        most0, count0 = checks_weak_spots(was, catalog)
+        assert most <= most0 and count <= count0, (name, most, most0, count, count0)
+        assert len(after.parts) <= len(was.parts) + 6, (name, len(after.parts), len(was.parts))
+        got[name] = sum(1 for p in after.parts if kind(catalog, p) == "slope_inverted")
+    assert got["duck"] >= 8 and got["teapot"] >= 4 and got["pawn"] >= 2, got

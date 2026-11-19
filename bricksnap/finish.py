@@ -53,7 +53,8 @@ Words used below
      bottom level. The bottom level may be filled: the slope's lip rests against it.
    Parts to use: 3040b and 3039 (45 degrees, three plates tall, one row of studs on the
    high side), 54200 and 85984 (cheese slopes, two plates tall, no studs). 4286 and 11477
-   may be used where they fit; 3665b (inverted) is not used by this pass.
+   may be used where they fit. Inverted slopes go under overhangs instead (see the stage 4
+   addition on undersides).
    Preferences: a slope three plates tall before a cheese slope where both fit; a two-wide
    part before two one-wide parts. When a cell could slope in more than one direction:
    first the direction with the bigger drop at the low edge, counted only up to the slope's
@@ -361,6 +362,63 @@ joins plain parts into fewer, larger ones.
   2,416 (the duck 401, the teapot 192, the pawn 177), with the same shaped share and
   outlines; weak spots 232 become 186, and no model's heaviest weak spot covers more cells
   than before. The 3,000-part sphere took 2.0 seconds to finish and takes 3.3.
+
+STAGE 4 ADDITION TO THE CONTRACT: inverted slopes under overhangs
+Section 3 shapes only the top of a model; the underside of every overhang (a chin, a belly, the
+lower half of anything round) stayed a staircase. Now its mirror image is done underneath.
+- An *underside cell* is a filled cell with an empty cell below it (not in the bottom layer,
+  which stands on the table) and a filled cell above it; a cell open at the top is a top, as
+  before, whatever is below it. A sloped underside cell is one whose finish is FINISH_SLOPED.
+- An inverted slope (``INVERTED_SLOPE_PARTS``: 3660b, 3665b, 4287c) has a stud on every cell of
+  its top and grips the studs under it only under its full row (``Catalog.grip_cells``); its
+  other columns are its *slanted columns*, cut away underneath, and its *thin edge* points the
+  way opposite ``Catalog.low_side``. Turned upside down it is a slope on a step, and it fits
+  under exactly the mirror image of section 3. A Placement P fits when:
+  * every cell P covers is filled with P's colour, the (part, colour) pair exists, and the
+    pass may change those cells (as for slopes);
+  * in each slanted column, P's bottom cell is a sloped underside cell;
+  * outward is clear: for each footprint cell on the thin edge, the neighbouring cell beyond
+    it is empty (or outside the grid) at every level of P below its top level (the top level
+    may be filled: the thin edge meets it);
+  * no cell P covers is an open top marked smooth or sloped (the tile or slope wanted there
+    would be lost); a detail standing on it is fine, since it stands on studs.
+  Preferences are those of section 3 turned upside down (the two-wide part first; the bigger
+  step up beside the thin edge, capped at the part's height; then the underside dropping
+  further behind its full row; then more slanted cells), one class at a time, ties broken the
+  same way every time.
+- They are placed after everything on top and after its merges, and never over a cell a tile
+  or slope already took, so a Design that marks no underside cell sloped comes out exactly as
+  before, byte for byte. Each is a swap as in section 4, held to section 5 and the stage 3
+  rule, and to two rules of its own:
+  * it may leave at most one part more than it took out (``_INVERTED_MOST_NEW``): one that
+    would cut the bricks and plates around it into more pieces is not placed;
+  * counted as the checks count them (in the build's own parts), the heaviest weak spot is no
+    heavier and there are no more weak spots than before the inverted slopes began, measured
+    after a batch of them as the merges are (twice as many after a batch is kept, half after
+    one is undone; one refused on its own is left out). Measuring is bounded
+    (``_INVERTED_BUDGET`` parts measured); what is left when it runs out is not placed.
+  Then the parts they left are merged as in the stage 4 addition on merging, on a measuring
+  budget of their own.
+- The cell below a slanted column is empty, so nothing stands under it and it needs no stud
+  there. What an inverted slope grips and what stands on it are joined as ``bricksnap.connect``
+  says, and the pass's own graph and measure agree with it.
+- Sideways details and their side-stud bricks are left alone (the brick is never swapped).
+- Notes: the first sentence also counts the inverted slopes ("Finishing placed 2 tiles, 5
+  slopes, 3 inverted slopes and 0 detail parts.") when the Design marks any underside cell
+  sloped, and only then. Each sloped underside cell that got no inverted slope is explained
+  as a top is, as "marked sloped on the underside", with what would change it: it is the full
+  row of an inverted slope placed beside it; a part on top reaching down to it, or another
+  inverted slope, was preferred; it would let parts come loose; it would make the model
+  weaker; it would cut the parts around it into more pieces; the underside does not step up
+  beside it; the step is too small, the model too thin there, or the part not made in the
+  colour; or no inverted slope fits there.
+- Speed: a 3,000-part build still finishes in under 5 seconds.
+- Measured on the scorecard at 16 studs: 49 inverted slopes over the eleven sample models
+  (the duck 15, the star 16, the teapot 7, the pawn and the knight 4, the pineapple 3); parts
+  2,416 before and after (no model more than 5 more); weak spots 186 become 180, none more on
+  any model. The outline match falls by up to half a point where they cut a model's side in
+  profile (the star's front, the duck's right), as the slopes on top already do: a 45-degree
+  part cut into a staircase of filled cells takes off a little more than the model leaves.
 """
 
 from __future__ import annotations
@@ -391,7 +449,11 @@ SLOPE_PARTS = ("3039", "3040b", "85984", "54200")
 
 EXTRA_SLOPE_PARTS = ("4286",)
 """Further slope parts used where they fit. 11477 is not used: nothing under it grips studs,
-so it would hang loose; 3665b (inverted) is not used by this pass."""
+so it would hang loose. Inverted slopes go under overhangs (``INVERTED_SLOPE_PARTS``)."""
+
+INVERTED_SLOPE_PARTS = ("3660b", "3665b", "4287c")
+"""Inverted slope parts the pass places under overhangs (the stage 4 addition on undersides),
+the two-wide one first."""
 
 NOT_TILES = ("2412b",)
 """Parts of kind "tile" that are detail parts, never used for smooth tops."""
@@ -408,6 +470,8 @@ _MEASURE_MARGIN = 2  # a class is judged swap by swap when twice its swaps' meas
 _MERGE_ROUNDS = 3  # passes over the parts the swaps made, joining them into larger ones
 _MERGE_BUDGET = 60_000  # parts measured while judging merges, summed over the pass
 _MERGE_TRIES = 5_000  # merges whose parts sticking out are covered again to count them
+_INVERTED_MOST_NEW = 1  # parts an inverted slope may add: itself, cutting nothing into pieces
+_INVERTED_BUDGET = 60_000  # parts measured while judging inverted slopes, summed over the pass
 
 
 # ---- small helpers ------------------------------------------------------------------------
@@ -428,6 +492,9 @@ _SLOPE_NAMES = {
     "85984": "a 1 x 2 cheese slope",
     "54200": "a 1 x 1 cheese slope",
     "4286": "a 1 x 3 shallow slope",
+    "3660b": "a 2 x 2 inverted slope",
+    "3665b": "a 1 x 2 inverted slope",
+    "4287c": "a 1 x 3 shallow inverted slope",
 }
 
 
@@ -464,11 +531,20 @@ class _Candidate:
     slanted: tuple[tuple[int, int, int], ...]  # the grid cells that become slanted
 
 
-def _slope_shapes(catalog: Catalog) -> list[_SlopeShape]:
+def _slope_shapes(catalog: Catalog, inverted: bool = False) -> list[_SlopeShape]:
+    """The slope parts at every rotation; with ``inverted``, the inverted slopes as the pass
+    looks for them, in the grid turned upside down: their ``studs`` are the cells they grip
+    under (``Catalog.grip_cells``), which hold them as a slope's studs hold what stands on
+    them, their slanted cells the rest, and ``low`` the way their thin edge points."""
     shapes = []
-    for order, pid in enumerate(SLOPE_PARTS + EXTRA_SLOPE_PARTS):
+    pids = INVERTED_SLOPE_PARTS if inverted else SLOPE_PARTS + EXTRA_SLOPE_PARTS
+    for order, pid in enumerate(pids):
         part = catalog.parts.get(pid)
-        if part is None or part.kind != "slope" or not part.antistuds_bottom:
+        if part is None:
+            continue
+        if inverted and part.kind != "slope_inverted":
+            continue
+        if not inverted and (part.kind != "slope" or not part.antistuds_bottom):
             continue
         for rot in ROTATIONS:
             p = Placement(pid, 0, 0, 0, 0, rot)
@@ -476,7 +552,13 @@ def _slope_shapes(catalog: Catalog) -> list[_SlopeShape]:
             if low is None:
                 continue
             w, d, h = catalog.footprint(p)
-            studs = tuple(sorted(set(catalog.stud_cells(p))))
+            if inverted:
+                low = (-low[0], -low[1])
+                studs = tuple(sorted(set(catalog.grip_cells(p))))
+                if not studs:
+                    continue  # nothing under it would hold it
+            else:
+                studs = tuple(sorted(set(catalog.stud_cells(p))))
             cells = [(i, j) for i in range(w) for j in range(d)]
             slanted = tuple(c for c in cells if c not in studs)
             if not slanted:
@@ -663,6 +745,11 @@ class _State:
             below = self.occ[q.x : q.x + w, q.y : q.y + d, q.z - 1]
             studs = self.stud[q.x : q.x + w, q.y : q.y + d, q.z - 1]
             out.update(int(j) for j in np.unique(below[studs & (below >= 0)]))
+        elif q.z > 0:  # an inverted slope grips only under its full row
+            for x, y in cat.grip_cells(q):
+                j = int(self.occ[x, y, q.z - 1])
+                if j >= 0 and self.stud[x, y, q.z - 1]:
+                    out.add(j)
         top = q.z + h
         if top < self.shape[2]:
             for x, y in cat.stud_cells(q):
@@ -670,7 +757,7 @@ class _State:
                 if j < 0 or j == nid:
                     continue
                 above = self.parts[j]
-                if above.z == top and cat.parts[above.part].antistuds_bottom:
+                if above.z == top and cat.grips_at(above, x, y):
                     out.add(j)
         out.discard(nid)
         return out
@@ -768,12 +855,18 @@ class _State:
         return out
 
     def swap(
-        self, wanted: Placement | list[Placement], variants: tuple[str, ...], cover: _Cover
+        self,
+        wanted: Placement | list[Placement],
+        variants: tuple[str, ...],
+        cover: _Cover,
+        most_new: int | None = None,
     ) -> bool:
         """Put ``wanted`` in, taking out the parts in its way and covering what they leave.
 
         ``wanted`` is one part or several that go in together. Made only if it keeps every
-        piece of the model in one piece; otherwise nothing changes.
+        piece of the model in one piece; otherwise nothing changes. With ``most_new``, a way
+        of covering the rest that would leave more than that many parts more than there were
+        is not tried.
         """
         wanted = [wanted] if isinstance(wanted, Placement) else wanted
         key = tuple(wanted)
@@ -793,6 +886,9 @@ class _State:
         for variant in variants:
             refill = self._refill(removed, wanted, variant, cover)
             if refill is None:
+                continue
+            if most_new is not None and len(wanted) + len(refill) - len(removed) > most_new:
+                self.refusal = "parts"
                 continue
             first = self.next_id
             if self._apply(removed, [*wanted, *refill]):
@@ -1013,6 +1109,7 @@ class _State:
         pos[ids] = np.arange(n_ids)
         zpart = np.full(size, -1, dtype=np.int64)
         grips = np.zeros(size, dtype=bool)
+        partly = np.zeros(self.shape, dtype=bool)  # the cells an inverted slope grips under
         z: list[int] = []
         volume: list[float] = []
         known: list[bool] = []
@@ -1026,12 +1123,15 @@ class _State:
                 volume.append(0.0)
                 continue
             grips[i] = part.antistuds_bottom
+            if not part.antistuds_bottom:
+                for x, y in cat.grip_cells(p):
+                    partly[x, y, p.z] = True
             known.append(True)
             volume.append(float(part.sx * part.sz * part.h))
         lo, hi = self.occ[:, :, :-1], self.occ[:, :, 1:]
         xs, ys, zs = np.nonzero(self.stud[:, :, :-1] & (hi >= 0) & (hi != lo))
         a, b = lo[xs, ys, zs], hi[xs, ys, zs]
-        keep = (zpart[b] == zs + 1) & grips[b]
+        keep = (zpart[b] == zs + 1) & (grips[b] | partly[xs, ys, zs + 1])
         codes = [pos[a[keep]] * n + pos[b[keep]]]
         for k, q in enumerate(details):  # a detail stands on studs and holds nothing
             w, d, _ = cat.footprint(q)
@@ -1149,20 +1249,27 @@ def _sideways_detail(
 
 
 def _slope_candidates(
-    design: Design,
+    colours_grid: np.ndarray,
     catalog: Catalog,
     sloped: np.ndarray,
     smooth: np.ndarray,
     clear: np.ndarray,
     usable: np.ndarray,
+    shapes: list[_SlopeShape] | None = None,
+    blocked: np.ndarray | None = None,
 ) -> list[_Candidate]:
-    """Every slope placement that fits (section 3 of the contract), best first."""
+    """Every slope placement that fits (section 3 of the contract), best first.
+
+    ``colours_grid`` is the Design's colours. ``shapes`` defaults to the slope parts;
+    ``blocked`` marks cells no candidate may cover (``_inverted_candidates`` uses both)."""
     xs, ys, zs = np.nonzero(sloped)
     if xs.size == 0:
         return []
     pad = _PAD
-    colors = np.pad(design.colors.astype(np.int64), pad, constant_values=EMPTY)
+    colors = np.pad(colours_grid.astype(np.int64), pad, constant_values=EMPTY)
     usable_p = np.pad(usable, pad, constant_values=False)
+    if blocked is not None:
+        usable_p &= ~np.pad(blocked, pad, constant_values=False)
     filled_p = colors != EMPTY
     sloped_p = np.pad(sloped, pad, constant_values=False)
     smooth_p = np.pad(smooth, pad, constant_values=False)
@@ -1177,7 +1284,7 @@ def _slope_candidates(
     clear_p = np.pad(clear_xy, ((0, 0), (0, 0), (pad, pad)), constant_values=True)
 
     out: list[_Candidate] = []
-    for s in _slope_shapes(catalog):
+    for s in _slope_shapes(catalog) if shapes is None else shapes:
         colours = np.fromiter(catalog.parts[s.part].colours, dtype=np.int64)
         origins = np.unique(
             np.concatenate(
@@ -1231,6 +1338,47 @@ def _slope_candidates(
                     tuple((x + i, y + j, zt) for i, j in s.slanted),
                 )
             )
+    out.sort(key=lambda c: c.key)
+    return out
+
+
+def _upside_down(a: np.ndarray) -> np.ndarray:
+    """The grid turned upside down: level z becomes level nz - 1 - z."""
+    return a[:, :, ::-1]
+
+
+def _inverted_candidates(
+    colours_grid: np.ndarray,
+    catalog: Catalog,
+    under: np.ndarray,
+    clear: np.ndarray,
+    usable: np.ndarray,
+    blocked: np.ndarray,
+) -> list[_Candidate]:
+    """Every inverted slope placement that fits (the stage 4 addition on undersides), best
+    first. Turned upside down, an inverted slope under an overhang is a slope on a step, so
+    these are ``_slope_candidates`` of the grid turned upside down, turned back: ``under``
+    (the underside cells marked sloped) plays the open sloped tops, the cells it grips under
+    play the studs, and ``blocked`` (open tops that want a tile or a slope) may not be
+    covered."""
+    nz = colours_grid.shape[2]
+    found = _slope_candidates(
+        _upside_down(colours_grid),
+        catalog,
+        _upside_down(under),
+        np.zeros(under.shape, dtype=bool),
+        _upside_down(clear),
+        _upside_down(usable),
+        shapes=_slope_shapes(catalog, inverted=True),
+        blocked=_upside_down(blocked),
+    )
+    out: list[_Candidate] = []
+    for c in found:
+        p = c.placement
+        h = catalog.parts[p.part].h
+        slanted = tuple((x, y, nz - 1 - z) for x, y, z in c.slanted)
+        key = (*c.key[:6], nz - 1 - c.key[6], *c.key[7:])  # by the slanted cells' own level
+        out.append(_Candidate(key, replace(p, z=nz - p.z - h), slanted))
     out.sort(key=lambda c: c.key)
     return out
 
@@ -1513,8 +1661,17 @@ def _plain(p: Placement) -> Placement:
 
 
 def _face_cells(catalog: Catalog, q: Placement) -> list[tuple[int, int, int]]:
-    """The top cells of a wanted part that carry no stud: a tile's top, a slope's slant."""
+    """The top cells of a wanted part that carry no stud: a tile's top, a slope's slant; for
+    an inverted slope, the bottom cells of its slanted columns (its slant faces down)."""
     w, d, h = catalog.footprint(q)
+    if catalog.parts[q.part].kind == "slope_inverted":
+        grips = set(catalog.grip_cells(q))
+        return [
+            (q.x + i, q.y + j, q.z)
+            for i in range(w)
+            for j in range(d)
+            if (q.x + i, q.y + j) not in grips
+        ]
     studs = set(catalog.stud_cells(q))
     top = q.z + h - 1
     return [
@@ -1877,7 +2034,9 @@ def _verify(state: _State, parts: list[Placement], detail_mask: np.ndarray) -> b
     _THIN,
     _OTHER,
     _SIDE_BRICK,
-) = range(12)
+    _WEAKER,
+    _PIECES,
+) = range(14)
 _MAX_REASON_NOTES = 6
 _MAX_PLACES = 3
 
@@ -1890,6 +2049,7 @@ class _Tried:
     planned: np.ndarray  # covered by a tile of the tile plan
     loose: np.ndarray  # wanted by a swap refused because part of the model would come loose
     refused: np.ndarray  # wanted by a swap refused for another reason
+    pieces: np.ndarray  # wanted by an inverted slope refused for cutting parts into pieces
 
 
 @dataclass
@@ -1904,6 +2064,7 @@ class _Progress:
     n_slopes: int = 0
     n_tiles: int = 0
     failed: list[Placement] = field(default_factory=list)
+    n_inverted: int = 0
 
     def save(self) -> _Progress:
         t = self.tried
@@ -1911,19 +2072,27 @@ class _Progress:
             self.claimed.copy(),
             self.slanted.copy(),
             self.tiled.copy(),
-            _Tried(t.candidate.copy(), t.planned.copy(), t.loose.copy(), t.refused.copy()),
+            _Tried(
+                t.candidate.copy(),
+                t.planned.copy(),
+                t.loose.copy(),
+                t.refused.copy(),
+                t.pieces.copy(),
+            ),
             self.n_slopes,
             self.n_tiles,
             list(self.failed),
+            self.n_inverted,
         )
 
     def load(self, saved: _Progress) -> None:
         """Go back to ``saved``, in place (the pass holds on to these arrays)."""
         for name in ("claimed", "slanted", "tiled"):
             getattr(self, name)[...] = getattr(saved, name)
-        for name in ("candidate", "planned", "loose", "refused"):
+        for name in ("candidate", "planned", "loose", "refused", "pieces"):
             getattr(self.tried, name)[...] = getattr(saved.tried, name)
         self.n_slopes, self.n_tiles = saved.n_slopes, saved.n_tiles
+        self.n_inverted = saved.n_inverted
         self.failed[:] = saved.failed
 
 
@@ -1932,13 +2101,14 @@ def _cell(c: np.ndarray) -> tuple[int, int, int]:
 
 
 def _no_slope_reasons(
-    design: Design,
+    colours_grid: np.ndarray,
     catalog: Catalog,
     cells: np.ndarray,
     sloped: np.ndarray,
     smooth: np.ndarray,
     clear: np.ndarray,
     usable: np.ndarray,
+    shapes: list[_SlopeShape] | None = None,
 ) -> list[tuple]:
     """Why no slope placement fits these sloped cells: one reason key per cell.
 
@@ -1949,9 +2119,12 @@ def _no_slope_reasons(
     the model at the top, the step beside it is deep enough, and the part is made in the
     colour. The furthest any part gets is the reason, so a part that fits everywhere but is
     not made in the colour gives "not made in that colour".
+
+    ``colours_grid`` is the Design's colours and ``shapes`` defaults to the slope parts, as in
+    ``_slope_candidates`` (``usable`` already leaves out what a candidate may not cover).
     """
     pad = _PAD
-    colors = np.pad(design.colors.astype(np.int64), pad, constant_values=EMPTY)
+    colors = np.pad(colours_grid.astype(np.int64), pad, constant_values=EMPTY)
     usable_p = np.pad(usable, pad, constant_values=False)
     sloped_p = np.pad(sloped, pad, constant_values=False)
     smooth_p = np.pad(smooth, pad, constant_values=False)
@@ -1967,7 +2140,8 @@ def _no_slope_reasons(
     fits_unmade = np.full(n, -1, dtype=np.int64)  # first part that fits but is not made in it
     best_any = np.full(n, -1, dtype=np.int64)  # furthest stage of any part, in any colour
     thinnest = np.full(n, 1 << 30, dtype=np.int64)  # lowest part made in the colour
-    shapes = _slope_shapes(catalog)
+    if shapes is None:
+        shapes = _slope_shapes(catalog)
     lowest = min((s.h for s in shapes), default=0)
     for si, s in enumerate(shapes):
         made = np.isin(colour, np.fromiter(catalog.parts[s.part].colours, dtype=np.int64))
@@ -2095,9 +2269,86 @@ def _why_left(
     add("sloped", fitted & ~tried.refused, (_CROWDED,))
     cells = np.argwhere(open_ & ~tried.loose & ~tried.candidate)
     if len(cells):
-        keys = _no_slope_reasons(design, catalog, cells, sloped, smooth, clear, state.usable)
+        keys = _no_slope_reasons(design.colors, catalog, cells, sloped, smooth, clear, state.usable)
         for c, key in zip(cells, keys, strict=True):
             reasons.setdefault(("sloped", *key), []).append(_cell(c))
+
+
+def _why_left_under(
+    design: Design,
+    catalog: Catalog,
+    state: _State,
+    left: np.ndarray,
+    claimed: np.ndarray,
+    tried: _Tried,
+    guard: _Sturdy,
+    undersides: np.ndarray,
+    clear: np.ndarray,
+    blocked: np.ndarray,
+    weaker: np.ndarray,
+    reasons: dict[tuple, list[tuple[int, int, int]]],
+) -> None:
+    """Add every underside cell marked sloped that got no inverted slope to ``reasons``
+    (under the name "underside"), as ``_why_left`` does for the tops: the full row of an
+    inverted slope placed beside it, or a part placed on top reaching down to it; a refused
+    swap; a candidate that lost out; otherwise the furthest any inverted slope got in the
+    tests, worked out in the grid turned upside down as the candidates are."""
+
+    def add(mask: np.ndarray, key: tuple) -> None:
+        for c in np.argwhere(mask):
+            reasons.setdefault(("underside", *key), []).append(_cell(c))
+
+    if not left.any():
+        return
+    kind_of = np.array(
+        [
+            catalog.parts[state.parts[i].part].kind if i in state.parts else ""
+            for i in range(state.next_id)
+        ]
+        + [""]
+    )
+    kinds = kind_of[state.occ]
+    add(left & (kinds == "side_stud"), (_SIDE_BRICK,))
+    left = left & (kinds != "side_stud")
+    add(left & claimed & (kinds == "slope_inverted"), (_STUD_ROW,))
+    add(left & claimed & (kinds != "slope_inverted"), (_CROWDED,))
+    open_ = left & ~claimed
+    add(open_ & tried.loose, (_LOOSE,))
+    add(open_ & ~tried.loose & weaker, (_WEAKER,))
+    open_ &= ~weaker
+    add(open_ & ~tried.loose & tried.pieces, (_PIECES,))
+    open_ &= ~tried.pieces
+    measured = guard.load > 0
+    together = (guard.together > 0) & ~measured
+    for reason, grid, where in (
+        (_STURDY, guard.load, measured),
+        (_TOGETHER, guard.together, together),
+    ):
+        cells = open_ & ~tried.loose & where
+        if cells.any():
+            hi, lo = int(grid[cells].max()), int(grid[cells].min())
+            add(cells, (reason, hi, hi == lo))
+    open_ &= ~tried.loose & ~(measured | together)
+    fitted = open_ & tried.candidate
+    add(fitted & tried.refused, (_OTHER,))
+    add(fitted & ~tried.refused, (_CROWDED,))
+    cells = np.argwhere(open_ & ~tried.candidate)
+    if len(cells):
+        nz = design.shape[2]
+        turned = cells.copy()
+        turned[:, 2] = nz - 1 - cells[:, 2]
+        keys = _no_slope_reasons(
+            _upside_down(design.colors),
+            catalog,
+            turned,
+            _upside_down(undersides),
+            np.zeros(design.shape, dtype=bool),
+            _upside_down(clear),
+            _upside_down(state.usable & ~blocked),
+            shapes=_slope_shapes(catalog, inverted=True),
+        )
+        for c, key in zip(cells, keys, strict=True):
+            reasons.setdefault(("underside", *key), []).append(_cell(c))
 
 
 def _places(cells: list[tuple[int, int, int]]) -> list[list[tuple[int, int, int]]]:
@@ -2146,6 +2397,8 @@ def _where(cells: list[tuple[int, int, int]]) -> str:
 
 
 def _reason_sentence(key: tuple, cells: list[tuple[int, int, int]], catalog: Catalog) -> str:
+    if key[0] == "underside":
+        return _underside_sentence(key, cells, catalog)
     name, reason, *extra = key
     n = len(cells)
     one = n == 1
@@ -2237,6 +2490,99 @@ def _reason_sentence(key: tuple, cells: list[tuple[int, int, int]], catalog: Cat
     return f"{subject} {left}: {what}."
 
 
+def _underside_sentence(key: tuple, cells: list[tuple[int, int, int]], catalog: Catalog) -> str:
+    """``_reason_sentence`` for an underside cell marked sloped that got no inverted slope."""
+    _, reason, *extra = key
+    one = len(cells) == 1
+    subject = f"{_count(len(cells), 'cell')} marked sloped on the underside {_where(cells)}"
+    them, these = ("it", "this cell") if one else ("them", "these cells")
+    left = "got no inverted slope"
+    if reason == _SIDE_BRICK:
+        return (
+            f"{subject} {left} because {'it is' if one else 'they are'} part of a brick with a "
+            "stud on its side (87087) that holds a detail on a face, which stays as it is."
+        )
+    if reason == _STUD_ROW:
+        return (
+            f"{subject} {left} because {'it is' if one else 'they are'} the full side of an "
+            f"inverted slope placed next to {them}, which grips the part below there; that is "
+            "how an inverted slope is made, nothing to change."
+        )
+    if reason == _CROWDED:
+        return (
+            f"{subject} {left} because every inverted slope that fits there would overlap a "
+            "part already placed (a slope or tile on top, or another inverted slope), which "
+            "was preferred; nothing to change."
+        )
+    if reason == _FLAT:
+        return (
+            f"{subject} {left} because the underside does not step up beside {them}: under a "
+            f'flat bottom there is nothing to slope. Mark {them} "studs" to stop asking.'
+        )
+    if reason == _LOOSE:
+        return (
+            f"{subject} {left} because an inverted slope there would let go of parts that are "
+            f"held on only through {these}, so part of the model would come loose. Making that "
+            "part of the model thicker, or joining it more firmly to the rest, could change "
+            'that; otherwise mark it "studs".'
+        )
+    if reason == _PIECES:
+        return (
+            f"{subject} {left} because an inverted slope there would cut the parts around it "
+            "into more pieces, so the model would need more parts than it gains in shape; "
+            "nothing to change."
+        )
+    if reason == _WEAKER:
+        return (
+            f"{subject} {left} because an inverted slope there would make the model weaker: "
+            "part of it would hang on a single part or a single stud, or such a place would "
+            "carry more. Making that part of the model thicker, or joining it more firmly to "
+            'the rest, could change that; otherwise mark it "studs".'
+        )
+    if reason in (_STURDY, _TOGETHER):
+        hanging = _count(extra[0], "part") if extra[1] else f"up to {extra[0]} parts"
+        where = "there"
+        if reason == _TOGETHER:
+            where = f"there, with the others tried around {them} at the same time,"
+        return (
+            f"{subject} {left} because an inverted slope {where} would leave {hanging} hanging "
+            "on a single part, so that part of the model would come off too easily. Making "
+            "that part of the model thicker, or joining it more firmly to the rest, could "
+            'change that; otherwise mark it "studs".'
+        )
+    if reason == _COLOUR:
+        colour = _colour_name(catalog, extra[0])
+        if not extra[1]:
+            return f"{subject} {left} because no inverted slope part is made in {colour}."
+        label = _slope_label(catalog, extra[1])
+        return (
+            f"{subject} {left} because the inverted slope that would fit there, {label}, is "
+            f"not made in {colour}: a different colour there would allow one."
+        )
+    if reason == _SMALL:
+        colour = _colour_name(catalog, extra[0])
+        also = ""
+        if extra[1]:
+            also = (
+                f"; {_slope_label(catalog, extra[1])} would fit that step, but it is not made in "
+                f"{colour}"
+            )
+        return (
+            f"{subject} {left} because the step up beside {them} is too small for the inverted "
+            f"slope parts made in {colour}{also}. Make the step deeper, use another colour, or "
+            f'mark {them} "studs".'
+        )
+    if reason == _THIN:
+        have = "is only 1" if extra[0] == 2 else "are fewer"
+        return (
+            f"{subject} {left} because the model is too thin there: an inverted slope part is "
+            f"{extra[0]} plates tall and needs that many plates of one colour stacked there "
+            f"(counting the marked cell and those above it), but there {have}. Make it thicker "
+            f'there, or mark {them} "studs".'
+        )
+    return f"{subject} {left}: no inverted slope part fits there."
+
+
 def _reason_notes(reasons: dict[tuple, list[tuple[int, int, int]]], catalog: Catalog) -> list[str]:
     """One sentence per reason, biggest first; past six, the smallest are merged into one."""
     order = sorted(reasons, key=lambda k: (-len(reasons[k]), k[1], k))
@@ -2254,6 +2600,18 @@ def _reason_notes(reasons: dict[tuple, list[tuple[int, int, int]]], catalog: Cat
     return notes
 
 
+def _undersides(design: Design) -> np.ndarray:
+    """The underside cells marked sloped: filled, with an empty cell below (not on the
+    ground) and a filled one above (a cell open at the top is a top, as before)."""
+    assert design.finish is not None
+    filled = design.filled
+    below_empty = np.zeros(design.shape, dtype=bool)
+    below_empty[:, :, 1:] = ~filled[:, :, :-1]
+    above_filled = np.zeros(design.shape, dtype=bool)
+    above_filled[:, :, :-1] = filled[:, :, 1:]
+    return filled & below_empty & above_filled & (design.finish == FINISH_SLOPED)
+
+
 def finish(build: Build, design: Design, catalog: Catalog) -> Build:
     if tuple(build.shape) != design.shape:
         raise ValueError(
@@ -2264,7 +2622,8 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
     above_empty = np.ones(design.shape, dtype=bool)
     above_empty[:, :, :-1] = ~design.filled[:, :, 1:]
     marked = (design.finish == FINISH_SMOOTH) | (design.finish == FINISH_SLOPED)
-    if not design.details and not (design.filled & above_empty & marked).any():
+    wanted = (design.filled & above_empty & marked).any() or _undersides(design).any()
+    if not design.details and not wanted:
         return Build(
             shape=build.shape,
             parts=list(build.parts),
@@ -2303,6 +2662,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
     open_cells = filled & above_empty & ~under
     smooth = open_cells & (design.finish == FINISH_SMOOTH)
     sloped = open_cells & (design.finish == FINISH_SLOPED)
+    undersides = _undersides(design)
 
     cover = _Cover(catalog)
     # what was tried for each cell, so the notes can say why a cell was left as it was
@@ -2315,6 +2675,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             planned=np.zeros(design.shape, dtype=bool),
             loose=np.zeros(design.shape, dtype=bool),
             refused=np.zeros(design.shape, dtype=bool),
+            pieces=np.zeros(design.shape, dtype=bool),
         ),
     )
     claimed, tried = prog.claimed, prog.tried
@@ -2377,11 +2738,13 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
         if state.refusal == "sturdy":
             return  # the guard has marked the cells already
         refused = tried.loose if state.refusal == "loose" else tried.refused
+        if state.refusal == "parts":
+            refused = tried.pieces
         for c in cells:
             refused[c] = True
 
     clear = ~filled & ~detail_mask
-    candidates = _slope_candidates(design, catalog, sloped, smooth, clear, state.usable)
+    candidates = _slope_candidates(design.colors, catalog, sloped, smooth, clear, state.usable)
     for cand in candidates:
         for c in cand.slanted:
             tried.candidate[c] = True
@@ -2395,7 +2758,9 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
         variants = _VARIANTS_TALL if -cand.key[0] >= 3 else _VARIANTS_LOW
         if any(guard.in_class[c] for c in cand.slanted):
             return False
-        if not state.swap(cand.placement, variants, cover):
+        inverted = catalog.parts[cand.placement.part].kind == "slope_inverted"
+        most_new = _INVERTED_MOST_NEW if inverted else None
+        if not state.swap(cand.placement, variants, cover, most_new):
             mark_refused(cand.slanted)
             return False
         claimed[sl] = True
@@ -2465,6 +2830,64 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
     for work in (plan_tiles, replan_tiles, single_tiles):
         guarded(work)
 
+    # inverted slopes under overhangs, after everything on top (an open top that wants a tile
+    # or a slope is never covered by one), one class at a time as the slopes are
+    top_wanted = smooth | sloped
+    inverted = _inverted_candidates(
+        design.colors, catalog, undersides, clear, state.usable, top_wanted
+    )
+    for cand in inverted:
+        for c in cand.slanted:
+            tried.candidate[c] = True
+
+    weaker = np.zeros(design.shape, dtype=bool)  # refused: it would add or worsen a weak spot
+
+    def place_inverted() -> None:
+        """The inverted slopes, after the merges: none may make the build any weaker,
+        counted either way (as the merges are held), measured after a batch of them as the
+        merges are."""
+        guard._measure_input()
+        held = guard.weak_spots(state)
+        held = (*held[:2], max(held[2], guard.most), max(held[3], guard.count))
+        budget = [_INVERTED_BUDGET]
+
+        def inverted_batch(batch: list[_Candidate]) -> bool | None:
+            """Place the batch; keep it if the build is no weaker, else undo it all and say
+            False (None: it can no longer be measured, and is undone)."""
+            snap, saved = state.snapshot(), prog.save()
+            made = sum(1 for cand in batch if place_slope(cand))
+            if not made:
+                return True
+            n = len(state.parts) + len(details)
+            ok = None
+            if n <= budget[0]:
+                budget[0] -= n
+                ok = guard.allows(state, held)
+            if ok:
+                prog.n_inverted += made
+                return True
+            state.restore(snap)
+            prog.load(saved)
+            if ok is False and len(batch) == 1:
+                for c in batch[0].slanted:
+                    weaker[c] = True
+            return ok
+
+        for _, group in groupby(inverted, key=lambda c: c.key[:2]):
+            items = list(group)
+            i, size = 0, 1
+            while i < len(items):
+                ok = inverted_batch(items[i : i + size])
+                if ok is None:
+                    break
+                if ok:
+                    i += size
+                    size *= 2
+                elif size == 1:
+                    i += 1
+                else:
+                    size //= 2
+
     # what the swaps left behind: join plain parts into fewer, larger bricks and plates
     first_new = len(build.parts)
 
@@ -2511,17 +2934,18 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             else:
                 size //= 2
 
-    def merge_parts() -> None:
-        """Join plain parts into fewer, larger bricks and plates. No weak spot may become
-        heavier and there may be no more of them, counted either way, than before merging
-        (or than the rule allows, seen as the input's parts)."""
+    def merge_parts(since: int) -> None:
+        """Join plain parts into fewer, larger bricks and plates, starting from the parts made
+        since part id ``since``. No weak spot may become heavier and there may be no more of
+        them, counted either way, than before merging (or than the rule allows, seen as the
+        input's parts)."""
         guard._measure_input()
         if len(state.parts) + len(details) > measures[0]:
             return
         measures[0] -= len(state.parts) + len(details)
         limit = guard.weak_spots(state)
         limit = (*limit[:2], max(limit[2], guard.most), max(limit[3], guard.count))
-        since = first_new  # the parts made since: the swaps' at first, then the last round's
+        # the parts made since: the swaps' at first, then the last round's
         for _ in range(_MERGE_ROUNDS):
             ids = sorted(i for i in state.parts if i >= since)
             since = state.next_id
@@ -2534,10 +2958,18 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
         # merge only in the run that will be kept, so its tiles and slopes are as before
         if not sturdy and guard.check(state, len(state.done), broad=False) is not None:
             return None
-        merge_parts()
+        merge_parts(first_new)
+    if inverted:
+        # under the overhangs, after everything on top (an open top that wants a tile or a
+        # slope is never covered by one) and its merges; then the parts they left are merged
+        since = state.next_id
+        place_inverted()
+        if prog.n_inverted:
+            measures[0] = _MERGE_BUDGET  # their merges are measured on a budget of their own
+            merge_parts(since)
 
     slanted, tiled = prog.slanted, prog.tiled
-    n_slopes, n_tiles = prog.n_slopes, prog.n_tiles
+    n_slopes, n_tiles, n_inverted = prog.n_slopes, prog.n_tiles, prog.n_inverted
     fell_back: tuple | None = None
     if state.swaps == 0 and not details:
         parts = list(build.parts)
@@ -2557,7 +2989,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             fell_back = (_TOGETHER, worst, worst == guard.worst)
             _fell_back("sturdiness")
         if fell_back is not None:
-            n_slopes = n_tiles = 0
+            n_slopes = n_tiles = n_inverted = 0
             slanted[:] = False
             tiled[:] = False
             parts = list(build.parts)
@@ -2569,11 +3001,11 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
                 details = []
 
     notes = list(build.notes)
-    if smooth.any() or sloped.any() or design.details:
-        notes.append(
-            f"Finishing placed {_count(n_tiles, 'tile')}, {_count(n_slopes, 'slope')} and "
-            f"{_count(len(details), 'detail part')}."
-        )
+    if smooth.any() or sloped.any() or undersides.any() or design.details:
+        placed = f"{_count(n_tiles, 'tile')}, {_count(n_slopes, 'slope')}"
+        if undersides.any():
+            placed += f", {_count(n_inverted, 'inverted slope')}"
+        notes.append(f"Finishing placed {placed} and {_count(len(details), 'detail part')}.")
         reasons: dict[tuple, list[tuple[int, int, int]]] = {}
         marked = (design.finish == FINISH_SMOOTH) | (design.finish == FINISH_SLOPED)
         for c in np.argwhere(filled & above_empty & under & marked):
@@ -2581,7 +3013,11 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             name = "smooth" if design.finish[x, y, z] == FINISH_SMOOTH else "sloped"
             reasons.setdefault((name, _DETAIL), []).append((x, y, z))
         if fell_back is not None:
-            for name, left in (("smooth", smooth & ~tiled), ("sloped", sloped & ~slanted)):
+            for name, left in (
+                ("smooth", smooth & ~tiled),
+                ("sloped", sloped & ~slanted),
+                ("underside", undersides & ~slanted),
+            ):
                 for c in np.argwhere(left):
                     reasons.setdefault((name, *fell_back), []).append(_cell(c))
         else:
@@ -2597,6 +3033,20 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
                 smooth,
                 sloped,
                 clear,
+                reasons,
+            )
+            _why_left_under(
+                design,
+                catalog,
+                state,
+                undersides & ~slanted,
+                claimed,
+                tried,
+                guard,
+                undersides,
+                clear,
+                top_wanted,
+                weaker,
                 reasons,
             )
         notes += _reason_notes(reasons, catalog)
