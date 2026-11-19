@@ -155,7 +155,7 @@ Then four more, to test two questions.
 - **Seven sessions, seven models the checker passes.** No session ended with a problem left.
 - **From pictures of a real object it works as well as from words.** "Our car" is recognisably the sample
   car, with mudguards over real wheels, a glass windscreen and number plates, in 137 parts; the grid
-  pipeline's best version of the same car has no wheels and 214 parts. The duck is a neat, stylised LEGO
+  pipeline's best version of the same car has 214 parts and wheels built of bricks that do not turn. The duck is a neat, stylised LEGO
   duck with a beak of curved slopes and round eyes; it is still blockier than the solver's.
 - **Opus 5.5 does it at half the price.** Its car passes the check and is a good model (spoiler, bubble
   canopy, stripes); Fable's is the more refined of the two. A cheaper builder with Fable as planner and
