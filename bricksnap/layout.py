@@ -263,8 +263,12 @@ REPAIR_FORCED_TRIES_SMALL = 6  # when the window has at most SMALL_WINDOW cells
 SMALL_WINDOW = 16
 REPAIR_MAX_ATTEMPTS = 400
 REPAIR_RETRIES = 3
-REPAIR_TILE_BUDGET = 1500  # re-tilings allowed in repair, plus one per 10 filled cells
-REPAIR_PLACE_BUDGET = 10000  # parts placed in repair, plus one per 5 filled cells
+REPAIR_TILE_BUDGET = 1500  # most re-tilings allowed in repair, plus one per 10 filled cells
+REPAIR_PLACE_BUDGET = 10000  # most parts placed in repair, plus one per 5 filled cells
+REPAIR_TILES_PER_PART = 6  # a small build gets a budget in proportion to its parts ...
+REPAIR_PLACES_PER_PART = 40
+REPAIR_TILE_MIN = 400  # ... but never less than this
+REPAIR_PLACE_MIN = 3000
 LOOKAHEAD_NEUTRAL = 12  # joins that leave the count unchanged followed up, per seam
 LOOKAHEAD_MOVES = 8  # follow-up repairs tried after each
 REPAIR_DEPTH = 2  # changes that may be chained before the count has to drop
@@ -1227,8 +1231,13 @@ class _Solver:
         failed: dict[tuple[Move, int], tuple[int, int]] = {}
         attempts = 0
         cells = int(self.filled.sum())
-        self.tile_budget = self.tiles_done + REPAIR_TILE_BUDGET + cells // 10
-        self.place_budget = self.placed + REPAIR_PLACE_BUDGET + cells // 5
+        # A design that cannot be one piece uses the whole budget, so the budget follows the
+        # size of the build: a 30-part model must not cost as much as a 300-part one.
+        n = sum(1 for part in self.parts if part is not None)
+        tiles = min(REPAIR_TILE_BUDGET, max(REPAIR_TILE_MIN, REPAIR_TILES_PER_PART * n))
+        places = min(REPAIR_PLACE_BUDGET, max(REPAIR_PLACE_MIN, REPAIR_PLACES_PER_PART * n))
+        self.tile_budget = self.tiles_done + tiles + cells // 10
+        self.place_budget = self.placed + places + cells // 5
         while attempts < REPAIR_MAX_ATTEMPTS and not self.out_of_budget():
             self._log.clear()
             uf = self.build_uf()
