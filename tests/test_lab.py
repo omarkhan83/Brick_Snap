@@ -636,6 +636,42 @@ def test_the_line_about_parts_held_only_by_unchecked_joints_is_never_cut():
     assert "only by joints the checker cannot confirm" in r.summary()
 
 
+ALONG_Z = "1 0 0 0 0 -1 0 1 0"  # a bar's length along +z
+
+
+def test_a_bar_must_be_3_ldu_into_a_technic_bricks_through_hole():
+    # the library draws the hole as two 2 LDU primitives, one at each face: one hole, 20 deep
+    brick = [line(7, 0, -8, 0, "3036.dat"), line(14, 0, -32, 10, "3700.dat")]  # face at z 0
+    for into, joined in ((1, False), (2, False), (3, True), (4, True)):
+        bar = line(1, 0, -22, -60 + into, "87994.dat", ALONG_Z)
+        r = check("\n".join([*brick, bar]))
+        assert joined_by_bar(r, [2, 3]) == joined, into
+        assert any("a loose fit" in w for w in unchecked_words(r)) == joined, into
+
+
+def test_a_bar_right_through_technic_holes_and_a_bush():
+    base = line(7, 0, -8, 0, "3036.dat")
+    bar = line(1, 0, -22, -20, "87994.dat", ALONG_Z)  # from z -20 to 40
+    r = check("\n".join([base, line(14, 0, -32, 10, "3700.dat"), bar]))
+    assert r.ok and joined_by_bar(r, [2, 3])
+    r = check("\n".join([base, line(14, 0, -32, 10, "32064a.dat"), bar]))
+    assert r.ok and any("bar in an axle hole" in w for w in unchecked_words(r))
+    bush = line(2, 0, -22, 30, "3713.dat")  # on the bar beyond the brick
+    r = check("\n".join([base, line(14, 0, -32, 10, "3700.dat"), bar, bush]))
+    assert r.ok and joined_by_bar(r, [3, 4]), r.text()
+
+
+def test_a_bar_drawn_as_a_tube_is_a_bar():
+    # the bar of "Plate 1 x 1 Round with Bar" is drawn hollow at its end
+    text = [
+        line(7, 0, -8, 0, "3036.dat"),
+        line(14, 10, -32, 10, "59900.dat"),  # a cone: an open stud on top
+        line(1, 12, -52, 10, "32828.dat", "0 -1 0 1 0 0 0 0 1"),
+    ]
+    r = check("\n".join(text))
+    assert r.ok and joined_by_bar(r, [2, 3]), r.text()
+
+
 def test_report_text_sections():
     r = check(line(4, 0, -24, 0, "3001.dat") + "\n" + line(1, 10, -48, 0, "3001.dat"))
     text = r.text()

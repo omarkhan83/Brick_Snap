@@ -48,13 +48,16 @@ What it reports, each item naming the line number, the part and its position:
   Tube" is a tube a bar goes into (a clip), not a bar. Also listed as "not checked" joints:
   - a bar in a hollow (``_bar_in``): an open stud (``ldraw_lib.OPEN_STUD``; its hollow is the
     stud, 4 LDU from base to tip), an open tube, an axle hole (a round brick's middle), a
-    pin hole or the hollow end of a pin. All of these must hold:
+    pin hole or the hollow end of a pin (a through hole the library draws as one primitive
+    at each face is one hole, end to end: a Technic brick's is 20 LDU deep). All of these
+    must hold:
     1. In: from 1 LDU outside one end of the hollow inwards the other part's real solid is
-       on the axis without a break, and nowhere inside the hollow reaches the ring
-       ``BAR_RING`` LDU round it (no thicker than a bar, 4 LDU in radius), for at least the
-       hollow's depth (an open stud's 4; ``BAR_DEPTH`` for a longer hollow) less
-       ``BAR_PLAY`` (1 LDU, as a stud may sit 1 LDU short of home). A bar in by 2 LDU or
-       floating above the hollow is not held.
+       there without a break (on the axis, or as a tube of bar size round it: 6 of 8 points
+       ``BAR_TUBE`` LDU out, a bar end the library draws hollow), and nowhere inside the
+       hollow reaches the ring ``BAR_RING`` LDU round it (no thicker than a bar, 4 LDU in
+       radius), for at least the hollow's depth (an open stud's 4; ``BAR_DEPTH`` for a
+       longer hollow) less ``BAR_PLAY`` (1 LDU, as a stud may sit 1 LDU short of home).
+       A bar in by 2 LDU or floating above the hollow is not held.
     2. Along the axis: from the bar's inner end outwards for ``BAR_LEAN`` LDU, while it is
        still a bar (it fills fewer than 3 of 8 points of the ring), the middle of its
        cross-section is within ``BAR_OFF`` of the axis and its line leans less than
@@ -665,6 +668,7 @@ AXLE_LDU = 1.5
 AXLE_IN = 0.5  # LDU the hole's own reach and the axle's length must share
 AXLE_HOLE_PRIM = re.compile(r"^axl")  # axle-hole primitives (an axle drawn as one)
 BAR_RING = 5.0  # LDU: a bar is 4 LDU in radius; nothing of the held part may be this far out
+BAR_TUBE = 3.0  # LDU: a bar drawn as a tube fills a ring of this radius round the axis
 BAR_OFF = 1.0  # LDU: the middle of the bar's cross-section may be this far from the axis
 BAR_DEG = 4.0  # degrees a bar may lean from the hollow's axis (measured to about 1)
 BAR_PLAY = 1.0  # LDU a bar may stop short of a hollow's full depth (as a stud's SEAT_TOL)
@@ -691,8 +695,10 @@ class _Hollow:
 def _hollows(p: Placed, connectors: list[Connector]) -> list[_Hollow]:
     """The hollows among ``connectors`` of ``p`` that a bar can go into, each with the two
     ends of its axis: an open stud from its base to its tip (4 LDU), an open tube from its
-    open end to its closed one, a hole or a pin's bore along the primitive's own reach."""
+    open end to its closed one, a hole or a pin's bore along the primitive's own reach (a
+    through hole drawn as one primitive at each face is one hole, end to end)."""
     out: list[_Hollow] = []
+    holes: list[_Hollow] = []  # in the part's own frame until merged
     for c in connectors:
         if c.kind == "stud" and OPEN_STUD.match(c.prim):
             base = p.to_world(c.pos)
@@ -704,13 +710,25 @@ def _hollows(p: Placed, connectors: list[Connector]) -> list[_Hollow]:
         elif c.kind in ("axle hole", "pin hole", "pin"):
             a, b = c.along
             if b - a > 1e-9:
-                out.append(
-                    _Hollow(
-                        c.kind,
-                        p.to_world(c.pos + a * c.axis),
-                        p.to_world(c.pos + b * c.axis),
-                    )
-                )
+                holes.append(_Hollow(c.kind, c.pos + a * c.axis, c.pos + b * c.axis))
+    # a through hole is drawn as one primitive at each face: holes of one kind on one line
+    # are one hole, from the first end to the last
+    while holes:
+        h = holes.pop(0)
+        d = (h.p1 - h.p0) / float(np.linalg.norm(h.p1 - h.p0))
+        same = [
+            g
+            for g in holes
+            if g.kind == h.kind
+            and abs(float(np.dot(d, (g.p1 - g.p0) / float(np.linalg.norm(g.p1 - g.p0))))) > 0.999
+            and all(
+                float(np.linalg.norm((q - h.p0) - float(np.dot(q - h.p0, d)) * d)) < 0.5
+                for q in (g.p0, g.p1)
+            )
+        ]
+        holes = [g for g in holes if not any(g is x for x in same)]
+        ts = [float(np.dot(q - h.p0, d)) for g in (h, *same) for q in (g.p0, g.p1)]
+        out.append(_Hollow(h.kind, p.to_world(h.p0 + min(ts) * d), p.to_world(h.p0 + max(ts) * d)))
     order = ("open stud", "axle hole", "pin", "pin hole", "tube")
     return sorted(out, key=lambda h: order.index(h.kind))
 
@@ -735,7 +753,14 @@ def _bar_fits(h: _Hollow, held: Placed) -> bool:
         t_in = np.arange(-1.0, length + 0.01, 0.5)
         pts = start + sign * np.outer(t_in, d)  # going in
         local = held.to_local(pts)
-        on = sb.inside(local, deep=False)
+        # the bar is there when it is on the axis, or when it is a tube of bar size round it
+        # (6 of 8 points BAR_TUBE out from the axis inside it, as a bar end drawn hollow)
+        on = sb.inside(local, deep=False) | (
+            sb.inside(held.to_local((pts[:, None, :] + BAR_TUBE * ring).reshape(-1, 3)), deep=False)
+            .reshape(len(pts), len(_RING))
+            .sum(1)
+            >= 6
+        )
         thick = sb.inside(
             held.to_local((pts[:, None, :] + BAR_RING * ring).reshape(-1, 3)), deep=False
         )
@@ -759,7 +784,14 @@ def _bar_fits(h: _Hollow, held: Placed) -> bool:
         # BAR_OFF of the axis and its line leans no more than BAR_DEG from it
         t_out = np.arange(0.0, BAR_LEAN + 0.01, 0.5)
         line = start + sign * np.outer(depth - t_out, d)
-        on_out = sb.inside(held.to_local(line), deep=False)
+        on_out = sb.inside(held.to_local(line), deep=False) | (
+            sb.inside(
+                held.to_local((line[:, None, :] + BAR_TUBE * ring).reshape(-1, 3)), deep=False
+            )
+            .reshape(len(line), len(_RING))
+            .sum(1)
+            >= 6
+        )
         ring_in = sb.inside(
             held.to_local((line[:, None, :] + BAR_RING * ring).reshape(-1, 3)), deep=False
         ).reshape(len(line), len(_RING))
