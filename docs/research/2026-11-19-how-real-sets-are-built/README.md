@@ -789,7 +789,10 @@ each was read):
 - `reports/universal-truths.md`: the ten very different sets.
 - `reports/numbers.md`: the parts lists and the building order.
 - `reports/written-knowledge.md`: what designers and builders have published.
-- `scripts/`: the small programs behind `reports/numbers.md`, as the researcher wrote them. Each takes
+- `experiments.md`: the first two experiments, run on 19 November with no AI build: our checker on
+  official sets, and the AI's existing models measured against the guide's rules.
+- `scripts/`: the small programs behind `reports/numbers.md` and `experiments.md` (those named `exp_`),
+  as the researchers wrote them. Each takes
   the folders of downloaded data as arguments; the data itself (Rebrickable's catalogue files and the
   LDraw model files) is not in this repository and has to be fetched again from its source.
 

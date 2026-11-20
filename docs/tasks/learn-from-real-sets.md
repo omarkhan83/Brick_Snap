@@ -43,5 +43,16 @@ Done when:
   our checker on the community's LDraw files of small official sets; one sideways face on a converted
   model, by hand; a roof that lifts off as a declared moving thing; a clip on a bar as a proven joint;
   and reading two more booklets where the playbooks rest on thin evidence.
+- 19 November, two experiments with no AI build (`experiments.md` in the study's folder). (1) Our
+  checker does NOT pass official sets: about one false problem per five parts on six small sets on
+  sale (215 on 985 parts), none of them at a side stud (442 sideways stud joints were confirmed). Most
+  come from four causes: parts that only touch counted as overlapping (curved slopes over a plate's
+  end, plates against a bracket's flange: 77), a bar pushed into an open stud or another hollow (60),
+  axles read as holes (27), and the stud grid taken from the bounding box of parts with a cutout (19).
+  A model built in the guide's style would be told its curved slopes are wrong, so the checker has to
+  be fixed before the guide is tested with AI builds. (2) The guide has something to teach: in the
+  AI's 20 existing builds 3% of studded parts face sideways against 27% in 18 official models; wheels
+  go on a tenth of the way through against last; the core is always the very bottom. It already
+  mirrors and already prefers larger parts.
 - Alec decided on 19 November that statistics worked out from Rebrickable's catalogue may be used in
   the guide, with credit (see the decision of that date).
