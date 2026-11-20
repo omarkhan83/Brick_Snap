@@ -16,6 +16,8 @@ Modules
 - ``place``: place a part by connection ("put its socket on stud k of line n") instead of
   by coordinates.
 - ``tools`` / ``mcp_server``: the tools the AI gets, served over MCP.
+- ``guide``: the set designers' guide (``guide.md``, from the study of how real sets are
+  built), given to the builder only when a run asks for it.
 - ``run`` / ``blind``: one clean-room session through ``bricksnap.designer.runner.run_session``,
   with the tools, or with nothing but a final submit.
 

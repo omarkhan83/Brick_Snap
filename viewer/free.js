@@ -199,6 +199,16 @@ function minutes(seconds) {
   return plural(m, 'minute');
 }
 
+// Whether a run had the set designers' guide, and the playbook the builder asked for.
+function guideWords(r) {
+  if (r.guide === true) {
+    const book = r.playbook ? `; playbook it asked for: ${r.playbook}` : '; it asked for no playbook';
+    return `Built the way set designers do${book}`;
+  }
+  if (r.guide === false) return 'Built the usual way (no set designers’ guide)';
+  return '';
+}
+
 let shownRuns = '';
 function showRuns() {
   const runs = (info && Array.isArray(info.runs) ? info.runs : []).slice().reverse();
@@ -228,6 +238,7 @@ function showRuns() {
       el('span', { className: 'vtext' }, [
         head,
         r.words ? el('span', { className: 'rwords', text: `“${r.words}”` }) : null,
+        guideWords(r) ? el('span', { className: 'rguide', text: guideWords(r) }) : null,
         el('span', { className: 'vfacts' }, [now ? el('span', { className: 'badge ok vnow', text: 'In use' }) : null, document.createTextNode(facts.join(' · '))]),
       ]),
     ];
@@ -388,6 +399,10 @@ function render(force = false) {
     $('freeName').textContent = info.name;
     $('asked').hidden = !info.words;
     $('asked').textContent = info.words ? `Asked for: “${info.words}”` : '';
+    $('guideNote').hidden = !info.guide;
+    $('guideNote').textContent = info.guide
+      ? 'Built the way set designers do (experimental): a core first, sides built flat and pressed on. Changes are made the same way.'
+      : '';
     document.title = `${info.name} - BrickSnap`;
     showChecker();
   }

@@ -2,7 +2,7 @@
 
     python -m bricksnap.lab.run "TASK" --out DIR [--model claude-fable-5-2] [--effort high]
         [--max-turns 60] [--max-checks 25] [--timeout 3600] [--reference PICTURE ...]
-        [--start MODEL.ldr]
+        [--start MODEL.ldr] [--guide]
     python -m bricksnap.lab.blind "TASK" --out DIR [...]      (no tools but a final submit)
 
 CONTRACT (tests in tests/test_lab.py; no test starts a real session)
@@ -38,6 +38,14 @@ CONTRACT (tests in tests/test_lab.py; no test starts a real session)
   ``start``, the message says the model in the work area is one the AI built earlier from
   those words and the task is one change to it; ``prompt.md`` has a paragraph for that
   case too.
+- ``guide`` (``--guide``; ``build(..., guide=False)``; EXPERIMENTAL): build the way set
+  designers do (``bricksnap.lab.guide``). It is recorded as ``"guide"`` in config.json and
+  session.json, which also has ``"playbook"``: the title of the last playbook the
+  ``playbook`` tool returned (from ``playbook.json``), or null. With it on, the system
+  prompt is ``guide.system_prompt(prompt.md)``, written to ``system-prompt.md`` in the work
+  folder and given from there, and the tools gain ``playbook`` (``tools``). With it off,
+  everything the builder is given (the prompt file, the message, the tool list) is exactly
+  what it was before the switch existed. A blind run refuses it.
 """
 
 from __future__ import annotations
@@ -58,6 +66,7 @@ PROMPT_FILE = LAB / "prompt.md"
 BLIND_PROMPT_FILE = LAB / "blind_prompt.md"
 SERVER_MODULE = "bricksnap.lab.mcp_server"
 DEFAULT_MODEL = "claude-fable-5-2"
+GUIDE_PROMPT_NAME = "system-prompt.md"
 
 LAB_ROLE = runner.Role(
     tools="free-build tools",
@@ -125,16 +134,37 @@ def message(
     return "\n".join(parts)
 
 
+def prompt_file(out: Path, mode: str, guide: bool) -> Path:
+    """The system prompt's file: ``prompt.md`` (``blind_prompt.md``), or with the guide the
+    guide-mode instructions written to ``out/system-prompt.md``."""
+    if mode == "blind":
+        return BLIND_PROMPT_FILE
+    if not guide:
+        return PROMPT_FILE
+    from bricksnap.lab.guide import system_prompt
+
+    path = out / GUIDE_PROMPT_NAME
+    path.write_text(system_prompt(PROMPT_FILE.read_text(encoding="utf-8")), encoding="utf-8")
+    return path
+
+
 def prepare(
-    out: Path, mode: str, max_checks: int, references: list[Path], start: Path | None = None
+    out: Path,
+    mode: str,
+    max_checks: int,
+    references: list[Path],
+    start: Path | None = None,
+    guide: bool = False,
 ) -> str | None:
     """Make the work folder. With ``start``, the model is that file, moved along x so its
     middle is at x = 0 (``edit.centre_x``), and checked as attempt 0; the moved text is
     returned."""
+    if guide and mode == "blind":
+        raise SystemExit("A blind run has no tools, so it cannot use the guide.")
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} is not empty; give a new folder for each session.")
     out.mkdir(parents=True, exist_ok=True)
-    config: dict[str, Any] = {"mode": mode, "max_checks": max_checks}
+    config: dict[str, Any] = {"mode": mode, "max_checks": max_checks, "guide": guide}
     text = None
     if start is not None:
         from bricksnap.lab.edit import centre_x
@@ -236,10 +266,20 @@ def finish(
         ),
         "final_summary": summary,
         "closing_words": run.final_text,
+        "playbook": _playbook_used(out),
     }
     text = runner.redact(json.dumps(record, indent=1))
     (out / "session.json").write_text(text + "\n", encoding="utf-8")
     return record
+
+
+def _playbook_used(out: Path) -> str | None:
+    try:
+        data = json.loads((out / "playbook.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    title = data.get("playbook") if isinstance(data, dict) else None
+    return str(title) if isinstance(title, str) else None
 
 
 def _progress(event: dict[str, Any]) -> None:
@@ -276,6 +316,7 @@ def build(
     start: Path | None = None,
     change_of: str | None = None,
     on_event: Callable[[dict[str, Any]], None] | None = None,
+    guide: bool = False,
 ) -> dict[str, Any]:
     """Run one session into the new or empty folder ``out`` and return its record (what
     session.json holds). ``on_event`` gets every stream-json event as it arrives (from the
@@ -287,7 +328,7 @@ def build(
         raise SystemExit("Say what to build.")
     refs = list(references or [])
     load_index()
-    start_text = prepare(out, mode, max_checks, refs, start)
+    start_text = prepare(out, mode, max_checks, refs, start, guide=guide)
     result_event: dict[str, Any] = {}
 
     def hear(event: dict[str, Any]) -> None:
@@ -298,7 +339,7 @@ def build(
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run = runner.run_session(
-        prompt_file=BLIND_PROMPT_FILE if mode == "blind" else PROMPT_FILE,
+        prompt_file=prompt_file(out, mode, guide),
         mcp=runner.mcp_config(out, module=SERVER_MODULE),
         message=message(task, mode, max_checks, len(refs), start_text, change_of=change_of),
         transcript=out / "transcript" / f"{stamp}.jsonl",
@@ -318,6 +359,7 @@ def build(
         "max_turns": max_turns,
         "max_checks": max_checks,
         "started": stamp,
+        "guide": guide,
     }
     return finish(out, mode, run, result_event or None, extra)
 
@@ -338,6 +380,12 @@ def main(argv: list[str] | None = None, mode: str = "tools") -> None:
     ap.add_argument("--timeout", type=int, default=3600, help="seconds")
     ap.add_argument("--reference", nargs="*", default=[], help="pictures of what to build")
     ap.add_argument("--start", default=None, help="an LDraw file to start from (attempt 0)")
+    if mode != "blind":
+        ap.add_argument(
+            "--guide",
+            action="store_true",
+            help="build the way set designers do (experimental): the guide's rules and playbooks",
+        )
     args = ap.parse_args(argv)
     if not args.task.strip():
         raise SystemExit("Say what to build.")
@@ -363,6 +411,7 @@ def main(argv: list[str] | None = None, mode: str = "tools") -> None:
         references=refs,
         start=start,
         on_event=_progress,
+        guide=bool(getattr(args, "guide", False)),
     )
     ok = bool(record["ok"])
     print("finished" if ok else "FAILED: " + str(record["error"]))

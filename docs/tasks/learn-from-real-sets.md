@@ -56,3 +56,21 @@ Done when:
   mirrors and already prefers larger parts.
 - Alec decided on 19 November that statistics worked out from Rebrickable's catalogue may be used in
   the guide, with credit (see the decision of that date).
+- 20 November (branch `wip/Alec-42-guide`, not merged): the guide can now be given to the AI
+  builder, behind a switch, for point 3. The builder's copy is `bricksnap/lab/guide.md`, held
+  byte-equal to the study's `guide.md` by a test (change both together); `bricksnap/lab/guide.py`
+  reads it by its headings. `run.build(..., guide=True)`, `python -m bricksnap.lab.run --guide`,
+  `bricksnap make "..." --guide`, and a tick box under "More choices" in the web app's
+  free-build form (off by default; the model remembers it, so its changes keep it). With the
+  guide on, the builder's instructions get the twelve rules (without their bracketed sources),
+  a working order rewritten as one method, a paragraph on panels, and a `playbook` tool that
+  hands it the nearest playbook; the closing words must say which playbook it followed. With
+  it off, the prompt and the tools are byte for byte what they were (pinned by tests). Each
+  run records whether it had the guide and which playbook it asked for; the page shows both.
+- Panels work with today's `place`: a 2 x 4 plate on the side studs of two 1 x 1 side-stud
+  bricks (87087), then tiles and curved slopes on its studs, passes the checker (the example
+  is the last test in `tests/test_guide.py`). In guide mode only, `place` lists a sideways
+  part's studs in its reply. A side stud of a side-stud brick is 10 LDU below its top, so a
+  two-stud panel's edges sit half a plate off the core's plate lines; a bracket's (99780) do not.
+- Left: point 3 itself (eight AI runs, four subjects with and without, judged blind: needs
+  Alec's yes), and the study's experiments that need no AI run.

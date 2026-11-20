@@ -300,6 +300,7 @@ const freeForm = $('freeForm');
 const freeWords = $('freeWords');
 const freeParts = $('freeParts');
 const freeRef = $('freeRef');
+const freeGuide = $('freeGuide');
 const freeConfirm = $('freeConfirm');
 const freeUnderstood = $('freeUnderstood');
 const freeStart = $('freeStart');
@@ -342,7 +343,7 @@ function describeFree() {
   $('freeWhat').replaceChildren(
     document.createTextNode('What the AI will build: '),
     el('span', { className: 'quote', id: 'freeQuote', text: `“${words}”` }),
-    document.createTextNode(`, about ${freeParts.value} parts.`),
+    document.createTextNode(`, about ${freeParts.value} parts${freeGuide.checked ? ', built the way set designers do' : ''}.`),
   );
   const ref = freeRef.value ? freeRef.options[freeRef.selectedIndex].text : '';
   $('freeSends').textContent = ref
@@ -357,7 +358,7 @@ function closeFree() {
 }
 
 // Whatever changes what would be sent takes the agreement back.
-for (const input of [freeWords, freeParts, freeRef]) {
+for (const input of [freeWords, freeParts, freeRef, freeGuide]) {
   input.addEventListener('input', () => {
     if (!freeConfirm.hidden) {
       freeUnderstood.checked = false;
@@ -420,6 +421,7 @@ freeStart.addEventListener('click', async () => {
   const name = $('freeName').value.trim();
   if (name) body.name = name;
   if (freeRef.value) body.reference = freeRef.value;
+  if (freeGuide.checked) body.guide = true;
   freeSending = true;
   freeStart.disabled = true;
   freeGo.disabled = true;

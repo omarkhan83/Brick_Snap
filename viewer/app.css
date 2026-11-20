@@ -303,6 +303,8 @@ body.free-page main { gap: 18px; }
 .checker .hint-line { margin: 0 0 4px; }
 .asked { margin: 0; font-size: 15px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .asked[hidden] { display: none; }
+#guideNote { margin: 4px 0 0; overflow-wrap: anywhere; }
+#guideNote[hidden] { display: none; }
 .report-box pre {
   margin: 0; padding: 10px; max-height: 420px; overflow: auto;
   background: #f6f6f6; border: 2px solid #ccc; border-radius: 8px;
@@ -326,6 +328,7 @@ body.free-page main { gap: 18px; }
 }
 .run .vtext { gap: 2px; }
 .run .rwords { font-size: 14px; overflow-wrap: anywhere; }
+.run .rguide { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .run .vfacts { white-space: normal; }
 .run .usebtn { padding: 5px 12px; font-size: 15px; box-shadow: 2px 2px 0 var(--ink); flex: none; }
 .more-card .more-actions { margin: 0; padding: 0; border: 0; }

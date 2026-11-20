@@ -3,7 +3,8 @@
 CONTRACT (tests in tests/test_lab.py; served over MCP by ``mcp_server``)
 
 A work folder holds one session's model and everything the tools save:
-- ``config.json``: ``{"mode": "tools" | "blind", "max_checks": int}`` (written by ``run``).
+- ``config.json``: ``{"mode": "tools" | "blind", "max_checks": int, "guide": bool}`` (written
+  by ``run``; a folder without "guide" has it off).
 - ``model.ldr``: the model being built. ``place``, ``add`` and ``remove`` change it; ``submit``
   replaces it. Its line numbers are the ones every tool and report uses. A removed part
   becomes a comment line ("0 removed: ..."), so the other lines keep their numbers.
@@ -12,10 +13,21 @@ A work folder holds one session's model and everything the tools save:
   ``modules``.
 - ``reference/*.png``: pictures of what to build (shown by ``reference``).
 - ``calls.jsonl``: one line per call (tool, short arguments, whether it failed, seconds).
+- ``playbook.json`` (guide mode): the last playbook ``playbook`` returned (``{"kind",
+  "parts", "playbook"}``, its title).
 
 ``TOOLS`` (mode "tools"): search_parts, part_info, place, add, fill, mirror, remove,
 remove_box, model, check, look, submit, modules, place_module, joint, and reference when the
 folder has reference pictures.
+
+Guide mode (``"guide": true`` in config.json, mode "tools" only; see ``guide``): the same
+tools plus ``playbook`` (before reference): with ``{"kind", "parts"}`` the guide's playbook
+of that kind nearest that size (``guide.playbook``; a kind is also read from a word such as
+"car" or "house"), saying which it chose and why; with ``{}`` the kinds, one line each; with
+``{"table": true}`` the parts by job. And ``place``, for a part whose studs no longer point
+up or down once placed (a plate on side studs), adds its studs in the model's coordinates,
+numbered, with the way each points and whether it is taken. With the guide off, every tool
+list and every reply is exactly what it was before guide mode existed.
 
 What moves (``joints``, ``modules``, ``movement``): ``modules`` lists the proven moving modules
 (with one name: the module's card and a picture of it at rest and opened); ``place_module``
@@ -457,10 +469,36 @@ TOOLS = [
 ]
 BLIND_TOOLS = [_SUBMIT_BLIND]
 
+_PLAYBOOK = {
+    "name": "playbook",
+    "description": (
+        "How set designers build one kind of subject at one size (from a study of official "
+        'sets). {"kind": "vehicle", "parts": 100} returns the playbook of that kind nearest '
+        "that many parts (what core to build first, how to make it strong, how the outside "
+        "attaches, what moves, in what order) and says which it chose and why. {} lists the "
+        'kinds, one line each. {"table": true} returns the parts sorted by job (side-stud '
+        "bricks, brackets, curved slopes, clips and bars, hinges...) with their numbers."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "description": "vehicle, hollow, creature, plant or machine",
+            },
+            "parts": {"type": "integer", "minimum": 1, "description": "About how many parts."},
+            "table": {"type": "boolean", "default": False},
+        },
+        "additionalProperties": False,
+    },
+}
+
 
 def tools_for(folder: Path) -> list[dict[str, Any]]:
     cfg = _config(folder)
     base = BLIND_TOOLS if cfg.get("mode") == "blind" else TOOLS
+    if cfg.get("guide") is True and base is TOOLS:
+        base = [*base, _PLAYBOOK]
     if _references(folder):
         base = [*base, _REFERENCE]
     return base
@@ -855,12 +893,42 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     except (PlaceError, ValueError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [result.line])
+    sideways = ""
+    if _config(folder).get("guide") is True:
+        sideways = _sideways_studs(text, numbers[0])
     return [
         _text(
             f"Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the checker says "
-            f"about it:\n{_quick(folder, text, numbers)}"
+            f"about it:\n{_quick(folder, text, numbers)}{sideways}"
         )
     ]
+
+
+def _sideways_studs(text: str, line: int) -> str:
+    """Guide mode only: for a part placed so that its studs no longer point up (a panel's
+    plate on side studs), its studs in the model, numbered for place, with the way each
+    points and whether it is free; empty for any other part."""
+    from bricksnap.lab.ldraw_lib import direction_word
+    from bricksnap.lab.validate import check, numbered_studs
+
+    report = check(text, movement=False)
+    placed = next((p for p in report.placed if p.line == line), None)
+    if placed is None:
+        return ""
+    studs = numbered_studs(placed.part)
+    if not studs or abs(float((placed.m @ studs[0].axis)[1])) > 0.5:
+        return ""
+    taken = {k for link in report.links if link.holder == line for k in link.studs}
+    out = [f"\nIts studs now (numbered for place on line {line}):"]
+    for n, s in enumerate(studs[:24], 1):
+        w = placed.to_world(s.pos)
+        out.append(
+            f"  stud {n}: at ({', '.join(_f(v) for v in w)}) pointing "
+            f"{direction_word(placed.m @ s.axis)}" + ("  (taken)" if n in taken else "  (free)")
+        )
+    if len(studs) > 24:
+        out.append(f"  ... and {len(studs) - 24} more: part_info with this line lists them all.")
+    return "\n".join(out)
 
 
 def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1413,6 +1481,47 @@ def _mirror(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _playbook(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import guide
+
+    kind, parts, table = args.get("kind"), args.get("parts"), args.get("table", False)
+    if not isinstance(table, bool):
+        return _error('table must be true or false, as in {"table": true}.')
+    if table:
+        if kind is not None or parts is not None:
+            return _error('ask for the table on its own: {"table": true}.')
+        return [_text("Parts by job (LDraw part numbers):\n\n" + guide.parts_table())]
+    listing = "\n".join(f"- {k}: {line}" for k, line in guide.kinds().items())
+    if kind is None and parts is None:
+        return [
+            _text(
+                "The kinds of subject the playbooks cover (call playbook with one, and about "
+                'how many parts, e.g. {"kind": "vehicle", "parts": 100}):\n' + listing
+            )
+        ]
+    if not isinstance(kind, str) or not kind.strip():
+        return _error(
+            'say the kind of subject, e.g. {"kind": "creature", "parts": 100}. The kinds:\n'
+            + listing
+        )
+    found = guide.kind_of(kind)
+    if found is None:
+        return _error(
+            f"there is no playbook for '{kind[:40]}'. Choose the nearest of these kinds:\n"
+            + listing
+        )
+    if parts is None:
+        return _error(f'say about how many parts too, e.g. {{"kind": "{found}", "parts": 100}}.')
+    if not isinstance(parts, int) or isinstance(parts, bool) or not 1 <= parts <= 100_000:
+        return _error("parts must be a whole number of parts, such as 100.")
+    title, body, why = guide.playbook(found, parts)
+    named = "" if found == kind.strip().lower() else f"'{kind[:40]}' is read as {found}. "
+    with contextlib.suppress(OSError):
+        record = {"kind": found, "parts": parts, "playbook": title}
+        (folder / "playbook.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    return [_text(f"Playbook: {title}. {named}{why}\n\n{body}")]
+
+
 _HANDLERS = {
     "search_parts": _search,
     "part_info": _part_info,
@@ -1430,6 +1539,7 @@ _HANDLERS = {
     "modules": _modules,
     "place_module": _place_module,
     "joint": _joint,
+    "playbook": _playbook,
 }
 
 

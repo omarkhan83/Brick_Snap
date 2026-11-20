@@ -15,8 +15,10 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
     project.json   {"kind": "free", "experimental": true, "name", "words" (what the person
                    typed), "parts_wanted" (or null), "reference" (the folder name of the
                    project whose pictures the AI was shown, or null), "model" (the AI model
-                   asked for, or null), "created" (seconds since 1970), "runs": [...],
-                   "current": the number of the run shown now, or null}
+                   asked for, or null), "created" (seconds since 1970), "guide" (whether
+                   the builder is given the set designers' guide, ``lab.guide``; false
+                   when missing), "runs": [...], "current": the number of the run shown
+                   now, or null}
     model.ldr      the current model, as the AI left it (LDraw; BrickLink Studio, LeoCAD
                    and LDView open it; removed parts are "0 removed: ..." comment lines, so
                    the line numbers in the report still match)
@@ -39,7 +41,9 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
 A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" | "change" |
 "imported", "words", "created", "ok", "error", "has_model", "parts", "kinds", "summary",
 "clean", "problems", "unchecked", "moves", "seconds", "turns", "cost_usd_reported",
-"pictures" (whether they were drawn), "picture_problem"}``. ``summary`` is the checker's
+"pictures" (whether they were drawn), "picture_problem", "guide" (whether the run had the
+guide: true or false, or null for an imported model whose run did not say), "playbook" (the
+title of the playbook the builder asked for last, or null)}``. ``summary`` is the checker's
 one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
 joints it could not confirm (clips, bars, pins, axles: counted as joined without proof);
 ``moves`` is the report's MOVEMENT section, one sentence per joint ("'lid' (lid-hinge, lines
@@ -48,14 +52,16 @@ joints it could not confirm (clips, bars, pins, axles: counted as joined without
 
 Functions
 - ``is_free(folder)``: whether a project folder is a free-build project (never raises).
-- ``create(projects_dir, words, name=..., parts=..., reference=..., model=..., folder=...)``:
-  a new project with no runs yet; the folder is ``folder`` when given (it must not exist),
+- ``create(projects_dir, words, name=..., parts=..., reference=..., model=..., folder=...,
+  guide=False)``: a new project with no runs yet, remembering whether to give the builder
+  the guide; the folder is ``folder`` when given (it must not exist),
   else ``slug(name or words)`` made unique with a number. Words and names are cut to
   ``MAX_WORDS`` and ``MAX_NAME`` characters, control characters removed.
 - ``build(folder, words=None, on_say=None, references=None)``: runs one lab session into
   the next ``runs/NNNN/work`` and keeps what it made (``adopt``): the first build from the
   project's words when it has no model yet, otherwise ``words`` is a change to the current
-  model (``lab.run.build`` with ``start`` and ``change_of``). ``on_say`` gets the progress
+  model (``lab.run.build`` with ``start`` and ``change_of``). Every run of a project, a
+  change too, has the guide or not as the project's "guide" says. ``on_say`` gets the progress
   as plain sentences (``Progress``). Returns the run entry; raises ``FreeBuildError`` when
   the session could not start or made no model, after keeping the run's entry.
 - ``adopt(folder, n, work, kind, words)``: keep lab work folder ``work`` as run ``n``; when it
@@ -68,7 +74,7 @@ Functions
 - ``restore(folder, n)``: make run ``n`` the current one again (its files copied back to the
   top of the folder); the other runs stay.
 - ``describe(folder)``: everything a page or the command line shows about the project
-  (with ``moves`` and ``opened``, the path of pictures/opened.png or None).
+  (with ``moves`` and ``opened``, the path of pictures/opened.png or None, and ``guide``).
 - ``missing()``: None when a run can start, else what is missing (the LDraw library zip,
   LeoCAD, xvfb-run) and exactly where to put it, in plain words.
 - ``reference_sheet(project_folder, out_png)``: pictures of an ordinary project's 3D model
@@ -323,6 +329,7 @@ def create(
     reference: str | None = None,
     model: str | None = None,
     folder: str | None = None,
+    guide: bool = False,
 ) -> Path:
     """A new free-build project with no runs yet; returns its folder."""
     words = clean(words, MAX_WORDS)
@@ -345,6 +352,7 @@ def create(
         "reference": reference,
         "model": model,
         "created": time.time(),
+        "guide": bool(guide),
         "runs": [],
         "current": None,
     }
@@ -510,6 +518,7 @@ def keep_model(
         "cost_usd_reported": rec.get("cost_usd_reported"),
         "pictures": problem is None,
         "picture_problem": problem,
+        **_guide_fields(rec),
     }
     _write(dest / "record.json", json.dumps(entry, indent=1) + "\n")
     _use(folder, n)
@@ -518,6 +527,16 @@ def keep_model(
     meta["current"] = n
     save_meta(folder, meta)
     return entry
+
+
+def _guide_fields(record: dict[str, Any]) -> dict[str, Any]:
+    """Whether a run had the guide, and which playbook it asked for, from its record."""
+    guide = record.get("guide")
+    playbook = record.get("playbook")
+    return {
+        "guide": guide if isinstance(guide, bool) else None,
+        "playbook": playbook if isinstance(playbook, str) else None,
+    }
 
 
 def check_text(text: str) -> str:
@@ -562,6 +581,7 @@ def adopt(folder: Path, n: int, work: Path, kind: str, words: str) -> dict[str, 
             "cost_usd_reported": record.get("cost_usd_reported"),
             "pictures": False,
             "picture_problem": None,
+            **_guide_fields(record),
         }
         run_dir(folder, n).mkdir(parents=True, exist_ok=True)
         _write(run_dir(folder, n) / "record.json", json.dumps(entry, indent=1) + "\n")
@@ -630,6 +650,7 @@ def build(
             start=start,
             change_of=change_of,
             on_event=hear,
+            guide=meta.get("guide") is True,
             **options,
         )
     except SystemExit as e:  # the lab's own refusals are plain sentences
@@ -738,6 +759,7 @@ def describe(folder: Path) -> dict[str, Any]:
         "words": str(meta.get("words") or ""),
         "parts_wanted": meta.get("parts_wanted"),
         "reference": meta.get("reference"),
+        "guide": meta.get("guide") is True,
         "parts": now.get("parts"),
         "kinds": now.get("kinds"),
         "summary": now.get("summary") or "",

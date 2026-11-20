@@ -48,7 +48,7 @@ PROJECT is a path to a project folder; a bare name is looked up under ./projects
 EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricksnap.lab``)
 
     bricksnap make "WORDS" [--name NAME] [--parts N] [--reference PROJECT] [--model ID]
-                   [--dir projects]
+                   [--guide] [--dir projects]
         A new free-build project (``bricksnap.lab.freebuild``): one AI session builds the
         model WORDS describe from the whole LDraw parts library, about N parts (20 to 300,
         default 80). With --reference, the AI is also shown that ordinary project's 3D model
@@ -60,7 +60,9 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
         the checker's summary, where the model and parts list are, and the AI's notes.
         0 when the checker found no problems, 1 when it found some or the run failed (the
         message says why and what was kept), 2 for a mistake (no words, --parts out of range,
-        a reference that is not an ordinary project with a 3D model).
+        a reference that is not an ordinary project with a 3D model). With --guide
+        (experimental) the builder is given the set designers' guide (``lab.guide``): the
+        project remembers it, and every later change to it has the guide too.
     bricksnap make --change PROJECT "WORDS" [--model ID]
         The same, starting from that free-build project's current model, with WORDS as one
         change; the result is kept as a new run.
@@ -2220,6 +2222,11 @@ FREE_EXPERIMENTAL = (
     "as joined without proof, and nothing yet judges how strong a joint is."
 )
 
+GUIDE_WORDS = (
+    "It builds the way set designers do (experimental): a core first, sides built flat and "
+    "pressed on, following a guide drawn from how official sets are built."
+)
+
 
 def free_build_refusal(ref: str) -> str:
     """What every command for ordinary projects says about a free-build project."""
@@ -2265,15 +2272,18 @@ def _make(args: argparse.Namespace) -> int:
 
     words = (args.words or "").strip()
     if args.import_from:
-        if args.change or args.parts is not None or args.reference or args.model:
+        if args.change or args.parts is not None or args.reference or args.model or args.guide:
             raise UserError("--import goes only with --name, --dir and the words (optional).")
         folder = freebuild.import_run(
             Path(args.dir), Path(args.import_from), name=args.name, words=words or None
         )
         return _made(folder, imported=True)
     if args.change:
-        if args.name or args.parts is not None or args.reference:
-            raise UserError("--name, --parts and --reference go only with a new model.")
+        if args.name or args.parts is not None or args.reference or args.guide:
+            raise UserError(
+                "--name, --parts, --reference and --guide go only with a new model (a change "
+                "keeps the model's own choice of guide)."
+            )
         if not words:
             raise UserError(
                 f"Say what to change, in quotes: {RUN} make --change {shlex.quote(args.change)} "
@@ -2302,6 +2312,8 @@ def _make(args: argparse.Namespace) -> int:
         name = str(meta.get("name") or folder.name)
         print(f'Asking the AI to change "{name}": "{freebuild.clean(words, 200)}".')
         sent = "the words you typed (and the words the model was first built from)"
+        if meta.get("guide") is True:
+            print("This model was built the way set designers do, and the change is made so too.")
     else:
         folder = freebuild.create(
             Path(args.dir),
@@ -2310,9 +2322,12 @@ def _make(args: argparse.Namespace) -> int:
             parts=parts,
             reference=reference.path.name if reference else None,
             model=args.model,
+            guide=args.guide,
         )
         name = str(freebuild.read_meta(folder).get("name"))
         print(f'The AI will build "{name}" from parts, about {parts} of them.')
+        if args.guide:
+            print(GUIDE_WORDS)
         sent = "the words you typed"
     references = []
     if reference is not None:
@@ -2604,6 +2619,12 @@ def _parser() -> _Parser:
         help="show the AI pictures of this project's 3D model, to make it look like it",
     )
     p.add_argument("--model", metavar="ID", help="which AI model to use (default: Fable 5.2)")
+    p.add_argument(
+        "--guide",
+        action="store_true",
+        help="experimental: build it the way set designers do: a core first, sides built "
+        "flat and pressed on (the model remembers this for later changes)",
+    )
     p.add_argument(
         "--change",
         metavar="PROJECT",

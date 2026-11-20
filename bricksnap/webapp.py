@@ -303,7 +303,9 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   by the AI, part by part" and mark it experimental wherever it appears.
 - ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 300, default 80),
   "reference"? (the folder name of an ordinary project with a 3D model, whose pictures from
-  five sides the AI is shown), "understood": true, "understood_runs": 1}``. Answers
+  five sides the AI is shown), "guide"? (true: build it the way set designers do, with
+  ``lab.guide``; false when left out; anything but true or false is refused), "understood":
+  true, "understood_runs": 1}``. The project remembers "guide" and its changes keep it. Answers
   ``{"job", "project"}`` (202). ``POST /api/p/<project>/change`` for a free build:
   ``{"words", "understood": true, "understood_runs": 1}``: one AI session starting from the
   current model. Both are AI jobs (kinds "free" and "change") under the rules above: token,
@@ -332,7 +334,9 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   ``reference``, ``kinds``, ``summary``, ``report`` (the checker's full report), ``notes``
   (the AI's closing words, redacted when kept), ``current_run``, ``runs`` (oldest first,
   each ``{"n", "kind", "words", "created", "ok", "error", "has_model", "parts", "kinds",
-  "summary", "clean", "problems", "unchecked", "seconds", "picture"}``), ``turntable`` (the
+  "summary", "clean", "problems", "unchecked", "seconds", "guide", "playbook", "picture"}``:
+  ``guide`` true, false or null when not known, ``playbook`` the title of the playbook the
+  builder asked for or null), ``guide`` (whether the project's runs have it), ``turntable`` (the
   addresses of the twelve views round the model), ``sheet``, ``picture_problem``, ``files``
   (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``.
 - The page ``/p/<project>`` of a free build is ``viewer/free.html`` (with ``free.js``), not
@@ -1096,6 +1100,8 @@ class App:
                             "problems",
                             "unchecked",
                             "seconds",
+                            "guide",
+                            "playbook",
                         )
                     },
                     "picture": url(card),
@@ -1105,6 +1111,7 @@ class App:
             words=about.get("words", ""),
             parts_wanted=about.get("parts_wanted"),
             reference=about.get("reference"),
+            guide=about.get("guide") is True,
             kinds=about.get("kinds"),
             summary=about.get("summary", ""),
             report=about.get("report", ""),
@@ -2074,6 +2081,9 @@ class App:
             ref_folder = self.ordinary(reference, "reference")
             if not (ref_folder / "design.npz").is_file():
                 raise Refused(f'"{reference}" has no 3D model to show the AI. Choose another.')
+        guide = body.get("guide", False)
+        if not isinstance(guide, bool):
+            raise Refused("The choice to build it the way set designers do must be on or off.")
         self._free_agreement(body)
         self._free_ready()
         job_id = secrets.token_hex(8)
@@ -2081,7 +2091,13 @@ class App:
 
         def work(job: Job) -> dict[str, Any]:
             path = freebuild.create(
-                self.root, words, name=name or None, parts=parts, reference=reference, folder=folder
+                self.root,
+                words,
+                name=name or None,
+                parts=parts,
+                reference=reference,
+                folder=folder,
+                guide=guide,
             )
             references = []
             if ref_folder is not None:
@@ -2114,6 +2130,10 @@ class App:
             job.say("This is a new model: the AI builds it part by part from the parts library")
         else:
             job.say(f'This is one change to the model: "{_short(words, 200)}"')
+        if freebuild.read_meta(folder).get("guide") is True:
+            job.say(
+                "It builds the way set designers do: a core first, sides built flat and pressed on"
+            )
         job.say("One AI run; it usually takes ten to twenty minutes")
         entry = freebuild.build(folder, words, on_say=job.say, references=references)
         verdict = entry.get("summary") or "not checked"

@@ -205,6 +205,8 @@ class FakeLab:
             "cost_usd_reported": 1.5,
             "task": task,
             "closing_words": f"I built two bricks. Write to someone@example.com. {MARKUP}",
+            "guide": kw.get("guide", False),
+            "playbook": "Plant, 100 parts" if kw.get("guide") else None,
         }
         if not self.no_model:
             (out / "final.ldr").write_text(self.model, "utf-8")
@@ -952,5 +954,172 @@ def test_browser_the_project_page_says_what_moves(
     try:
         car.page.wait_for_function("() => document.querySelector('#turn').complete")
         assert car.page.locator("#movesBox").is_hidden()
+    finally:
+        car.close()
+
+
+# ---- the set designers' guide (lab.guide), chosen per model ----------------------------------
+
+
+def test_the_guide_is_remembered_and_kept_by_a_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLab()
+    monkeypatch.setattr(lab_run, "build", fake)
+    usual = freebuild.create(tmp_path, "a boat")
+    assert freebuild.read_meta(usual)["guide"] is False
+    entry = freebuild.build(usual)
+    assert fake.calls[-1]["guide"] is False
+    assert entry["guide"] is False and entry["playbook"] is None
+    assert freebuild.describe(usual)["guide"] is False
+
+    folder = freebuild.create(tmp_path, "a sunflower in a pot", guide=True)
+    assert freebuild.read_meta(folder)["guide"] is True
+    entry = freebuild.build(folder)
+    assert fake.calls[-1]["guide"] is True
+    assert entry["guide"] is True and entry["playbook"] == "Plant, 100 parts"
+    entry = freebuild.build(folder, "make the pot blue")
+    assert fake.calls[-1]["guide"] is True and fake.calls[-1]["change_of"]
+    assert entry["kind"] == "change" and entry["guide"] is True
+    about = freebuild.describe(folder)
+    assert about["guide"] is True
+    assert [(r["guide"], r["playbook"]) for r in about["runs"]] == [
+        (True, "Plant, 100 parts"),
+        (True, "Plant, 100 parts"),
+    ]
+    record = json.loads((folder / "runs" / "0002" / "record.json").read_text())
+    assert record["guide"] is True and record["playbook"] == "Plant, 100 parts"
+    # a project made before the choice existed has it off; an imported run does not know
+    meta = freebuild.read_meta(usual)
+    del meta["guide"]
+    freebuild.save_meta(usual, meta)
+    freebuild.build(usual, "make it longer")
+    assert fake.calls[-1]["guide"] is False
+    imported = freebuild.import_run(tmp_path, STUDY / "cat.ldr", words="a cat")
+    assert freebuild.describe(imported)["runs"][0]["guide"] is None
+
+
+def test_make_with_the_guide(capsys: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from bricksnap import cli
+
+    fake = FakeLab()
+    monkeypatch.setattr(lab_run, "build", fake)
+    projects = tmp_path / "projects"
+    code, out, err = _cli(capsys, "make", "a fire truck", "--guide", "--dir", str(projects))
+    assert code == 0, err
+    assert cli.GUIDE_WORDS in out and fake.calls[0]["guide"] is True
+    assert freebuild.read_meta(projects / "a-fire-truck")["guide"] is True
+    monkeypatch.chdir(tmp_path)
+    code, out, err = _cli(capsys, "make", "--change", "a-fire-truck", "make it blue", "--guide")
+    assert code == 2 and "--guide go only with a new model" in err
+    code, out, err = _cli(capsys, "make", "--change", "a-fire-truck", "make it blue")
+    assert code == 0, err
+    assert "the change is made so too" in out and fake.calls[1]["guide"] is True
+    code, out, err = _cli(capsys, "make", "a cat", "--dir", str(projects))
+    assert code == 0 and cli.GUIDE_WORDS not in out and fake.calls[2]["guide"] is False
+    code, out, err = _cli(capsys, "make", "--import", str(STUDY / "cat.ldr"), "--guide")
+    assert code == 2 and "--import goes only with" in err
+
+
+def test_a_free_build_with_the_guide_over_the_web(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLab()
+    monkeypatch.setattr(lab_run, "build", fake)
+    for bad in ("yes", 1, None):
+        status, data = running.post("/api/free", {"words": "a cat", "guide": bad, **AGREED})
+        assert status == 400 and "set designers do" in data["error"], bad
+    assert fake.calls == []
+    status, data = running.post(
+        "/api/free", {"words": "a sunflower", "name": "Sunflower", "guide": True, **AGREED}
+    )
+    assert status == 202
+    job = running.wait(data["job"])
+    assert job["state"] == "done", job
+    assert any("the way set designers do" in line for line in job["progress"])
+    assert fake.calls[0]["guide"] is True
+    info = running.get_json("/api/p/sunflower")
+    assert info["guide"] is True
+    assert info["runs"][0]["guide"] is True and info["runs"][0]["playbook"] == "Plant, 100 parts"
+    status, data = running.post("/api/p/sunflower/change", {"words": "taller", **AGREED})
+    assert running.wait(data["job"])["state"] == "done" and fake.calls[1]["guide"] is True
+    status, data = running.post("/api/free", {"words": "a boat", "name": "Boat", **AGREED})
+    assert running.wait(data["job"])["state"] == "done" and fake.calls[2]["guide"] is False
+    assert running.get_json("/api/p/boat")["guide"] is False
+
+
+@pytest.mark.browser
+def test_browser_the_guide_box_and_what_the_page_says(
+    browser: Any, running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLab(
+        model=(STUDY / "flower.ldr").read_text(),
+        report=(STUDY / "flower-report.txt").read_text(),
+    )
+    monkeypatch.setattr(lab_run, "build", fake)
+    tab = Tab(browser, running.url, width=1280, height=900).open()
+    try:
+        page = tab.page
+        page.fill("#freeWords", "a sunflower in a pot")
+        page.locator("#freeMore summary").click()
+        page.fill("#freeName", "Sunflower")
+        box = page.locator("#freeGuide")
+        assert box.is_visible() and not box.is_checked()
+        label = page.locator("label:has(#freeGuide)").text_content() or ""
+        assert "Build it the way set designers do (experimental)" in label
+        assert "a core first, sides built flat and pressed on" in label
+        box.check()
+        page.click("#freeGo")
+        assert "built the way set designers do" in tab.text("#freeWhat")
+        page.check("#freeUnderstood")
+        box.uncheck()  # a change takes the agreement back
+        assert not page.locator("#freeUnderstood").is_checked()
+        assert "set designers" not in tab.text("#freeWhat")
+        box.check()
+        page.check("#freeUnderstood")
+        page.locator("#freeMore").scroll_into_view_if_needed()
+        shot(tab, "home-guide")
+        page.click("#freeStart")
+        page.wait_for_selector("#freeJobs .job.done a.button")
+        assert fake.calls[0]["guide"] is True
+        assert not page.locator("#freeGuide").is_checked()  # the form starts afresh
+        tab.assert_clean()
+    finally:
+        tab.close()
+    phone = Tab(browser, running.url, width=390, height=844).open()
+    try:
+        phone.page.locator("#freeMore summary").click()
+        phone.page.locator("#freeGuide").scroll_into_view_if_needed()
+        phone.no_sideways_scroll()
+        shot(phone, "home-guide-phone", full=False)
+        phone.assert_clean()
+    finally:
+        phone.close()
+    page_tab = Tab(browser, running.url, width=1280, height=900).open("p/sunflower")
+    try:
+        page = page_tab.page
+        page.wait_for_selector("#runs li")
+        assert page.locator("#guideNote").is_visible()
+        assert "Built the way set designers do" in page_tab.text("#guideNote")
+        run_text = page_tab.text("#runs .rguide")
+        assert run_text == "Built the way set designers do; playbook it asked for: Plant, 100 parts"
+        shot(page_tab, "project-guide")
+        page_tab.assert_clean()
+    finally:
+        page_tab.close()
+    phone = Tab(browser, running.url, width=390, height=844).open("p/sunflower")
+    try:
+        phone.page.wait_for_selector("#runs li")
+        phone.no_sideways_scroll()
+        phone.page.locator("#runs").scroll_into_view_if_needed()
+        shot(phone, "project-guide-phone", full=False)
+        phone.assert_clean()
+    finally:
+        phone.close()
+    car = Tab(browser, running.url, width=1280, height=900).open("p/car")
+    try:
+        car.page.wait_for_selector("#runs li")
+        assert car.page.locator("#guideNote").is_hidden()
+        assert car.page.locator("#runs .rguide").count() == 0  # an imported run does not know
     finally:
         car.close()
