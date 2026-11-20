@@ -2554,7 +2554,7 @@ def blobs_of_seed_1(catalog, wanted: set[int]) -> dict[int, tuple[Design, Build]
     """The random blobs and quick tilings of ``default_rng(1)`` at the indices wanted. Of the
     first 27, numbers 24 and 26 are the ones where the clause on heavy sections refuses
     something; the others it leaves alone (finished by the first run, or by the second run
-    with the clause changing no decision)."""
+    with the clause changing no decision). Number 71 is used for how the clause objects."""
     rng = np.random.default_rng(1)
     out = {}
     for n in range(max(wanted) + 1):
@@ -2620,7 +2620,7 @@ def test_a_worse_result_without_the_heavy_clause_is_not_kept(catalog, monkeypatc
     """Blob 26 of seed 1: the clause refuses something, so the pass runs a third time without
     it; that result would hang a section of 41 cells on one part where the input had one
     heavy section and the result with the clause none, so the result with the clause is kept."""
-    (design, build), = blobs_of_seed_1(catalog, {26}).values()
+    ((design, build),) = blobs_of_seed_1(catalog, {26}).values()
     runs = counting_runs(monkeypatch)
     before, after, _ = run(design, catalog, build)
     assert runs == [True, True, False]
@@ -2636,7 +2636,7 @@ def test_a_better_result_without_the_heavy_clause_is_kept(catalog, monkeypatch):
     """Blob 24 of seed 1: with the clause the pass keeps the input's five heavy sections;
     without it, three (the worst 78 cells either way). The result without it is kept, and it
     keeps every promise of the contract, the stage 3 rule with its clause included."""
-    (design, build), = blobs_of_seed_1(catalog, {24}).values()
+    ((design, build),) = blobs_of_seed_1(catalog, {24}).values()
     runs = counting_runs(monkeypatch)
     before, after, _ = run(design, catalog, build)  # checks every promise
     assert runs == [True, True, False]
@@ -2669,3 +2669,22 @@ def test_the_pineapple_at_40_studs_keeps_the_sturdier_result(catalog, monkeypatc
     _, heavy_free, worst_free = sections(without, before, design, catalog)
     assert (heavy_free, worst_free) == (15, 125) and (heavy, worst) == (13, 121)
     assert shaped_share(without, catalog) > shaped_share(after, catalog) + 0.04
+
+
+def test_a_clause_that_only_changes_the_blame_counts_as_refusing(catalog, monkeypatch):
+    """The clause on heavy sections also refuses something when it only makes a round blame
+    other swaps (the build broke the rule for other reasons as well). On blob 71 of seed 1,
+    with the other way of objecting (a verdict changed by the clause alone) switched off,
+    the run with the clause still says it objected, from a round's blame alone."""
+    ((design, build),) = blobs_of_seed_1(catalog, {71}).values()
+    offenders = finish_module._Sturdy._offenders
+
+    def verdicts_never_object(self, *args):
+        was = self.objected
+        out = offenders(self, *args)
+        self.objected = was
+        return out
+
+    monkeypatch.setattr(finish_module._Sturdy, "_offenders", verdicts_never_object)
+    result, guard = finish_module._finish(build, design, catalog, sturdy=True)
+    assert result is not None and guard.objected
