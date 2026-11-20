@@ -29,5 +29,19 @@ Done when:
   study shows such cores matter at our sizes.
 - Point 3 needs real AI builds, which spend Alec's Claude subscription: ask him first and report the
   count.
-- Started 19 November: seven researchers (five categories, a numbers study from published parts lists
-  and any machine-readable models of official sets, and a survey of what designers have written).
+- 19 November: points 1 and 2 are done as far as reading goes. The study is
+  `docs/research/2026-11-19-how-real-sets-are-built/README.md` (32 official sets read from LEGO's own
+  instruction files by six researchers, counts over 5,935 sets' parts lists and 42 models' building
+  order, and what designers have published); the draft guide is `guide.md` beside it: twelve rules for
+  any subject and ten playbooks (five kinds of subject at about 100 and about 400 parts). The answer to
+  the question that started it: every set starts with a core, but beams and pins are one kind among
+  five and are not used at our sizes; ours are a plate base, a block of side-stud bricks with panels
+  pressed on sideways, walls under a lid, and a spine.
+- The guide is NOT yet given to the AI builder. Left: point 3 (the same subjects built with and
+  without it: eight AI runs, which need Alec's yes), and the study's experiments that need no AI run,
+  in its section "Experiments to run next": measure the AI-built models we have against the rules; run
+  our checker on the community's LDraw files of small official sets; one sideways face on a converted
+  model, by hand; a roof that lifts off as a declared moving thing; a clip on a bar as a proven joint;
+  and reading two more booklets where the playbooks rest on thin evidence.
+- Alec decided on 19 November that statistics worked out from Rebrickable's catalogue may be used in
+  the guide, with credit (see the decision of that date).

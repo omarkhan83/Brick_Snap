@@ -191,7 +191,9 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   step: never start one unless your user asks. It needs LeoCAD in `~/.cache/bricksnap/leocad/`; without it
   the feature says so and the rest works.
 - **Research** is in `docs/research/`, one folder per question, with the experiments' own files. Read
-  `docs/research/2026-11-19-ai-as-the-builder/README.md` before working on how the AI designs or builds.
+  `docs/research/2026-11-19-ai-as-the-builder/README.md` before working on how the AI designs or builds,
+  and `docs/research/2026-11-19-how-real-sets-are-built/README.md` (how official sets are built, with a
+  draft guide for the AI builder) before changing what the builder is told or how models are structured.
 - **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
   still opens by double-click. It is not developed further: do not fix or extend it.
 - `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in
