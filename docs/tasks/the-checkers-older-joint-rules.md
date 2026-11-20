@@ -4,7 +4,7 @@
 - stage: 4
 
 On 20 November the checker stopped calling official techniques wrong (215 false problems on six
-official sets fell to 19; see `docs/research/2026-11-19-how-real-sets-are-built/experiments.md`,
+official sets fell to 18; see `docs/research/2026-11-19-how-real-sets-are-built/experiments.md`,
 "After the fixes"). The independent review of that change found places where the checker is still
 too easy, most of them older than the change. They were left out of it on purpose so that the fix
 stayed small. A builder who is told "no problems" for one of these has a model that cannot be built
@@ -43,10 +43,18 @@ In rough order of how likely a builder is to meet them:
 7. **Studs in pin holes:** a stud 2 LDU short of the hole's face is joined.
 8. **Bars judged on a short span:** a short bar's lean can only be measured over the length that is a
    bar, so a short bar off its axis may pass.
-9. **What is still falsely reported on the six sets (19):** irregular sockets (5), a T-piece and a
-   steering wheel the library records no joint for, five shields, two plant groups resting on a
-   handle, and a round plate on a bracket with what stands on it.
-10. **Movement:** a declared wheel on an axle is refused ("the checker cannot yet confirm how an axle
+9. **What is still falsely reported on the six sets (18):** irregular sockets (5), a T-piece the
+   library records no joint for (with the steering wheel on it), five shields, two plant groups
+   resting on a handle, and a round plate on a bracket with what stands on it. On the wider 18
+   models (226): an axle pin in a domed cylinder whose library shapes share 3 LDU (40433), and a
+   rotor under a curved slope and a jumper under a plane's nose that sit half a stud off the grid
+   (75892, 60067).
+10. **A pin in a pin hole is found only at the pin connector's own point.** In 10349 two long axle
+    pins (11214) sit in Technic bricks and that joint is not listed at all; they are held through
+    their axle ends.
+11. **A bar drawn as a tube** counts as a bar when 6 of 8 points round the axis are solid. No test
+    can tell 6 from 1, because the centring rule refuses the same cases first.
+12. **Movement:** a declared wheel on an axle is refused ("the checker cannot yet confirm how an axle
     turns: use a module instead"), as are clips, bars, finger hinges and balls. A clip on a bar as a
     proven module is the first one worth adding (see `movement-first-models.md`).
 

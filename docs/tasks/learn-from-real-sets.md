@@ -87,8 +87,8 @@ Done when:
   studs to avoid a joint the checker could not confirm; and it chose not to build the core of
   side-stud bricks. So that run tested the old checker more than the guide.
 - 20 November, the checker's false problems are fixed (experiment 3's four causes; the numbers are in
-  `experiments.md`, "After the fixes"): 215 false problems on the six official sets fall to 19, and
-  1,000 to 243 over all 18 models. Parts that only touch are not an overlap; a bar in an open stud or
+  `experiments.md`, "After the fixes"): 215 false problems on the six official sets fall to 18, and
+  1,000 to 226 over all 18 models. Parts that only touch are not an overlap; a bar in an open stud or
   another hollow is a joint listed as not checked; axles are axles; parts with a cutout underneath
   take their stud grid from their sockets, and `place` seats them there. The curved slopes above now
   place and check clean at all four turns. What it costs: a part moved 1 LDU into its neighbour is no

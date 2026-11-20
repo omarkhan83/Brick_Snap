@@ -374,6 +374,25 @@ a new process, "warm" the second check in the same process):
 flag, built once and kept on disk; the cache's version was raised, so every part is read
 again once after the change.)
 
+**Two later changes the same day**, after the review's second look, measured the same way. The
+tables above are as they stood before them.
+
+- A through hole that the library draws as two short pieces is read as one hole, so a bar must
+  be 3 LDU into a Technic brick's hole like anywhere else (a bar 1 LDU in had counted as held).
+- A bar whose end is drawn hollow (the bar of the 1 x 1 round plate with bar, 32828; the pin of
+  the 1 x 1 round tile with pin, 20482) counts as a bar.
+
+With both, the six sets go from 19 false problems to **18**, and all 18 official models from 243
+to **226** (median 12 to 11): 41498 from 17 to 13, 40433 from 31 to 23, 75892 from 27 to 25, and
+31045 from 12 to 10. In 10349 two joints listed as "a bar in a pin hole" are no longer listed:
+they were the narrow necks of two long axle pins seen inside one short piece of the hole. The
+pins are still held by their axle ends, and the set's seven problems are the same seven.
+
+Also that day: parts held through a proven moving module (wheels, a hinge, a turntable that the
+movement check accepts and finds free to move) are no longer counted as "held only by joints the
+checker cannot confirm". Before that, every car standing on the wheel modules was told nearly
+all of it was.
+
 ## Experiment 2: how far are the builds we have from the guide's rules?
 
 Run with `exp_measures.py`, tabled with `exp_tables.py`. Every measure is made the same way on
