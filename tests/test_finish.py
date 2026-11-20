@@ -1490,13 +1490,16 @@ def test_a_swap_may_not_trade_a_small_weak_spot_for_a_new_heavy_one():
     originals = [(n,) for n in range(6)]  # each part stands for the input part it was
     rule.most, rule.count, rule.known = 89, 3, set()
     rule.heavy = {frozenset({0, 1})}
+    rule.heavy_rule, rule.objected = True, False  # the clause held, as in every run but one
     old = LoneLink(2, 9, None, False, 1, (0, 1), 89)
     new = LoneLink(2, 9, None, False, 1, (2, 3), 45)
     small = LoneLink(2, 9, None, False, 1, (4, 5), 39)
     assert finish_module._HEAVY_CELLS == 40
     assert rule._offenders({}, [old], originals) == {}
+    assert not rule.objected
     traded = rule._offenders({}, [old, new], originals)
     assert [g[2] for g in traded.values()] == [new]
+    assert rule.objected  # the clause alone broke the rule: it refused something
     assert rule._offenders({}, [old, small], originals) == {}
     assert rule._offenders({}, [new], originals) == {}
 

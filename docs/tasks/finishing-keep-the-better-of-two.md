@@ -17,6 +17,27 @@ only on builds where the rule refuses something. The scorecard must not get wors
 studs must get its slopes back.
 
 ## Notes
+Done on branch `wip/Alec-42-finishing-better-of-two` (20 November), not yet merged: the pass runs a
+third time without the heavy-section clause wherever that clause changes a decision in the run with
+the rule, and keeps that result only if it has no more heavy sections than the input and fewer than
+the result with the clause, or as many and a lighter worst one; a tie keeps the result with the
+clause. The contract at the top of `bricksnap/finish.py` says it exactly (the stage 4 addition on
+the better of two). Where the clause changes nothing the pass is unchanged, byte for byte.
+
+What did not come true: the pineapple at 40 studs does not get its slopes back. Without the clause
+it has 15 heavy sections where its input had 13 (counted as the clause counts them, once per set of
+input parts; 16 each way counted link by link, which is where "the same 16" came from), and its
+worst is 125 cells against 121 with the clause. By the order this task asks for, that is worse, so
+the result with the clause is kept. Getting those slopes back needs a different rule (for example
+counting heavy sections link by link and letting a tie on them go to the more shaped result, which
+would accept a 4-cell heavier worst): the lead's call. On random blobs the change does help: of 900
+(seeds 1 to 3), 14 run the third pass and 2 keep its result (seed 1, numbers 24 and 297).
+
+Cost: no third run on the eleven samples at 16 studs or the pineapple at 32. The pineapple at 24, 40
+and 48 and the 3,000-part sphere run it, which about doubles their finishing time (the sphere 3.2 to
+6.4 seconds, 8.3 with its underside sloped: inside the thorough tests' limits of 11 and 13.5, but no
+longer the contract's 5 seconds).
+
 From the weak-spots work of 19 November (the contract at the top of `bricksnap/finish.py` states the rule
 and how it counts). Also left from that work, smaller:
 
