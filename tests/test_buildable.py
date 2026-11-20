@@ -1114,6 +1114,7 @@ def on_a_block(column, catalog) -> Design:
 
     block = trimesh.creation.box(bounds=[[0.0, 0.0, 0.0], [48.0, 48.0, 19.2]])
     mesh = trimesh.util.concatenate([block, column])
+    assert isinstance(mesh, trimesh.Trimesh)
     seed = Seed(vertices=np.asarray(mesh.vertices, float), faces=np.asarray(mesh.faces))
     return voxelize(seed, catalog)
 
