@@ -265,7 +265,9 @@ left, after the build is decided, so it cannot change it.
 
 Sturdiness. The pass first runs exactly as it did before the stage 3 rule and measures its
 result once (``connect.lone_links`` on the result against the input with the details): if the
-rule holds, that is the result, so a build no swap threatens comes out as before. Otherwise it
+rule holds, that is the result, so a build no swap threatens comes out as before. (A third run,
+without the clause on heavy sections, follows only where that clause refused something: see
+the stage 4 addition on the better of two.) Otherwise it
 runs again, holding each *class* of swaps to the rule as it goes: each class of slopes (by
 height and width, as above), then the tile plan, the per-part tilings and the 1x1 tiles.
 Measuring after every swap would be too slow for 3,000 parts (each measure looks at the whole
@@ -434,6 +436,38 @@ lower half of anything round) stayed a staircase. Now its mirror image is done u
   any model. The outline match falls by up to half a point where they cut a model's side in
   profile (the star's front, the duck's right), as the slopes on top already do: a 45-degree
   part cut into a staircase of filled cells takes off a little more than the model leaves.
+
+STAGE 4 ADDITION TO THE CONTRACT: the better of two when the heavy-section clause refuses
+The clause of the stage 3 rule on sections of 40 cells or more (``_HEAVY_CELLS``) is judged
+class by class, so a step it refuses can be one that would have led somewhere better: on random
+lumps it left more such sections than no clause at all in 14 or 15 builds of 240.
+- Words. A *heavy section* is a lone link of ``_HEAVY_CELLS`` cells or more, counted as that
+  clause counts them (as the checks measure it, once per set of input parts that would come
+  away there). The *worst* of a build is its heaviest lone link in cells, counted as the checks
+  count it (in the build's own parts). The clause *refuses something* when, in the run with the
+  stage 3 rule, it changes a decision: a swap, a class, a merge, an inverted slope or the final
+  check is judged to break the rule only because of it, or the swaps blamed in a round are not
+  the same as without it. When it changes nothing, the pass without it would go exactly the
+  same way.
+- Only then the pass runs once more, holding everything to the stage 3 rule without that one
+  clause (the largest load and the number of lone links, seen as the input's parts, still
+  hold), with its merges and inverted slopes as usual. Its result is kept when it has no more
+  heavy sections than the input (with the detail parts standing on it) and fewer heavy
+  sections than the result with the clause, or as many and a lighter worst; otherwise,
+  including a tie on both, the result with the clause is kept, exactly as before this addition.
+  So the pass never ends with more heavy sections, or as many and a heavier worst, than it
+  would have without the clause, and never worse than before this addition.
+- A build where the clause refuses nothing is finished as before, run for run, and comes out
+  byte for byte the same. Deterministic. The notes are those of the result kept.
+- Speed: the extra run costs about as much as the run with the rule (on the 3,000-part
+  sphere 3.2 seconds become 6.4, 8.3 with its underside sloped, so it is no longer under 5
+  seconds there; the 153 x 153 slab refuses nothing this way and takes as long as before).
+- Measured: the eleven sample models at 16 studs refuse nothing this way and come out as
+  before. The pineapple at 24, 40 and 48 studs runs the extra pass and keeps the result with
+  the clause each time: without it, it would have 3, 15 and 20 heavy sections where its input
+  had 1, 13 and 14 (at 40 also a worst of 125 cells against 121), so at 40 studs it does not get
+  back the 16 slopes the clause costs it. At 32 the clause refuses nothing. On 300 random
+  blobs (with ``random_layout`` from the tests) 5 run the extra pass and 2 keep its result.
 """
 
 from __future__ import annotations
@@ -1717,8 +1751,12 @@ class _Sturdy:
         catalog: Catalog,
         input_occ: np.ndarray,
         exact: bool,
+        heavy_rule: bool = True,
     ) -> None:
         self.catalog = catalog
+        self.heavy_rule = heavy_rule  # hold the build to the clause on sections of
+        # ``_HEAVY_CELLS`` cells or more (off in the third run, see the stage 4 addition on it)
+        self.objected = False  # that clause has found too many such sections at least once
         self.details = details
         self.shape = build.shape
         self.input = list(build.parts)
@@ -1870,12 +1908,24 @@ class _Sturdy:
             for k, g in groups.items()
             if g[1] > self.most or (too_many and k not in self.known)
         }
+        if not self.heavy_rule:
+            return out
         heavy = _heavy(links, originals)
         if len(heavy) > len(self.heavy):
+            if not out:
+                self.objected = True  # the build breaks the rule only because of this clause
             new = {k: ln for k, ln in heavy.items() if k not in self.heavy} or heavy
             for k, ln in new.items():
                 out.setdefault(frozenset({("heavy", k)}), (len(k), ln.cells, ln))
         return out
+
+    def sections(self, parts: list[Placement]) -> tuple[int, int]:
+        """A finished build measured for the choice between two results: its sections of
+        ``_HEAVY_CELLS`` cells or more, counted as the rule counts them, and its heaviest lone
+        link in cells, counted as the checks count it (in its own parts)."""
+        links = lone_links(Build(shape=self.shape, parts=parts), self.catalog)
+        originals = [self._originals(p) for p in parts]
+        return len(_heavy(links, originals)), max((ln.cells for ln in links), default=0)
 
     def weak_spots(self, state: _State) -> tuple[int, int, int, int]:
         """The state's weak spots, measured now: the largest load in cells and the number of
@@ -1963,18 +2013,27 @@ class _Sturdy:
         for n, k in enumerate(made):
             if k is not None:
                 new_of.setdefault(k, []).append(n)
-        blamed: dict[tuple[Placement, ...], int] = {}
-        for load, _, ln in offenders.values():
-            hung_on = [ln.part] if ln.joint is None else list(ln.joint)
-            makers = {k for n in hung_on if (k := made[n]) is not None}
-            members = set(ln.members)
-            inside = {k for n in ln.members if (k := made[n]) is not None}
-            cutting = {k for k in inside if any(n not in members for n in new_of[k])}
-            chosen = (makers | inside) if broad else (makers or cutting or inside)
-            if not chosen and recent:
-                chosen = {self._nearest(parts[ln.part], state.done[start:])}
-            for k in chosen:
-                blamed[k] = max(blamed.get(k, 0), load)
+
+        def blame(groups: Iterable[tuple[int, int, LoneLink]]) -> dict[tuple[Placement, ...], int]:
+            blamed: dict[tuple[Placement, ...], int] = {}
+            for load, _, ln in groups:
+                hung_on = [ln.part] if ln.joint is None else list(ln.joint)
+                makers = {k for n in hung_on if (k := made[n]) is not None}
+                members = set(ln.members)
+                inside = {k for n in ln.members if (k := made[n]) is not None}
+                cutting = {k for k in inside if any(n not in members for n in new_of[k])}
+                chosen = (makers | inside) if broad else (makers or cutting or inside)
+                if not chosen and recent:
+                    chosen = {self._nearest(parts[ln.part], state.done[start:])}
+                for k in chosen:
+                    blamed[k] = max(blamed.get(k, 0), load)
+            return blamed
+
+        blamed = blame(offenders.values())
+        if not self.objected:
+            # the clause on heavy sections refused something when it blamed another swap
+            others = [g for k, g in offenders.items() if not _is_heavy_key(k)]
+            self.objected = blamed.keys() != blame(others).keys()
         self.hanging = max(g[0] for g in offenders.values())
         return list(blamed.items())
 
@@ -2010,6 +2069,11 @@ class _Sturdy:
         for key, load in blamed:
             state.banned.add(key)
             self._mark(key, load, "together")
+
+
+def _is_heavy_key(key: frozenset) -> bool:
+    """Whether an offender found by ``_Sturdy._offenders`` is one of its heavy sections."""
+    return any(isinstance(k, tuple) and k[:1] == ("heavy",) for k in key)
 
 
 def _heavy(links: list[LoneLink], originals: list[tuple]) -> dict[frozenset, LoneLink]:
@@ -2680,18 +2744,39 @@ def finish(build: Build, design: Design, catalog: Catalog) -> Build:
             notes=list(build.notes),
         )
     # first exactly as without the sturdiness rule; only if that breaks the rule, again with it
-    plain = _finish(build, design, catalog, sturdy=False)
+    plain, _ = _finish(build, design, catalog, sturdy=False)
     if plain is not None:
         return plain
-    result = _finish(build, design, catalog, sturdy=True)
+    result, guard = _finish(build, design, catalog, sturdy=True)
     assert result is not None
+    if not guard.objected:
+        return result  # without the clause on heavy sections it would have gone the same way
+    # that clause refused something: finish once more without it, and keep that only if it
+    # has no more heavy sections than the input and is better than the result with it
+    other, free = _finish(build, design, catalog, sturdy=True, heavy_rule=False)
+    assert other is not None
+    guard._measure_input()
+    if _better_without(len(guard.heavy), guard.sections(result.parts), free.sections(other.parts)):
+        return other
     return result
 
 
-def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Build | None:
+def _better_without(most: int, ruled: tuple[int, int], free: tuple[int, int]) -> bool:
+    """Whether the result finished without the clause on heavy sections is kept: it has no
+    more of them than the input (``most``) and, as (heavy sections, heaviest lone link in
+    cells), fewer heavy sections than the result with the clause, or as many and a lighter
+    heaviest one. On a tie the result with the clause is kept."""
+    return free[0] <= most and free < ruled
+
+
+def _finish(
+    build: Build, design: Design, catalog: Catalog, sturdy: bool, heavy_rule: bool = True
+) -> tuple[Build | None, _Sturdy]:
     """The pass. With ``sturdy`` each class of swaps is held to the sturdiness rule as it
     goes; without, nothing is (as before the rule), and None is returned if the result
-    breaks it."""
+    breaks it. Without ``heavy_rule`` the rule leaves out its clause on sections of
+    ``_HEAVY_CELLS`` cells or more. Also returns the guard, which says whether that clause
+    found too many such sections (``_Sturdy.objected``) and measures the result."""
     assert design.finish is not None
     state = _State(build, design, catalog)
     details, detail_notes = _place_details(design, catalog, state)
@@ -2728,7 +2813,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
     )
     claimed, tried = prog.claimed, prog.tried
     awkward = any(state.input_problems)  # the quick measure may miss what such parts hold
-    guard = _Sturdy(build, details, catalog, state.input_occ, exact=awkward)
+    guard = _Sturdy(build, details, catalog, state.input_occ, exact=awkward, heavy_rule=heavy_rule)
 
     def guarded(work: Callable[[], None]) -> None:
         """Run one class of swaps. If it leaves the build less sturdy than the input, refuse
@@ -3005,7 +3090,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
         # the run without the rule must keep it before merging, or it is not the result:
         # merge only in the run that will be kept, so its tiles and slopes are as before
         if not sturdy and guard.check(state, len(state.done), broad=False) is not None:
-            return None
+            return None, guard
         merge_parts(first_new)
     if inverted:
         # under the overhangs, after everything on top (an open top that wants a tile or a
@@ -3031,7 +3116,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             _fell_back("section 5")
         elif not guard.holds(parts):
             if not sturdy:
-                return None
+                return None, guard
             # never expected: each class was measured as it went
             worst = max(guard.worst, guard.hanging)
             fell_back = (_TOGETHER, worst, worst == guard.worst)
@@ -3099,6 +3184,7 @@ def _finish(build: Build, design: Design, catalog: Catalog, sturdy: bool) -> Bui
             )
         notes += _reason_notes(reasons, catalog)
         notes += detail_notes
-    return Build(
+    result = Build(
         shape=build.shape, parts=parts, report=None, design_id=build.design_id, notes=notes
     )
+    return result, guard
