@@ -1,6 +1,6 @@
 # Finishing: when the heavy-section rule refuses a step, finish both ways and keep the better
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-20)
 - stage: 4
 
 The finishing pass may not leave more sections of 40 cells or more hanging on one part than the build it
