@@ -1868,3 +1868,107 @@ def test_a_damaged_solid_cache_entry_is_built_again(tmp_path, monkeypatch):
         got = S.solid("3005.dat", lib)
         assert got.full.size > 64 and got.h == S.CELL, bad
     S._SOLIDS.clear()
+
+
+# ---- parts held through a proven module are not "held only by unconfirmed joints" ----------
+
+
+def _car_on_wheel_modules() -> str:
+    from bricksnap.lab.modules import place_module
+
+    m = place_module("", "wheels-small", 4, 0, z=-40, joint_name="front")
+    text = "\n".join(m.lines) + "\n"
+    m = place_module(text, "wheels-small", 4, 0, z=40, joint_name="rear")
+    return text + "\n".join(m.lines) + "\n1 4 0 -31 0 0 0 1 0 1 0 -1 0 0 3034.dat\n"
+
+
+def _held_only(report) -> list[int]:
+    return next((i.lines for i in report.unchecked if i.kind == "held by unchecked joints"), [])
+
+
+def test_a_car_on_proven_wheel_modules_is_held():
+    report = check(_car_on_wheel_modules())
+    assert report.summary() == (
+        "11 parts of 4 kinds, no problems: every part is held, nothing overlaps, and it stands; "
+        "all 2 joints move freely. (2 joints not checked)"
+    )
+    assert not _held_only(report)
+    text = report.text()
+    assert text.count("the joints inside it (6) are how its parts are designed") == 2
+    assert "only through those joints" not in text
+
+
+def test_without_the_movement_check_nothing_proves_the_module():
+    from bricksnap.lab.validate import check as run
+
+    report = run(_car_on_wheel_modules(), movement=False)
+    assert "(7 of them only by joints the checker cannot confirm)" in report.summary()
+    assert _held_only(report) == [1, 2, 4, 7, 8, 10, 13]
+
+
+def test_a_module_whose_part_was_moved_proves_nothing():
+    lines = _car_on_wheel_modules().splitlines()
+    tok = lines[8].split()  # a wheel of the rear module (line 9)
+    tok[4] = str(float(tok[4]) + 4)
+    lines[8] = " ".join(tok)
+    report = check("\n".join(lines) + "\n")
+    assert any("not where the module puts it" in t for t in moving_problems(report))
+    # the refused rear module proves nothing: its axle and wheel still hang on unconfirmed
+    # joints; the front one is proven, and the plate stands on it
+    assert _held_only(report) == [8, 10]
+
+
+def test_with_a_module_only_the_parts_on_a_clip_are_counted():
+    text = _car_on_wheel_modules()
+    text += "1 72 10 -39 -70 1 0 0 0 1 0 0 0 1 60897.dat\n"  # a clip plate at the plate's end
+    text += "1 0 10 -91 -90 1 0 0 0 1 0 0 0 1 87994.dat\n"  # a bar standing in the clip
+    report = check(text)
+    assert not report.problems, report.text()
+    assert _held_only(report) == [15]
+    assert "(1 of them only by joints the checker cannot confirm)" in report.summary()
+
+
+def test_parts_beyond_a_proven_turntable_or_hinge_are_held():
+    from bricksnap.lab.modules import place_module
+    from bricksnap.lab.place import place
+
+    text = "1 15 0 -8 0 1 0 0 0 1 0 0 0 1 3031.dat\n"
+    m = place_module(text, "turntable-small", 72, 1, stud=6, joint_name="head")
+    text += "\n".join(m.lines) + "\n"
+    text += place(text, "3003.dat", 14, 3, stud=1).line + "\n"  # the head on the turntable
+    report = check(text)
+    assert report.ok and report.moving_ok == 1 and not _held_only(report), report.text()
+    assert "only by joints" not in report.summary()
+
+    text = "1 15 0 -24 0 1 0 0 0 1 0 0 0 1 3001.dat\n"
+    m = place_module(text, "lid-hinge", 72, 1, stud=1, joint_name="lid")
+    report = check(text + "\n".join(m.lines) + "\n")
+    assert report.ok and report.moving_ok == 1 and not _held_only(report), report.text()
+
+
+def test_a_module_that_cannot_move_proves_nothing():
+    from bricksnap.lab.modules import place_module
+    from bricksnap.lab.place import place
+
+    text = "1 15 0 -8 0 1 0 0 0 1 0 0 0 1 3031.dat\n"
+    m = place_module(text, "turntable-small", 72, 1, stud=6, joint_name="head")
+    text += "\n".join(m.lines) + "\n"
+    text += place(text, "3003.dat", 14, 3, stud=1).line + "\n"
+    text += place(text, "3005.dat", 1, 1, stud=7).line + "\n"  # in the head's sweep
+    report = check(text)
+    assert any("cannot turn all the way round" in t for t in moving_problems(report))
+    assert _held_only(report) == [3, 5]
+
+
+def test_a_joint_the_builder_declared_proves_nothing():
+    text = _text(
+        [
+            "1 72 0 -30 0 1 0 0 0 1 0 0 0 1 4488.dat",
+            "1 71 30 -25 0 0 0 -1 0 1 0 1 0 0 6014b.dat",
+            "1 0 36 -25 0 0 0 -1 0 1 0 1 0 0 6015.dat",
+            "0 !BRICKSNAP JOINT w WHEEL AT 0 -25 0 AXIS 1 0 0 FIXED 1 MOVING 2 3",
+        ]
+    )
+    report = check(text)
+    assert report.moving_ok == 1, report.text()
+    assert 1 in _held_only(report)

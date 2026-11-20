@@ -99,7 +99,13 @@ What it reports, each item naming the line number, the part and its position:
   joints the checker cannot confirm)"); with joints it also says how many move freely, and
   how many problems are about movement.
 - The NOT CHECKED section lists the joints (the first ``MAX_OTHERS``, then a count of the
-  rest by kind) and then, never cut, the line naming the parts held only through them.
+  rest by kind) and then, never cut, the line naming the parts held only through them
+  (``held_only_item``). Stud links count as confirmed; so do the joints inside a proven
+  module: a joint line that names the module, whose parts ``modules.verify`` accepts as the
+  module's parts in the module's places, and whose movement verdict is not a problem
+  (``movement.apply`` puts the item again with those modules' parts joined). A module that
+  is refused or cannot move, a joint the builder declared, and every joint when the check
+  runs with ``movement=False`` or the model has no joint lines, count as unconfirmed.
 
 Rough by design (and the report says so once): the filled body misses walls thinner than
 about 2 LDU and treats side holes as solid (an overlap it misses is not looked for on the
@@ -1379,7 +1385,6 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                 pairs.append((a, b))
 
     groups = _Groups([p.line for p in placed])
-    checked_groups = _Groups([p.line for p in placed])
     stud_problem_pairs: set[tuple[int, int]] = set()
     bar_held: dict[int, np.ndarray] = {}  # parts held as a bar in a hollow -> its axis
     pin_holes: dict[tuple[float, ...], int] = {}  # (part, hole) -> the part whose stud is in it
@@ -1417,7 +1422,6 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                     Link(holder.line, held.line, [h.stud for h in good], ", ".join(sorted(hows)))
                 )
                 groups.join(holder.line, held.line)
-                checked_groups.join(holder.line, held.line)
             if bad:
                 stud_problem_pairs.add((min(a.line, b.line), max(a.line, b.line)))
                 first = bad[0]
@@ -1635,24 +1639,7 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
             )
         )
     # held only through joints the checker cannot confirm: one item for all of them
-    only_unchecked: list[int] = []
-    for comp in checked_groups.groups():
-        if gset & set(comp):
-            continue
-        if any(set(comp) <= set(c) for c in loose):
-            continue
-        only_unchecked.extend(comp)
-    if only_unchecked:
-        n = len(only_unchecked)
-        report.issues.append(
-            Issue(
-                "not checked",
-                "held by unchecked joints",
-                sorted(only_unchecked),
-                f"{_lines(only_unchecked).capitalize()} {'is' if n == 1 else 'are'} joined to "
-                "what stands on the ground only through those joints.",
-            )
-        )
+    held_only_item(report, loose)
 
     # does it stand
     allw = []
@@ -1698,6 +1685,43 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
 
         moves.apply(text, report, lib)
     return report
+
+
+def held_only_item(
+    report: Report, loose: list[list[int]] | None = None, proven: list[list[int]] | None = None
+) -> None:
+    """Put (or replace, or remove) the one "held by unchecked joints" item: the parts that are
+    not loose, yet reach a part on the ground only through joints the checker cannot confirm.
+    Stud links count as confirmed, and so does each group of parts in ``proven`` (the parts of
+    a module the movement check has proved: ``movement``). ``loose`` defaults to the loose
+    problems already in the report."""
+    if loose is None:
+        loose = [i.lines for i in report.problems if i.kind == "loose"]
+    groups = _Groups([p.line for p in report.placed])
+    for link in report.links:
+        groups.join(link.holder, link.held)
+    for own in proven or []:
+        for ln in own[1:]:
+            if ln in groups.parent and own[0] in groups.parent:
+                groups.join(own[0], ln)
+    gset = set(report.grounded)
+    only: list[int] = []
+    for comp in groups.groups():
+        if gset & set(comp) or any(set(comp) <= set(c) for c in loose):
+            continue
+        only.extend(comp)
+    report.issues = [i for i in report.issues if i.kind != "held by unchecked joints"]
+    if only:
+        n = len(only)
+        report.issues.append(
+            Issue(
+                "not checked",
+                "held by unchecked joints",
+                sorted(only),
+                f"{_lines(only).capitalize()} {'is' if n == 1 else 'are'} joined to "
+                "what stands on the ground only through those joints.",
+            )
+        )
 
 
 def _loose_text(comp, placed, by_line, bottom_pts, lab) -> str:  # type: ignore[no-untyped-def]

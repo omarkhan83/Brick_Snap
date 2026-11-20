@@ -74,6 +74,10 @@ What it reports, naming lines and parts:
   wheel's beyond the tyres' tolerance, must not go below the ground as they turn.
 - When a joint is free: "'door' (door-hinge-left, lines 12, 13): swings from 0 to 90
   degrees with nothing in the way; 4 parts move with it (lines 13, 20 to 22)".
+- The joints inside each module that is proven (accepted by ``modules.verify`` and free to
+  move) count as confirmed for the report's "joined to what stands on the ground only
+  through those joints" item and the summary's count of such parts
+  (``validate.held_only_item``).
 
 The grip of a joint (whether a clip holds its bar, whether a hinge holds a lid up) is
 never judged: a module's joint is the parts' designed use.
@@ -857,7 +861,7 @@ def _problem(report: Report, lines: list[int], text: str) -> None:
 
 def apply(text: str, report: Report, lib: Library) -> None:
     from bricksnap.lab import modules
-    from bricksnap.lab.validate import Issue
+    from bricksnap.lab.validate import Issue, held_only_item
 
     joints, errors = parse(text)
     if not joints and not errors:
@@ -928,7 +932,19 @@ def apply(text: str, report: Report, lib: Library) -> None:
             )
     report.movement = [texts[j.name] for j in joints if j.name in texts]
     report.moving_ok = sum(1 for j in joints if oks.get(j.name))
-    _fold_module_joints(report, [v for v in verdicts if v.ok])
+    proven = [v for v in verdicts if v.ok]
+    _fold_module_joints(report, proven)
+    # the joints inside a proven module are confirmed: parts held through them are not
+    # "held only by joints the checker cannot confirm"
+    held_only_item(
+        report,
+        proven=[
+            sorted(set(j.fixed) | set(j.moving))
+            for v in proven
+            for j in v.group or [v.joint]
+            if j.module
+        ],
+    )
     if any(not j.module for j in valid):
         report.issues.append(
             Issue(
