@@ -2545,3 +2545,127 @@ def test_no_sample_hangs_forty_cells_on_one_part(catalog, samples, tmp_path_fact
                 if link.cells >= 40 and not _thin_there(name, studs, after, link):
                     heavy.append((name, studs, link.cells, after.parts[link.part]))
     assert heavy == []
+
+
+# ---- stage 4: the better of two when the heavy-section clause refuses ----------------------
+
+
+def blobs_of_seed_1(catalog, wanted: set[int]) -> dict[int, tuple[Design, Build]]:
+    """The random blobs and quick tilings of ``default_rng(1)`` at the indices wanted. Of the
+    first 27, numbers 24 and 26 are the ones where the clause on heavy sections refuses
+    something; the others it leaves alone (finished by the first run, or by the second run
+    with the clause changing no decision)."""
+    rng = np.random.default_rng(1)
+    out = {}
+    for n in range(max(wanted) + 1):
+        design = random_blob(rng)
+        build = random_layout(design, catalog, rng)
+        if n in wanted:
+            out[n] = (design, build)
+    return out
+
+
+def counting_runs(monkeypatch) -> list[bool]:
+    """Count the pass's runs: each entry says whether that run held the heavy-section clause."""
+    runs: list[bool] = []
+    original = finish_module._finish
+
+    def counted(*args, **kwargs):
+        runs.append(kwargs.get("heavy_rule", True))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(finish_module, "_finish", counted)
+    return runs
+
+
+def sections(build: Build, before: Build, design: Design, catalog) -> tuple[int, int, int]:
+    """(heavy sections of the input with the details on it, of ``build``, heaviest lone link
+    of ``build`` in cells), counted as the contract counts them."""
+    base = Build(shape=before.shape, parts=[*before.parts, *detail_parts(build, design)])
+    worst = max((ln.cells for ln in lone_links(build, catalog)), default=0)
+    return heavy_as_checks(base, catalog, before), heavy_as_checks(build, catalog, before), worst
+
+
+def test_the_better_of_two_follows_the_stated_order():
+    """Kept without the clause only with no more heavy sections than the input, and then
+    fewer than with it, or as many and a lighter worst. A tie keeps the result with it."""
+    better = finish_module._better_without
+    assert better(5, (5, 78), (3, 78))  # fewer heavy sections
+    assert better(5, (5, 78), (3, 120))  # fewer, even with a heavier worst
+    assert better(5, (5, 78), (5, 70))  # as many, a lighter worst
+    assert not better(5, (5, 78), (5, 78))  # a tie: the result with the clause
+    assert not better(5, (5, 78), (5, 79))
+    assert not better(5, (5, 78), (6, 10))
+    assert not better(2, (5, 78), (3, 10))  # fewer than with it, but more than the input
+    assert better(0, (0, 30), (0, 29))  # no heavy section either way: the lighter worst
+
+
+def test_where_the_heavy_clause_refuses_nothing_the_pass_is_as_before(catalog, monkeypatch):
+    """The first 27 blobs of seed 1 but the two where the clause refuses something: each is
+    finished in the runs it took before this addition (one, or two when the first broke the
+    rule) and comes out byte for byte as before (recorded from the pass before it)."""
+    blobs = blobs_of_seed_1(catalog, set(range(27)) - {24, 26})
+    runs = counting_runs(monkeypatch)
+    texts, counts = [], Counter()
+    for _, (design, build) in sorted(blobs.items()):
+        runs.clear()
+        texts.append(json.dumps(finish(build, design, catalog).to_json(), sort_keys=True))
+        assert all(runs) and len(runs) in (1, 2), runs
+        counts[len(runs)] += 1
+    assert counts[1] >= 10 and counts[2] >= 10, counts
+    assert hashlib.sha256("\n".join(texts).encode()).hexdigest()[:16] == "de1342a25f511b5a"
+
+
+def test_a_worse_result_without_the_heavy_clause_is_not_kept(catalog, monkeypatch):
+    """Blob 26 of seed 1: the clause refuses something, so the pass runs a third time without
+    it; that result would hang a section of 41 cells on one part where the input had one
+    heavy section and the result with the clause none, so the result with the clause is kept."""
+    (design, build), = blobs_of_seed_1(catalog, {26}).values()
+    runs = counting_runs(monkeypatch)
+    before, after, _ = run(design, catalog, build)
+    assert runs == [True, True, False]
+    with_it, _ = finish_module._finish(before, design, catalog, sturdy=True)
+    without, _ = finish_module._finish(before, design, catalog, sturdy=True, heavy_rule=False)
+    assert with_it is not None and without is not None
+    assert after.to_json() == with_it.to_json() != without.to_json()
+    assert sections(after, before, design, catalog) == (1, 0, 12)
+    assert sections(without, before, design, catalog) == (1, 1, 41)
+
+
+def test_a_better_result_without_the_heavy_clause_is_kept(catalog, monkeypatch):
+    """Blob 24 of seed 1: with the clause the pass keeps the input's five heavy sections;
+    without it, three (the worst 78 cells either way). The result without it is kept, and it
+    keeps every promise of the contract, the stage 3 rule with its clause included."""
+    (design, build), = blobs_of_seed_1(catalog, {24}).values()
+    runs = counting_runs(monkeypatch)
+    before, after, _ = run(design, catalog, build)  # checks every promise
+    assert runs == [True, True, False]
+    with_it, _ = finish_module._finish(before, design, catalog, sturdy=True)
+    without, _ = finish_module._finish(before, design, catalog, sturdy=True, heavy_rule=False)
+    assert with_it is not None and without is not None
+    assert after.to_json() == without.to_json() != with_it.to_json()
+    assert sections(with_it, before, design, catalog) == (5, 5, 78)
+    assert sections(after, before, design, catalog) == (5, 3, 78)
+
+
+@pytest.mark.thorough
+def test_the_pineapple_at_40_studs_keeps_the_sturdier_result(catalog, monkeypatch, tmp_path):
+    """The case that started this: at 40 studs the clause on heavy sections costs the
+    pineapple 16 slopes (shaped share 22% to 17.5%). The pass now runs a third time without
+    the clause, but that result is not better as the contract counts: 15 heavy sections
+    where the input had 13 (the result with the clause keeps 13), and a worst of 125 cells
+    against 121. So the result with the clause is kept, with no more heavy sections than its
+    input."""
+    from bricksnap.bench import shaped_share
+
+    design, build = sample_builds(40, tmp_path, catalog, names=("pineapple",))["pineapple"]
+    runs = counting_runs(monkeypatch)
+    before, after, _ = run(design, catalog, build)
+    assert runs == [True, True, False]
+    without, _ = finish_module._finish(before, design, catalog, sturdy=True, heavy_rule=False)
+    assert without is not None
+    most, heavy, worst = sections(after, before, design, catalog)
+    assert heavy <= most == 13
+    _, heavy_free, worst_free = sections(without, before, design, catalog)
+    assert (heavy_free, worst_free) == (15, 125) and (heavy, worst) == (13, 121)
+    assert shaped_share(without, catalog) > shaped_share(after, catalog) + 0.04
