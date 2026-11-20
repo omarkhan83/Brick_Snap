@@ -52,6 +52,16 @@
             <input id="name" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The file's name is used">
           </div>
           <label class="check"><input id="hollow" name="hollow" type="checkbox" value="1"> Hollow inside, to use fewer parts</label>
+          <div class="field">
+            <label for="up">Which way is up in the file</label>
+            <select id="up" name="up">
+              <option value="">As the file says (usually right)</option>
+              <option value="z">Z points up</option>
+              <option value="y">Y points up</option>
+              <option value="x">X points up</option>
+            </select>
+            <p class="hint">Change this only if the model comes out lying on its side.</p>
+          </div>
         </details>
         <button id="go" type="submit" class="primary">Turn it into bricks</button>
         <p id="formMsg" class="formmsg" role="alert"></p>

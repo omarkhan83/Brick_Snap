@@ -45,7 +45,11 @@ uv run bricksnap view pawn                                 # look at it in 3D in
 ```
 
 `new` makes a folder under `projects/` holding the build (`build.ldr` opens in BrickLink Studio), a picture
-comparing the model with the build (`renders/compare.png`), and the check report. Other commands:
+comparing the model with the build (`renders/compare.png`), and the check report. If the file is not one
+object but several separate pieces laid out side by side (a kit set out for 3D printing), `new` builds
+nothing yet: it lists the pieces with their sizes, writes a numbered picture of them, and asks you to choose
+with `--piece largest`, `--piece N` or `--piece all`. The web app asks the same question on the page. Other
+commands:
 
 | Command | What it does |
 |---|---|

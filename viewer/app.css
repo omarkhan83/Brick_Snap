@@ -112,6 +112,14 @@ details.more[open] summary { margin-bottom: 10px; }
 .job[hidden] { display: none; }
 .job.done { background: #eafbea; }
 .job.failed { background: #ffecec; }
+.job.choosing { background: #fffbe6; }
+/* A file that holds several separate pieces: the numbered picture and the choice. */
+.pieces .lead { font-size: 15px; }
+.pieces-pic { display: block; width: 100%; height: auto; margin: 0 0 12px; border: 2px solid var(--ink); border-radius: 10px; background: #fff; }
+.way.piece strong { display: flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--ink); border-radius: 4px; flex: none; }
+.pieces .row button { flex: 1 1 auto; }
+.pieces .hint-line { margin: 8px 0 10px; line-height: 1.4; }
 .job h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
 .job .when, .job .leave { margin: 0 0 6px; font-size: 14px; color: var(--muted); }
 .job .error { margin: 6px 0; font-weight: 700; overflow-wrap: anywhere; line-height: 1.4; }

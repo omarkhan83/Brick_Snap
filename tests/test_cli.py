@@ -227,6 +227,178 @@ def test_new_refuses_to_overwrite_a_project(capsys, tmp_path, pawn_path):
     assert "already holds a project" in err
 
 
+def _kit_file(tmp_path: Path) -> Path:
+    """Three separate pieces side by side on the ground, as a kit laid out for printing:
+    40 x 20 x 10, 20 x 16 x 16 and 20 x 20 x 9 (the last two are equally long, and the
+    second holds more space)."""
+    parts = []
+    for size, at in (
+        ((40, 20, 10), (0, 0, 0)),
+        ((20, 16, 16), (0, 40, 0)),
+        ((20, 20, 9), (60, 0, 0)),
+    ):
+        box = trimesh.creation.box(extents=size)
+        box.apply_translation(np.asarray(at, dtype=float) + np.asarray(size, dtype=float) / 2)
+        parts.append(box)
+    path = tmp_path / "kit.stl"
+    joined: Any = trimesh.util.concatenate(parts)
+    joined.export(path)
+    return path
+
+
+def test_new_stops_and_asks_about_a_file_of_several_pieces(capsys, tmp_path):
+    kit = _kit_file(tmp_path)
+    out_dir = tmp_path / "out"
+    code, out, err = run(capsys, "new", str(kit), "--studs", "20", "--dir", str(out_dir))
+    assert code == 2 and err == ""
+    assert "kit.stl looks like 3 separate pieces" in out
+    assert "the largest piece would be about 10 studs long; built alone it would be 20" in out
+    assert "Piece 1: 10 x 5 x 2.5 in the whole layout, 20 x 10 x 5 alone (the largest)" in out
+    assert "Piece 2: 5 x 4 x 4 in the whole layout, 20 x 16 x 16 alone" in out
+    for option in ("--piece largest", "--piece N         piece number N alone (1 to 3)"):
+        assert option in out
+    assert "--piece all" in out
+    picture = out_dir / ".pieces" / "kit.png"
+    assert picture.is_file() and str(picture) in out
+    assert "lies on its side: say which way is up with --up x" in out
+    mine = out_dir / "kit-pieces.png"  # a file of the person's own, never touched
+    mine.write_text("mine", encoding="utf-8")
+    assert "Nothing was built" in out
+    assert not (out_dir / "kit").exists()
+    # answering builds the piece and removes the picture
+    code, out, _ = run(
+        capsys, "new", str(kit), "--studs", "20", "--dir", str(out_dir), "--piece", "2"
+    )
+    assert code in (0, 1)
+    assert not picture.exists()
+    assert mine.read_text(encoding="utf-8") == "mine"
+
+
+def test_any_piece_that_exists_can_be_chosen_and_a_scatter_is_told(capsys, tmp_path):
+    parts = []
+    for i in range(15):
+        box = trimesh.creation.box(extents=(30 - i, 10, 5))
+        box.apply_translation((15, i * 15 + 5, 2.5))
+        parts.append(box)
+    joined: Any = trimesh.util.concatenate(parts)
+    joined.export(tmp_path / "fifteen.stl")
+    code, out, _ = run(
+        capsys,
+        "new",
+        str(tmp_path / "fifteen.stl"),
+        "--studs",
+        "8",
+        "--dir",
+        str(tmp_path),
+        "--piece",
+        "14",
+    )
+    assert code in (0, 1) and "turning piece 14 of it" in out
+    assert Project(tmp_path / "fifteen").meta["piece"] == 14
+    many = []
+    for i in range(81):
+        box = trimesh.creation.box(extents=(3, 3, 3))
+        box.apply_translation((6 * (i % 9) + 1.5, 6 * (i // 9) + 1.5, 1.5))
+        many.append(box)
+    scatter: Any = trimesh.util.concatenate(many)
+    scatter.export(tmp_path / "grid.stl")
+    code, out, _ = run(
+        capsys, "new", str(tmp_path / "grid.stl"), "--studs", "8", "--dir", str(tmp_path)
+    )
+    assert code in (0, 1)
+    assert "grid.stl has 81 separate parts seen from above" in out
+
+
+def test_a_wrong_size_is_refused_before_the_pieces_are_listed(capsys, tmp_path):
+    code, out, err = run(capsys, "new", str(_kit_file(tmp_path)), "--studs", "200")
+    assert code == 2 and "between 4 and 96" in err and "Piece" not in out
+
+
+def test_new_looks_for_pieces_with_the_up_axis_given(capsys, tmp_path):
+    # side by side along x: from above (z) two pieces; seen along x, one over the other
+    parts = []
+    for size, at in (((10, 10, 30), (0, 0, 0)), ((10, 10, 20), (30, 0, 0))):
+        box = trimesh.creation.box(extents=size)
+        box.apply_translation(np.asarray(at, dtype=float) + np.asarray(size, dtype=float) / 2)
+        parts.append(box)
+    row: Any = trimesh.util.concatenate(parts)
+    path = tmp_path / "row.stl"
+    row.export(path)
+    code, out, _ = run(capsys, "new", str(path), "--studs", "8", "--dir", str(tmp_path))
+    assert code == 2 and "looks like 2 separate pieces" in out
+    code, out, _ = run(
+        capsys, "new", str(path), "--studs", "8", "--dir", str(tmp_path), "--up", "x"
+    )
+    assert code in (0, 1) and "separate pieces" not in out
+    assert "piece" not in Project(tmp_path / "row").meta
+
+
+@pytest.mark.parametrize(("choice", "piece", "size"), [("largest", 1, 40), ("3", 3, 20)])
+def test_new_builds_the_chosen_piece_alone(capsys, tmp_path, choice, piece, size):
+    kit = _kit_file(tmp_path)
+    code, out, _ = run(
+        capsys, "new", str(kit), "--studs", "10", "--dir", str(tmp_path), "--piece", choice
+    )
+    assert code in (0, 1), out
+    assert f"turning piece {piece} of it into bricks" in out
+    assert f"Piece:  piece {piece} of the file, built alone." in out
+    project = Project(tmp_path / "kit")
+    assert project.meta["piece"] == piece
+    from bricksnap.pipeline import load_project_seed
+
+    seed = load_project_seed(project)
+    assert len(seed.faces) == 12
+    assert seed.vertices.max(axis=0).max() == pytest.approx(10 * 8)
+    from bricksnap import versions
+
+    assert versions.versions(project)[0].label == f"Converted from kit.stl, piece {piece}"
+
+
+def test_new_can_still_build_every_piece_together(capsys, tmp_path):
+    kit = _kit_file(tmp_path)
+    code, out, _ = run(
+        capsys, "new", str(kit), "--studs", "10", "--dir", str(tmp_path), "--piece", "all"
+    )
+    assert code in (0, 1)
+    assert "looks like 3 separate pieces; building them all together, as asked" in out
+    assert "piece" not in Project(tmp_path / "kit").meta
+    assert "Piece:" not in out
+
+
+@pytest.mark.parametrize(
+    ("choice", "words"),
+    [
+        ("4", "3 pieces to choose from, numbered 1 to 3"),
+        ("biggest", "Choose which piece"),
+        ("0", "Choose"),
+        ("²", "Choose"),
+    ],
+)
+def test_new_with_a_wrong_piece(capsys, tmp_path, choice, words):
+    kit = _kit_file(tmp_path)
+    code, _, err = run(
+        capsys, "new", str(kit), "--studs", "10", "--dir", str(tmp_path), "--piece", choice
+    )
+    assert code == 2 and err.startswith("Error: ") and words in err
+    assert not (tmp_path / "kit").exists()
+
+
+@pytest.mark.parametrize("choice", ["largest", "all", "1"])
+def test_new_with_a_piece_for_a_file_of_one_object(capsys, tmp_path, pawn_path, choice):
+    code, out, _ = run(
+        capsys, "new", str(pawn_path), "--studs", STUDS, "--dir", str(tmp_path), "--piece", choice
+    )
+    assert code == 0 and "Piece:" not in out
+    assert "piece" not in Project(tmp_path / "pawn").meta
+
+
+def test_new_with_a_second_piece_of_a_file_of_one_object(capsys, tmp_path, pawn_path):
+    code, _, err = run(
+        capsys, "new", str(pawn_path), "--studs", STUDS, "--dir", str(tmp_path), "--piece", "2"
+    )
+    assert code == 2 and "looks like one object" in err
+
+
 @pytest.mark.parametrize(
     "extra, expected",
     [([], "--studs"), (["--studs", "lots"], "invalid int value"), (["--up", "w"], "--up")],

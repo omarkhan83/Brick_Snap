@@ -9,8 +9,9 @@ a non-programmer. SeedError and ProjectError are printed as "Error: <message>" a
 there are no tracebacks for mistakes a user can make.
 
     bricksnap new MODEL --studs N [--name NAME] [--dir projects] [--up x|y|z] [--hollow]
+                    [--piece largest|N|all]
         Create a project from a model file, then do everything ``build`` does. Print where
-        the project is.
+        the project is. (``--piece``: see "a file of several separate pieces" below.)
     bricksnap build PROJECT
         Design -> Build -> checks. Writes build.json, build.ldr and renders/compare.png, and
         prints the report text. Returns 0 when the report is ok, 1 when it is not.
@@ -283,6 +284,34 @@ STAGE 4 ADDITION TO THE CONTRACT: the studio (``bricksnap.designer.studio``)
   list and the booklet are not made by the studio (with the commands that make them), the
   files and what to do next. The studio keeps its own versions; the command keeps none.
   Exit code 0 when the studio finished and the final build holds together, else 1.
+
+STAGE 4 ADDITION TO THE CONTRACT: a file of several separate pieces (``bricksnap.pieces``)
+- ``new MODEL --studs N [--piece largest|N|all]``. Before anything is made, ``new`` looks
+  for separate pieces in the file (``pieces.find_pieces``, with the same ``--up``).
+- ``--studs`` is checked first, so a wrong size is refused before any pieces are listed.
+- When the file looks like several pieces and ``--piece`` was not given, nothing is built
+  and no project is made: it prints the finding in plain words (``Pieces.lines``: how many
+  pieces, how long the largest would be built together and alone, each offered piece's
+  size, any smaller pieces and small bits), writes the numbered picture from above as
+  ``<dir>/.pieces/<slug of the name>.png`` (a folder only BrickSnap writes, which the
+  web app does not list) and says where it is, and lists the three ways to choose. Exit
+  code 2, as for any other mistake the user can fix. The picture is removed once ``new``
+  has built a project under that name; nothing outside ``.pieces`` is ever removed.
+- ``--piece N`` takes any piece that exists, also those beyond the dozen listed.
+- A file with more than ``pieces.MAX_PIECES`` separate parts seen from above, or with too
+  many small bits, is no question: ``new`` prints one line saying so (``Pieces.note``) and
+  builds everything together. Stopping is the
+  default because nobody may be there to ask and a whole layout makes a poor model
+  without saying why; a script that wants the old behaviour passes ``--piece all``.
+- ``--piece largest`` builds piece 1 alone, ``--piece N`` piece N alone, ``--piece all``
+  everything together as before. The project keeps the piece (``project.json``'s
+  ``"piece"`` and ``"piece_box"``, by which it is found again), ``new`` says "Piece:
+  piece N of the file, built alone." under the size, and the first version's label ends
+  ", piece N". A choice that is not one of those, or a
+  number the file does not have, is "Error: ..." with exit code 2 (``pieces.parse_choice``,
+  ``pieces.resolve``). For a file that is one object, ``--piece`` largest, all and 1 build
+  the whole file as before, and a higher number is an error. ``--up`` reaches the search
+  too: "above" is the up axis the model is built with.
 """
 
 from __future__ import annotations
@@ -599,6 +628,8 @@ def _shorten(text: str, limit: int = LABEL_CHARS) -> str:
 def converted_label(project: Project) -> str:
     """The label of a new model's first version: "Converted from cat.glb"."""
     source = project.meta.get("seed_original_name") or project.meta.get("seed") or "the model"
+    if project.piece is not None:
+        return f"Converted from {_shorten(str(source))}, piece {project.piece}"
     return f"Converted from {_shorten(str(source))}"
 
 
@@ -692,7 +723,13 @@ def cmd_new(args: argparse.Namespace) -> int:
     folder = Path(args.dir)
     if _is_file(folder) or (folder.exists() and not _is_dir(folder)):
         raise UserError(f"{folder} is a file, not a folder. Give a folder to put the project in.")
-    print(f"Reading {model.name} and turning it into bricks...")
+    piece, box = _choose_piece(args, model, folder)
+    if piece == _STOPPED:
+        return 2
+    if piece is None:
+        print(f"Reading {model.name} and turning it into bricks...")
+    else:
+        print(f"Reading {model.name} and turning piece {piece} of it into bricks...")
     project = create_project(
         model,
         studs=args.studs,
@@ -700,14 +737,19 @@ def cmd_new(args: argparse.Namespace) -> int:
         directory=args.dir,
         up=args.up,
         hollow=args.hollow,
+        piece=piece if isinstance(piece, int) else None,
+        piece_box=box,
     )
     build, picture = _build_and_render(project)
+    _pieces_picture(args, model, folder).unlink(missing_ok=True)  # the question is answered
     kept = keep_version(project, "converted", converted_label(project))
     inside = "hollow inside, to save parts" if args.hollow else "solid inside"
     print()
     print(f'Made the project "{project.name}".')
     print(f"  Folder: {_show(project.path)}")
     print(f"  Size:   {args.studs} studs ({args.studs * 8} mm) along its longest side, {inside}.")
+    if project.piece is not None:
+        print(f"  Piece:  piece {project.piece} of the file, built alone.")
     print(f"  Result: {_verdict(build)}")
     if kept is not None:
         print(f"  Kept as version {kept}, so you can always come back to it.")
@@ -718,6 +760,67 @@ def cmd_new(args: argparse.Namespace) -> int:
     _print_outputs(project, picture)
     _print_next(project, ok)
     return 0 if ok else 1
+
+
+_STOPPED = "stopped"
+
+
+def _choose_piece(
+    args: argparse.Namespace, model: Path, folder: Path
+) -> tuple[int | str | None, Any]:
+    """(which piece of the model file ``new`` builds, and its box): a number, None for the
+    whole file, or ``_STOPPED`` when the file looks like several pieces and --piece did not
+    say which (the finding and how to choose have then been printed)."""
+    from bricksnap.pieces import find_pieces, parse_choice, resolve
+    from bricksnap.seed import _check_studs
+
+    _check_studs(args.studs)  # a wrong size is refused before any pieces are listed
+    choice = parse_choice(args.piece) if args.piece is not None else None
+    found = find_pieces(model, up=args.up)
+    if not found.several:
+        note = found.note()
+        if note:
+            print(note)
+        if isinstance(choice, int) and choice > 1:
+            resolve(choice, found)  # raises: a one-object file has no piece 2
+        return None, None
+    if choice is not None:
+        piece = resolve(choice, found, any_piece=True)
+        if piece is None:
+            print(
+                f"{model.name} looks like {len(found.everything)} separate pieces; "
+                "building them all together, as asked."
+            )
+            return None, None
+        return piece, found.piece(piece, any_piece=True).box
+    where = _pieces_picture(args, model, folder)
+    picture: Path | None = where
+    try:
+        where.parent.mkdir(parents=True, exist_ok=True)
+        found.save_picture(where)
+    except OSError:
+        picture = None
+    for line in found.lines(args.studs):
+        print(line)
+    print()
+    if picture is not None:
+        print(f"A picture of the layout from above, with the pieces numbered: {_show(picture)}")
+    total = len(found.everything)
+    print("Nothing was built yet. Say which piece to build and run the command again with:")
+    print("  --piece largest   the largest piece alone, at the size you chose (piece 1)")
+    print(f"  --piece N         piece number N alone (1 to {total}), at the size you chose")
+    print("  --piece all       everything together, as it is")
+    return _STOPPED, None
+
+
+PIECES_PICTURES = ".pieces"
+"""The folder inside --dir where ``new`` keeps the pictures of the pieces it asks about."""
+
+
+def _pieces_picture(args: argparse.Namespace, model: Path, folder: Path) -> Path:
+    """Where ``new`` puts the numbered picture of a file's pieces while it asks: a folder of
+    its own, so removing the picture never touches a file BrickSnap did not write."""
+    return folder / PIECES_PICTURES / f"{slug(args.name or model.stem)}.png"
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -2321,6 +2424,15 @@ def _parser() -> _Parser:
         help="which axis of the file points up, if the model comes out lying down",
     )
     p.add_argument("--hollow", action="store_true", help="keep only a shell, to use fewer parts")
+    p.add_argument(
+        "--piece",
+        metavar="largest|N|all",
+        help=(
+            "when the file holds several separate pieces (such as a kit laid out for 3D "
+            "printing): build the largest piece alone, piece number N alone, or all of them "
+            "together. Without it, such a file is not built: the pieces are listed instead"
+        ),
+    )
     p.set_defaults(func=cmd_new)
 
     p = sub.add_parser("build", help="rebuild the bricks from the current design and check them")

@@ -119,12 +119,106 @@ function openButton(job) {
   return el('div', { className: 'next' }, [link]);
 }
 
+// ---- a file that holds several separate pieces ----
+
+function studsText(n) {
+  return n >= 10 ? String(Math.round(n)) : String(Number(n.toFixed(1)));
+}
+
+function dims(size) {
+  return `${size.map(studsText).join(' × ')} studs`;
+}
+
+/** What a new model shows while it waits for the person to choose which piece to build. */
+function choosePiece(job) {
+  const info = job.pieces || { count: 0, more: 0, small_bits: 0, pieces: [], studs: 0, source: '' };
+  const pieces = Array.isArray(info.pieces) ? info.pieces : [];
+  const first = pieces[0];
+  const longest = first ? Math.max(...first.within) : 0;
+  const total = pieces.length + (info.more || 0);
+  const msg = el('p', { className: 'formmsg', id: 'piecesMsg', role: 'alert' });
+  const radio = (value, id, checked) => el('input', { type: 'radio', name: `piece-${job.id}`, value, id, checked });
+  const options = pieces.map((p) => {
+    const id = `piece-${job.id}-${p.number}`;
+    const swatch = el('span', { className: 'swatch', 'aria-hidden': 'true' });
+    swatch.style.background = /^#[0-9a-f]{6}$/.test(p.colour || '') ? p.colour : '#999';
+    return el('label', { className: 'way piece', for: id }, [
+      radio(String(p.number), id, p.number === 1),
+      el('span', {}, [
+        el('strong', {}, [swatch, document.createTextNode(p.number === 1 ? `Piece 1 alone, the largest` : `Piece ${p.number} alone`)]),
+        el('span', { className: 'wayline', text: `Built on its own: ${dims(p.alone)}.` }),
+      ]),
+    ]);
+  });
+  const allId = `piece-${job.id}-all`;
+  options.push(
+    el('label', { className: 'way piece', for: allId }, [
+      radio('all', allId, false),
+      el('span', {}, [
+        el('strong', { text: 'Everything together, as it is' }),
+        el('span', {
+          className: 'wayline',
+          text: `All ${total} pieces in one model, ${info.studs} studs across${longest ? `: the largest piece about ${studsText(longest)} studs long` : ''}.`,
+        }),
+      ]),
+    ]),
+  );
+  const extras = [];
+  if (info.more) extras.push(`There ${info.more === 1 ? 'is 1 smaller piece' : `are ${info.more} smaller pieces`}, built only with everything together.`);
+  if (info.small_bits) extras.push(`${plural(info.small_bits, 'small bit')} ${info.small_bits === 1 ? 'is' : 'are'} left out when one piece is built alone.`);
+  const build = el('button', { type: 'button', className: 'primary', id: 'piecesGo', text: 'Build it' });
+  const cancel = el('button', { type: 'button', className: 'quiet', id: 'piecesCancel', text: 'Cancel, build nothing' });
+  const box = el('div', { className: 'pieces', id: 'pieces' }, [
+    el('h3', { text: `This file looks like ${total} separate pieces` }),
+    el('p', {
+      className: 'lead',
+      text: `${info.source || 'This file'} looks like pieces laid out side by side, like the parts of a kit set out for 3D printing, rather than one object. Built all together at ${info.studs} studs, the largest piece would be about ${studsText(longest)} studs long; built alone, it would be ${info.studs}.`,
+    }),
+    job.picture
+      ? el('img', { className: 'pieces-pic', src: job.picture, alt: 'The file seen from above, each piece in its own colour with its number on it.' })
+      : null,
+    el('fieldset', { className: 'ways' }, [el('legend', { text: 'What should BrickSnap build? The numbers match the picture.' }), ...options]),
+    extras.length ? el('p', { className: 'hint-line', text: extras.join(' ') }) : null,
+    el('p', {
+      className: 'hint-line',
+      id: 'piecesSide',
+      text: 'If the picture shows the pieces from the side rather than from above, the file probably lies on its side: press “Cancel”, choose “Which way is up in the file” under “More choices”, and send it again.',
+    }),
+    el('div', { className: 'row' }, [build, cancel]),
+    el('p', {
+      className: 'hint-line',
+      text: `BrickSnap waits ${info.wait_minutes === 60 || !info.wait_minutes ? 'an hour' : `${info.wait_minutes} minutes`} for your answer; after that, choose the file again.`,
+    }),
+    msg,
+  ]);
+  async function send(body) {
+    build.disabled = true;
+    cancel.disabled = true;
+    msg.textContent = '';
+    const answer = await postJson(`/api/jobs/${encodeURIComponent(job.id)}/choose`, body);
+    if (answer.status !== 200) {
+      build.disabled = false;
+      cancel.disabled = false;
+      msg.textContent = refusal(answer);
+      appState.message = msg.textContent;
+    }
+  }
+  build.addEventListener('click', () => {
+    const chosen = box.querySelector(`input[name="piece-${job.id}"]:checked`);
+    const value = chosen ? chosen.value : '1';
+    send({ piece: value === 'all' ? 'all' : Number(value) });
+  });
+  cancel.addEventListener('click', () => send({ cancel: true }));
+  return box;
+}
+
 function followNew(id, view = null) {
   followed.add(id);
-  const v = view || new JobView(newJobs, { nextStep: openButton, onDone: () => loadProjects() });
+  const v = view || new JobView(newJobs, { nextStep: openButton, onDone: () => loadProjects(), choose: choosePiece });
   if (view) {
     view.nextStep = openButton;
     view.onDone = () => loadProjects();
+    view.choose = choosePiece;
   }
   v.follow(id);
 }
@@ -163,6 +257,7 @@ form.addEventListener('submit', (e) => {
   data.append('studs', studs.value);
   data.append('name', $('name').value);
   if ($('hollow').checked) data.append('hollow', '1');
+  if ($('up').value) data.append('up', $('up').value);
   data.append('model', file, file.name);
 
   goBtn.disabled = true;

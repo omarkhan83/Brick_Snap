@@ -1,7 +1,10 @@
 """Read and write a project folder. See "Project folder" in docs/ARCHITECTURE.md.
 
 projects/<name>/
-  project.json       name, seed file, size in studs, up axis, hollow or solid, the brief
+  project.json       name, seed file, size in studs, up axis, hollow or solid, the brief,
+                     and which piece of the file is built ("piece": its number, with
+                     "piece_box": its box in the file's own coordinates; both absent for
+                     the whole file; see bricksnap.pieces)
   seed.<ext>         a copy of the input model
   design.base.npz    the Design exactly as voxelised from the seed (never edited)
   design.npz         the current Design arrays
@@ -24,6 +27,11 @@ from pathlib import Path
 from typing import Any
 
 from bricksnap.types import Build, Design, write_text_atomic
+
+_DAMAGED_PIECE = (
+    "{path}/project.json is damaged: its record of which piece of the model file to build "
+    "cannot be read. Make the project again from the model file."
+)
 
 
 class ProjectError(ValueError):
@@ -56,6 +64,8 @@ class Project:
         up: str | None = None,
         hollow: bool = False,
         name: str | None = None,
+        piece: int | None = None,
+        piece_box: Any = None,
     ) -> Project:
         """Make a new project folder and copy the seed model into it."""
         path = Path(path)
@@ -76,6 +86,9 @@ class Project:
             "hollow": bool(hollow),
             "brief": None,
         }
+        if piece is not None:
+            meta["piece"] = int(piece)
+            meta["piece_box"] = [[float(c) for c in corner] for corner in piece_box]
         write_text_atomic(path / "project.json", json.dumps(meta, indent=1) + "\n")
         return cls(path)
 
@@ -87,6 +100,39 @@ class Project:
     @property
     def name(self) -> str:
         return str(self.meta.get("name", self.path.name))
+
+    @property
+    def piece(self) -> int | None:
+        """Which piece of the seed file this project builds (1 is the largest), or None for
+        the whole file (no "piece", or null). Anything else is a ProjectError: a damaged
+        record must never quietly mean the whole layout."""
+        value = self.meta.get("piece")
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ProjectError(_DAMAGED_PIECE.format(path=self.path))
+        return value
+
+    @property
+    def piece_box(self) -> list[list[float]] | None:
+        """The box, in the seed file's own coordinates, of the piece this project builds, or
+        None for the whole file. A piece without a well-formed box is a ProjectError."""
+        if self.piece is None:
+            return None
+        box = self.meta.get("piece_box")
+        ok = (
+            isinstance(box, list)
+            and len(box) == 2
+            and all(
+                isinstance(corner, list)
+                and len(corner) == 3
+                and all(isinstance(c, int | float) and not isinstance(c, bool) for c in corner)
+                for corner in box
+            )
+        )
+        if not ok:
+            raise ProjectError(_DAMAGED_PIECE.format(path=self.path))
+        return box
 
     @property
     def seed_path(self) -> Path:

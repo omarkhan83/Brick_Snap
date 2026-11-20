@@ -134,10 +134,11 @@ function passList(passes) {
 
 /** One job's box: what is happening, newest progress first, and what to do if it failed. */
 export class JobView {
-  constructor(parent, { onDone = null, nextStep = null } = {}) {
+  constructor(parent, { onDone = null, nextStep = null, choose = null } = {}) {
     this.box = el('div', { className: 'job', role: 'status', 'aria-live': 'polite' });
     this.onDone = onDone;
     this.nextStep = nextStep; // (job) => element shown under a finished job, or null
+    this.choose = choose; // (job) => what to show while a job waits for a choice ("choosing")
     this.last = '';
     parent.prepend(this.box);
   }
@@ -202,7 +203,11 @@ export class JobView {
     this.box.dataset.state = job.state;
     const parts = [];
     const passes = Array.isArray(job.passes) ? job.passes : null;
-    if (running) {
+    if (job.state === 'choosing' && this.choose) {
+      parts.push(this.choose(job));
+    } else if (job.state === 'choosing') {
+      parts.push(el('h3', { text: 'Waiting for you to choose' }));
+    } else if (running) {
       let what = job.what ? job.what[0].toUpperCase() + job.what.slice(1) : 'Working';
       const now = passes ? passes.findIndex((p) => p.state === 'running') : -1;
       if (now >= 0) what = `Pass ${now + 1} of ${passes.length}: ${passes[now].job}`;
@@ -215,11 +220,12 @@ export class JobView {
         }),
       );
     } else if (job.state === 'done') {
-      parts.push(el('h3', { text: DONE_TITLE[job.kind] || 'Finished' }));
+      const cancelled = job.result && job.result.cancelled;
+      parts.push(el('h3', { text: cancelled ? 'Nothing was built, as you chose' : DONE_TITLE[job.kind] || 'Finished' }));
     } else {
       parts.push(el('h3', { text: 'That did not work' }));
       parts.push(el('p', { className: 'error', text: job.error || 'It stopped without saying why.' }));
-      const todo = WHAT_TO_DO[job.kind];
+      const todo = job.todo || WHAT_TO_DO[job.kind];
       if (todo) parts.push(el('p', { className: 'todo', text: `What to do: ${todo}` }));
     }
     if (passes && passes.length) parts.push(passList(passes));

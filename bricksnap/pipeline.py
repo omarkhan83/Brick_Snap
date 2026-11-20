@@ -21,15 +21,33 @@ def create_project(
     up: str | None = None,
     hollow: bool = False,
     catalog: Catalog | None = None,
+    piece: int | None = None,
+    piece_box: Any = None,
 ) -> Project:
-    """Make a project folder from a model file and voxelise it. Does not build."""
+    """Make a project folder from a model file and voxelise it. Does not build.
+
+    ``piece`` (1, 2, ...) builds only that piece of a file that looks like several
+    (``bricksnap.pieces``); the project keeps the number and the piece's box in the file's
+    own coordinates, and every later step finds the piece again by that box. None builds the
+    whole file. A caller that has just found the pieces passes the piece's box as
+    ``piece_box`` too, which saves searching the file once more."""
     from bricksnap.seed import load_seed
     from bricksnap.voxelize import voxelize
 
     catalog = catalog or load_catalog()
     model_path = Path(model_path)
     # load first, so a bad model fails before any folder is created
-    seed = load_seed(model_path, studs=studs, up=up)
+    box = piece_box if piece is not None else None
+    if piece is not None and box is None:
+        from bricksnap.pieces import find_pieces
+
+        found = find_pieces(model_path, up=up)
+        if found.several:
+            box = found.piece(piece, any_piece=True).box
+        elif piece != 1:
+            found.piece(piece)  # raises: a one-object file has no piece 2
+        piece = None if box is None else piece
+    seed = load_seed(model_path, studs=studs, up=up, piece_box=box)
     design = voxelize(seed, catalog, hollow=hollow)
     project = Project.create(
         Path(directory) / slug(name or model_path.stem),
@@ -38,6 +56,8 @@ def create_project(
         up=up,
         hollow=hollow,
         name=name or model_path.stem,
+        piece=piece,
+        piece_box=box,
     )
     project.save_design(design, base=True)
     return project
@@ -46,7 +66,12 @@ def create_project(
 def load_project_seed(project: Project) -> Seed:
     from bricksnap.seed import load_seed
 
-    return load_seed(project.seed_path, studs=int(project.meta["studs"]), up=project.meta.get("up"))
+    return load_seed(
+        project.seed_path,
+        studs=int(project.meta["studs"]),
+        up=project.meta.get("up"),
+        piece_box=project.piece_box,
+    )
 
 
 def rebuild(project: Project, *, catalog: Catalog | None = None) -> Build:

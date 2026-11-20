@@ -48,7 +48,8 @@ person can all look at the same files.
 
 ```
 projects/<name>/
-  project.json       name, seed file, size in studs, up axis, hollow or solid, the brief
+  project.json       name, seed file, size in studs, up axis, hollow or solid, the brief; and, when the
+                     file held several separate pieces and one was chosen, which piece and its box
   seed.<ext>         a copy of the input model
   design.base.npz    the Design exactly as voxelised from the seed (never edited)
   design.npz         the current Design arrays
@@ -279,6 +280,7 @@ bricksnap/
   types.py        Design, Build, Placement, Report: shared data shapes, no logic
   catalog/        parts.json, colours.json, loader, nearest-colour lookup
   seed.py         load a mesh, orient it, scale it
+  pieces.py       find the separate pieces of a model file (islands seen from above); keep one
   voxelize.py     mesh to Design
   design.py       apply_ops, the edit log, replay
   buildable.py    make-buildable pass

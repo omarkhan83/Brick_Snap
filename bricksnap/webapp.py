@@ -53,9 +53,10 @@ GET /api/projects                    the list the home page shows
 GET /api/p/<project>                 name, studs, part count, verdict, notes, brief, which
                                      files exist, whether the build is current, running job,
                                      and the model's versions
-GET /api/jobs/<id>                   ``{"state": "waiting" | "running" | "done" | "failed",
-                                     "kind", "project", "started", "progress": [plain
-                                     sentences, newest last], "result", "error"}``
+GET /api/jobs/<id>                   ``{"state": "waiting" | "running" | "choosing" |
+                                     "done" | "failed", "kind", "project", "started",
+                                     "progress": [plain sentences, newest last], "result",
+                                     "error"}`` ("choosing": see the pieces, below)
 
 Jobs
 - One job runs at a time per project; a second request for the same project while one runs
@@ -188,8 +189,9 @@ Implementation notes
   (``pipeline.render_card``), the picture on the project's card; a project without one
   shows renders/compare.png. ``serve_app`` draws the missing cards in the background when
   it starts (``App.make_missing_cards``), so models made with the command line get one too;
-  ``make_app_server`` alone writes nothing. ``GET /api/p/<project>`` also gives ``bin``, the
-  folder the project would be moved to, as the person would find it.
+  ``make_app_server`` draws no cards (it only clears stale uploads, below).
+  ``GET /api/p/<project>`` also gives ``bin``, the folder the project would be moved to,
+  as the person would find it.
 - Progress from the designer: the run starting, each tool call in words (``describe``,
   ``render``, ``brief``, ``rebuild``, and ``apply_ops`` with its number of edits), and what
   the designer writes, shortened to 240 characters after ``runner.redact``.
@@ -241,6 +243,57 @@ STAGE 4 ADDITION TO THE CONTRACT: designing in passes (``bricksnap.designer.stud
   passes made. While the studio runs the project may have no build at all (the outline
   pass starts from an empty design): ``GET /api/p/<project>`` then says it is not built,
   as for any project without a build.
+
+STAGE 4 ADDITION TO THE CONTRACT: a file of several separate pieces (``bricksnap.pieces``)
+- A new model's job reads the upload with ``pieces.find_pieces`` (named as the person's
+  file was) before making anything. When the file looks like several pieces and the form
+  did not say which to build, the job stops in a fourth state, ``"choosing"``, and gives
+  ``pieces`` (``Pieces.to_json`` at the chosen size: how many are offered, how many more
+  and how many small bits there are, each offered piece's number, colour and size in studs
+  within the whole layout and alone, and ``wait_minutes``) and ``picture``, the address of
+  the numbered picture from above (``GET /api/jobs/<id>/pieces.png``, served only while
+  that job is waiting; it lives in the upload's folder under ``.incoming`` and goes with
+  it). Every other job and state has ``pieces`` and ``picture`` null. A choosing job is
+  listed with the running ones in ``GET /api/projects``, so a page opened again still
+  shows the question, and its project name stays held.
+- ``POST /api/jobs/<id>/choose`` (token, Origin and Host as for every POST) with
+  ``{"piece": "largest" | "all" | n}`` answers it and the job goes on: the largest piece
+  alone, everything together, or piece n alone (``pipeline.create_project(piece=...)``;
+  the project keeps the piece). ``{"cancel": true}`` ends the job "done" with result
+  ``{"project": null, "cancelled": true}`` and nothing made. A choice that is not one of
+  those, or a number the file does not have, is refused (400) with a plain message and
+  the job keeps waiting; a job that is not waiting for a choice answers 409, an unknown
+  one 404. Of two answers that race, one is taken and the other gets 409. Once answered
+  (or given up), ``pieces`` and ``picture`` are null again. Nobody choosing within
+  ``CHOICE_WAIT_S`` (an hour, which the page says: ``pieces.wait_minutes``) fails the job
+  plainly. While it waits, the job keeps only the summary and the picture, never the mesh.
+- A job may give ``todo``: what to do after its failure, when the page's usual hint for
+  that kind of job would be wrong (nobody chose in time; a piece number the file does not
+  offer). Null otherwise.
+- ``make_app_server`` removes uploads left in ``.incoming`` by a server that stopped while
+  it waited for an answer (``App.clear_stale_uploads``): nothing at all when ``.incoming``
+  is a link or not a real folder directly inside the projects folder; inside it only real
+  folders named like a job id (16 hexadecimal characters), never following links, and
+  only those untouched for longer than ``CHOICE_WAIT_S`` plus ``STALE_MARGIN_S`` (ten
+  minutes), so a second server on the same folder is not disturbed. When a waiting job's
+  upload is gone by the time the answer comes, the job fails plainly with the "choose the
+  file again" hint.
+- The upload form may carry ``up`` ("x", "y" or "z"; empty for what the file says, as
+  ``--up`` on the command line): the pieces are looked for, and the model built, with that
+  axis up. Anything else is refused before anything starts. The page offers it under
+  "More choices" as "Which way is up in the file", and the question about pieces says to
+  use it when the picture shows the pieces from the side.
+- A file with too many separate parts seen from above, or too many small bits, is not
+  asked about: the job says so in one progress line (``Pieces.note``) and builds it whole.
+- The upload form may also carry ``piece`` (the same three choices) to choose in advance;
+  a value that is not one of them is refused before anything starts. A file that is one
+  object never asks, and is built as before.
+- ``GET /api/p/<project>`` gives ``piece``: the piece the project builds, or null.
+- The home page shows the question in the new model's job box: what was found and why it
+  matters, as a question and with the numbers, the picture, one choice per offered piece
+  ("Piece 2 alone", its size built alone, with its colour from the picture), any smaller
+  pieces and small bits, "Everything together, as it is", a "Build it" button, "Cancel,
+  build nothing", and how long the question waits.
 
 EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricksnap.lab``)
 - A second kind of project, a free build (``bricksnap.lab.freebuild``, whose contract says
@@ -301,6 +354,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import sys
 import threading
 import time
@@ -370,6 +424,16 @@ TRASH_DIR = ".trash"
 INCOMING_DIR = ".incoming"
 REQUEST_TIMEOUT_S = 30
 """How long a connection may wait for the browser to send something."""
+CHOICE_WAIT_S = 3600
+"""How long a new model waits for the person to choose a piece before it gives up."""
+PIECES_PICTURE = "pieces.png"
+STALE_MARGIN_S = 600
+"""Extra time before an upload left in .incoming is taken to be abandoned."""
+_JOB_ID = re.compile(r"[0-9a-f]{16}")
+CHOOSE_AGAIN = (
+    "Choose the file again on this page; when BrickSnap asks which piece to build, pick one "
+    "of the pieces it offers, or everything together."
+)
 DOWNLOADS = (
     "build.ldr",
     "parts.csv",
@@ -492,7 +556,17 @@ class Refused(Exception):
 
 
 class JobFailed(Exception):
-    """A job that ran but did not get where it should; the message is for a person."""
+    """A job that ran but did not get where it should; the message is for a person, and
+    ``todo`` (optional) says what to do instead of the page's usual hint for the job."""
+
+    def __init__(self, message: str, todo: str | None = None) -> None:
+        super().__init__(message)
+        self.todo = todo
+
+
+def _wait_words() -> str:
+    minutes = round(CHOICE_WAIT_S / 60)
+    return "an hour" if minutes == 60 else f"{minutes} minutes" if minutes != 1 else "a minute"
 
 
 def plain_message(error: BaseException) -> str | None:
@@ -614,13 +688,18 @@ class Job:
     kind: str
     project: str
     ai: bool = False
-    state: str = "waiting"  # waiting, running, done, failed
+    state: str = "waiting"  # waiting, running, choosing, done, failed
     started: float = field(default_factory=time.time)
     finished: float | None = None
     progress: list[str] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str | None = None
     passes: list[dict[str, Any]] | None = None  # a studio job's passes, in order
+    pieces: dict[str, Any] | None = None  # a new model's pieces (``Pieces.to_json``)
+    picture: Path | None = None  # the picture of those pieces, numbered
+    choice: str | int | None = None  # what the person chose ("cancel" to build nothing)
+    chosen: threading.Event = field(default_factory=threading.Event)
+    todo: str | None = None  # what to do after a failure, when the page's usual hint is wrong
 
     def say(self, line: str) -> None:
         self.progress.append(line)
@@ -638,6 +717,9 @@ class Job:
             "result": self.result,
             "error": self.error,
             "passes": None if self.passes is None else [dict(p) for p in self.passes],
+            "pieces": self.pieces,
+            "picture": f"/api/jobs/{self.id}/{PIECES_PICTURE}" if self.picture else None,
+            "todo": self.todo,
         }
 
 
@@ -1049,8 +1131,48 @@ class App:
                     cards.append(self.summary(folder))
         cards.sort(key=lambda c: (-c["updated"], c["project"]))
         with self.lock:
-            active = [j.to_json() for j in self.jobs.values() if j.state in ("waiting", "running")]
+            active = [
+                j.to_json()
+                for j in self.jobs.values()
+                if j.state in ("waiting", "running", "choosing")
+            ]
         return {"projects": cards, "jobs": active}
+
+    def clear_stale_uploads(self) -> int:
+        """Remove uploads left in ``.incoming`` by a server that stopped while a new model
+        waited for its answer (or failed to tidy up). Returns how many were removed.
+
+        Nothing at all when ``.incoming`` is a link or not a real folder directly inside the
+        projects folder. Inside it, only real folders (not links) named like a job (16
+        lower-case hexadecimal characters) and not touched for longer than the waiting limit
+        and ``STALE_MARGIN_S``, so another server on the same folder keeps the uploads it is
+        still asking about. Links inside them are removed, never followed."""
+        incoming = self.root / INCOMING_DIR
+        try:
+            if incoming.is_symlink() or not incoming.is_dir():
+                return 0
+            if incoming.resolve().parent != self.root.resolve():
+                return 0
+            entries = list(incoming.iterdir())
+        except OSError:
+            return 0
+        removed = 0
+        now = time.time()
+        for folder in entries:
+            if not _JOB_ID.fullmatch(folder.name):
+                continue
+            try:
+                info = folder.lstat()
+            except OSError:
+                continue
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or now - info.st_mtime <= CHOICE_WAIT_S + STALE_MARGIN_S
+            ):
+                continue
+            shutil.rmtree(folder, ignore_errors=True)  # removes links inside, never follows
+            removed += 1
+        return removed
 
     def make_missing_cards(self) -> int:
         """Draw renders/card.png for every project that has a build but no card yet (one made
@@ -1081,9 +1203,13 @@ class App:
             return self.free_info(folder)
         info = self.summary(folder)
         info["notes"], info["brief"], info["current"], info["verdict"] = [], None, False, ""
+        info["piece"] = None
         with contextlib.suppress(OSError, ValueError, AttributeError):
             meta = json.loads((folder / "project.json").read_text(encoding="utf-8"))
             info["brief"] = meta.get("brief") or None
+            piece = meta.get("piece")
+            if isinstance(piece, int) and not isinstance(piece, bool) and piece >= 1:
+                info["piece"] = piece
         with contextlib.suppress(OSError, ValueError, AttributeError):
             data = json.loads((folder / "build.json").read_text(encoding="utf-8"))
             notes = data.get("notes")
@@ -1229,6 +1355,8 @@ class App:
             job.state = "done"
         except BaseException as e:  # a job's thread ends here, whatever stopped it
             message = plain_message(e)
+            if isinstance(e, JobFailed):
+                job.todo = e.todo
             if message is None:
                 print(f"BrickSnap: the {job.kind} job for {job.project!r} failed:", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
@@ -1257,18 +1385,37 @@ class App:
         name = clean_text(fields.get("name", ""), MAX_NAME_CHARS)
         name = name or clean_text(Path(browser_name.replace("\\", "/")).stem, MAX_NAME_CHARS)
         hollow = fields.get("hollow", "").strip().lower() in ("1", "true", "on", "yes")
+        wanted = parse_piece(fields.get("piece"))
+        up = parse_up(fields.get("up"))
 
         def work(job: Job) -> dict[str, Any]:
             from bricksnap.pipeline import create_project
 
             try:
                 job.say(f"Reading {browser_name} and turning it into bricks")
+                piece, box = self._which_piece(
+                    job, upload, staging, studs, wanted, browser_name, up
+                )
+                if piece == "cancel":
+                    job.say("Stopped before building, as you chose. Nothing was made.")
+                    return {"project": None, "cancelled": True}
+                if not upload.is_file():  # tidied away meanwhile, e.g. by another server
+                    raise JobFailed(
+                        f"The file {browser_name} was no longer here when your answer came "
+                        "(it is kept only while BrickSnap waits), so nothing was built.",
+                        todo=CHOOSE_AGAIN,
+                    )
+                if piece is not None:
+                    job.say(f"Turning piece {piece} of {browser_name} into bricks, on its own")
                 made = create_project(
                     upload,
                     studs=studs,
                     name=name or upload.stem,
                     directory=staging / "made",
+                    up=up,
                     hollow=hollow,
+                    piece=piece if isinstance(piece, int) else None,
+                    piece_box=box,
                 )
                 with self.lock:
                     target = self.root / job.project
@@ -1284,6 +1431,117 @@ class App:
             return self._build(job, project, new=True)
 
         return self.start("new", folder, work, job_id=job_id, reserved=True)
+
+    def _which_piece(
+        self,
+        job: Job,
+        upload: Path,
+        staging: Path,
+        studs: int,
+        wanted: str | int | None,
+        shown_name: str,
+        up: str | None = None,
+    ) -> tuple[int | str | None, Any]:
+        """(the piece of the uploaded file to build, and its box): a number, None for the
+        whole file, or "cancel". When the file looks like several pieces and the form did
+        not say which, the job waits (state "choosing") until the person chooses on the
+        page; only the summary, the picture and the offered pieces' boxes are kept
+        meanwhile, never the mesh."""
+        from bricksnap.pieces import find_pieces
+
+        found = find_pieces(upload, up=up, name=shown_name)
+        several, offered, total = found.several, found.count, len(found.everything)
+        boxes = [p.box for p in found.pieces] if several else []
+        note = found.note()
+        summary = found.to_json(studs)
+        picture: Path | None = None
+        if several and wanted is None:
+            picture = staging / PIECES_PICTURE
+            try:
+                found.save_picture(picture)
+            except OSError:
+                picture = None
+        del found  # the mesh is not kept while the job waits
+        if not several:
+            if note:
+                job.say(note)
+            if isinstance(wanted, int) and wanted > 1:
+                raise JobFailed(
+                    f"{shown_name} looks like one object, so there is no piece {wanted} to build.",
+                    todo=CHOOSE_AGAIN,
+                )
+            return None, None
+        if wanted is None:
+            summary["wait_minutes"] = round(CHOICE_WAIT_S / 60)
+            with self.lock:
+                job.pieces = summary
+                job.picture = picture
+                job.state = "choosing"
+            job.say(
+                f"This file looks like {total} separate pieces, not one object. Waiting for "
+                "you to choose what to build."
+            )
+            if not job.chosen.wait(CHOICE_WAIT_S):
+                with self.lock:
+                    job.state = "running"
+                    job.pieces = job.picture = None
+                raise JobFailed(
+                    f"Nobody chose which piece to build within {_wait_words()}, so nothing "
+                    "was built.",
+                    todo=CHOOSE_AGAIN,
+                )
+            wanted = job.choice
+        if wanted == "cancel" or wanted is None:
+            return "cancel", None
+        if wanted == "all":
+            job.say(f"Building all {total} pieces together, as you chose")
+            return None, None
+        number = 1 if wanted == "largest" else int(wanted)
+        if not 1 <= number <= offered:
+            raise JobFailed(
+                f"{shown_name} has {offered} pieces to choose from, numbered 1 to {offered}, "
+                f"so there is no piece {number}.",
+                todo=CHOOSE_AGAIN,
+            )
+        return number, boxes[number - 1]
+
+    def choose(self, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """The person's answer to "which piece?" for a new model that is waiting for it:
+        ``{"piece": "largest" | "all" | n}``, or ``{"cancel": true}`` to build nothing."""
+        from bricksnap.pieces import parse_choice
+
+        if body.get("cancel") is True:
+            choice: str | int = "cancel"
+        else:
+            try:
+                choice = parse_choice(body.get("piece", ""))
+            except SeedError as e:
+                raise Refused(str(e)) from e
+        with self.lock:
+            job = self.jobs.get(job_id) if _JOB_ID.fullmatch(job_id) else None
+            if job is None:
+                raise Refused("That job is not known.", HTTPStatus.NOT_FOUND)
+            if job.state != "choosing" or job.chosen.is_set():
+                raise Refused(
+                    "This model is not waiting for a choice any more. Reload the page to see "
+                    "how it is going.",
+                    HTTPStatus.CONFLICT,
+                )
+            count = int((job.pieces or {}).get("count", 0))
+            if isinstance(choice, int) and not 1 <= choice <= count:
+                raise Refused(f"There is no piece {choice}: the pieces are numbered 1 to {count}.")
+            job.choice = choice
+            job.state = "running"
+            job.pieces = job.picture = None  # the question is answered
+            job.chosen.set()
+        return {"job": job_id}
+
+    def pieces_picture(self, job_id: str) -> Path | None:
+        """The numbered picture of a new model's pieces, while its job has one."""
+        with self.lock:
+            job = self.jobs.get(job_id) if _JOB_ID.fullmatch(job_id) else None
+            picture = job.picture if job is not None else None
+        return picture if picture is not None and picture.is_file() else None
 
     def _build(self, job: Job, project: Project, new: bool = False) -> dict[str, Any]:
         """Rebuild, draw the picture and make the plain conversion, as ``bricksnap build``."""
@@ -1907,6 +2165,29 @@ class App:
         }
 
 
+def parse_up(value: str | None) -> str | None:
+    """The optional ``up`` field of the upload form: None (as the file says), "x", "y" or
+    "z"; anything else is refused."""
+    word = (value or "").strip().lower()
+    if not word:
+        return None
+    if word not in ("x", "y", "z"):
+        raise Refused("Which way is up must be x, y or z, or left as the file says.")
+    return word
+
+
+def parse_piece(value: str | None) -> str | int | None:
+    """The optional ``piece`` field of the upload form: None when it is empty."""
+    from bricksnap.pieces import parse_choice
+
+    if value is None or not value.strip():
+        return None
+    try:
+        return parse_choice(value)
+    except SeedError as e:
+        raise Refused(str(e)) from e
+
+
 def parse_studs(value: str | None) -> int:
     """The size field of the form: a whole number of studs from 4 to 96 (16 when empty)."""
     if value is None or not value.strip():
@@ -2070,6 +2351,9 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._file(safe_join(CATALOG_DIR, name) if name in CATALOG_FILES else None, body)
             elif path == "/api/projects":
                 self._json(HTTPStatus.OK, app.list_projects(), body)
+            elif path.startswith("/api/jobs/") and path.endswith(f"/{PIECES_PICTURE}"):
+                job_id = path[len("/api/jobs/") : -len(PIECES_PICTURE) - 1]
+                self._file(app.pieces_picture(job_id), body)
             elif path.startswith("/api/jobs/"):
                 self._json(HTTPStatus.OK, app.job_json(path[len("/api/jobs/") :]), body)
             elif path.startswith("/api/p/"):
@@ -2197,6 +2481,10 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             if path == "/api/projects":
                 self._json(HTTPStatus.ACCEPTED, {"job": self._upload().id})
                 return
+            if path is not None and path.startswith("/api/jobs/") and path.endswith("/choose"):
+                job_id = path[len("/api/jobs/") : -len("/choose")]
+                self._json(HTTPStatus.OK, app.choose(job_id, self._read_json()))
+                return
             if path == "/api/free":
                 job = app.new_free(self._read_json())
                 self._json(HTTPStatus.ACCEPTED, {"job": job.id, "project": job.project})
@@ -2267,6 +2555,8 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     raise Refused(GLTF_SEPARATE.format(name=clean_text(browser_name, 120)))
                 fields["_file_name"] = browser_name.replace("\\", "/").rsplit("/", 1)[-1]
                 parse_studs(fields.get("studs"))  # refuse a wrong size before anything starts
+                parse_piece(fields.get("piece"))  # and a choice of piece that makes no sense
+                parse_up(fields.get("up"))
                 wanted = clean_text(fields.get("name", ""), MAX_NAME_CHARS)
                 folder = app.reserve(wanted or Path(fields["_file_name"]).stem, job_id)
                 return app.new_project(job_id, folder, staging, chosen["file"], fields)
@@ -2328,6 +2618,7 @@ def make_app_server(projects_dir: str | Path = "projects", port: int = 8765) -> 
             ) from None
         raise ProjectError(f"Could not start BrickSnap on port {port}: {exc.strerror}.") from None
     server.app = app
+    app.clear_stale_uploads()
     return server
 
 

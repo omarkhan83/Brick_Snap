@@ -2,7 +2,7 @@
 
 CONTRACT (see tests/test_seed.py)
 
-``load_seed(path, studs=N, up=None) -> Seed``
+``load_seed(path, studs=N, up=None, piece=None, piece_box=None) -> Seed``
 
 - Reads .stl, .obj, .glb, .gltf, .3mf and .ply with trimesh. A file holding several meshes
   (a scene) is flattened into one mesh with every transform applied. Any other extension
@@ -22,6 +22,14 @@ CONTRACT (see tests/test_seed.py)
   Centring matters because a model that is symmetric left to right must come out symmetric
   in the grid: the same fraction of a cell at both edges.
 - Degenerate (zero-area) triangles are dropped.
+- ``piece`` or ``piece_box``: keep only one piece of a file that looks like several separate
+  pieces (``bricksnap.pieces.keep_piece``, whose contract says how a piece is found and
+  which errors it raises), before turning, scaling and centring, so the piece comes out
+  exactly as a file holding only that piece would. Both None: the whole file.
+- ``load_mesh(path, up=None) -> (vertices, faces, face colours or None, name, axis)``: the
+  file read, flattened and cleaned (every check above except the flat model), not yet
+  turned or scaled, with the up axis to turn it by. ``load_seed`` and ``bricksnap.pieces``
+  both start from it.
 - ``face_colors`` is an (m, 3) uint8 RGB array when the model carries colour: per-face
   colours, per-vertex colours (a face takes the mean of its corners), a texture (sampled at
   each face's UV centroid), or a base colour per material. It is None when the file has no
@@ -94,9 +102,52 @@ _WHOLE_STUD = 1e-6  # studs; a side this close to a whole number of studs is not
 Mesh = tuple[np.ndarray, np.ndarray, np.ndarray | None]  # vertices, faces, face colours
 
 
-def load_seed(path: str | Path, *, studs: int, up: str | None = None) -> Seed:
-    """Load a model file as a Seed: z up, front facing -y, longest side ``studs * 8`` mm."""
+def load_seed(
+    path: str | Path,
+    *,
+    studs: int,
+    up: str | None = None,
+    piece: int | None = None,
+    piece_box: Any = None,
+) -> Seed:
+    """Load a model file as a Seed: z up, front facing -y, longest side ``studs * 8`` mm.
+
+    With ``piece`` (1, 2, ...) or ``piece_box`` only that piece of the file is kept
+    (``bricksnap.pieces.keep_piece``)."""
     studs = _check_studs(studs)
+    vertices, faces, colours, name, axis = load_mesh(path, up)
+    if piece is not None or piece_box is not None:
+        from bricksnap.pieces import keep_piece
+
+        vertices, faces, colours = keep_piece(
+            vertices, faces, colours, axis, name, piece=piece, box=piece_box
+        )
+
+    vertices = _orient(vertices, axis)
+    extent = vertices.max(axis=0) - vertices.min(axis=0)
+    longest = float(extent.max())
+    thin = [i for i in range(3) if extent[i] <= _FLAT_REL * longest]
+    if thin:
+        which = " or ".join(_AXIS_WORDS[i] for i in thin)
+        raise SeedError(
+            f"The model in {name} is flat: it has no thickness from {which}, so it cannot be "
+            "built from bricks. Give it some thickness in your 3D program, or check that "
+            "the file holds the whole model, and try again."
+        )
+
+    scale = studs * STUD_MM / longest
+    vertices = (vertices - vertices.min(axis=0)) * scale
+    vertices = np.maximum(vertices, 0.0)  # remove -0.0 and rounding below zero
+    vertices[:, :2] += _centring(vertices.max(axis=0)[:2])
+    return Seed(vertices=vertices, faces=faces, face_colors=colours, source=name)
+
+
+def load_mesh(
+    path: str | Path, up: str | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str, str]:
+    """The file's triangles, read, flattened and cleaned but not yet oriented or scaled:
+    (vertices, faces, face colours or None, the file's name, the up axis to orient by).
+    Raises SeedError for every problem ``load_seed`` names, except a flat model."""
     path = Path(path)
     name = path.name or str(path)
     ext = path.suffix.lower()
@@ -134,24 +185,7 @@ def load_seed(path: str | Path, *, studs: int, up: str | None = None) -> Seed:
             f"{name} contains no usable triangles: every triangle in it has zero area. "
             "Export the model as a solid mesh and try again."
         )
-
-    vertices = _orient(vertices, axis)
-    extent = vertices.max(axis=0) - vertices.min(axis=0)
-    longest = float(extent.max())
-    thin = [i for i in range(3) if extent[i] <= _FLAT_REL * longest]
-    if thin:
-        which = " or ".join(_AXIS_WORDS[i] for i in thin)
-        raise SeedError(
-            f"The model in {name} is flat: it has no thickness from {which}, so it cannot be "
-            "built from bricks. Give it some thickness in your 3D program, or check that "
-            "the file holds the whole model, and try again."
-        )
-
-    scale = studs * STUD_MM / longest
-    vertices = (vertices - vertices.min(axis=0)) * scale
-    vertices = np.maximum(vertices, 0.0)  # remove -0.0 and rounding below zero
-    vertices[:, :2] += _centring(vertices.max(axis=0)[:2])
-    return Seed(vertices=vertices, faces=faces, face_colors=colours, source=name)
+    return vertices, faces, colours, name, axis
 
 
 # ---- argument checks ------------------------------------------------------------------------

@@ -2120,3 +2120,346 @@ def test_browser_designing_in_passes(
         for gate in holds.gates.values():
             gate.open.set()
         tab.close()
+
+
+# ---- a file of several separate pieces ----------------------------------------------------
+
+
+def kit_bytes(tmp_path: Path) -> bytes:
+    """Three separate pieces side by side, as a kit laid out for printing (an STL)."""
+    import trimesh
+
+    parts = []
+    for size, at in (
+        ((40, 20, 10), (0, 0, 0)),
+        ((20, 16, 16), (0, 40, 0)),
+        ((20, 20, 9), (60, 0, 0)),
+    ):
+        box = trimesh.creation.box(extents=size)
+        box.apply_translation(np.asarray(at, dtype=float) + np.asarray(size, dtype=float) / 2)
+        parts.append(box)
+    path = tmp_path / "kit.stl"
+    trimesh.util.concatenate(parts).export(path)
+    return path.read_bytes()
+
+
+def wait_state(running: Running, job: str, state: str, timeout: float = 60) -> dict[str, Any]:
+    end = time.time() + timeout
+    seen: dict[str, Any] = {}
+    while time.time() < end:
+        seen = running.get_json(f"/api/jobs/{job}")
+        if seen["state"] == state:
+            return seen
+        assert seen["state"] not in ("done", "failed"), seen
+        time.sleep(0.05)
+    raise AssertionError(f"job {job} never reached {state}: {seen}")
+
+
+def test_a_file_of_several_pieces_asks_which_to_build(
+    running: Running, projects: Path, tmp_path: Path
+) -> None:
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl", fields={"studs": "8"})
+    assert status == 202
+    job_id = answer["job"]
+    job = wait_state(running, job_id, "choosing")
+    assert job["pieces"]["count"] == 3 and job["pieces"]["studs"] == 8
+    assert [p["number"] for p in job["pieces"]["pieces"]] == [1, 2, 3]
+    assert job["pieces"]["pieces"][0]["alone"] == [8.0, 4.0, 2.0]
+    assert "looks like 3 separate pieces" in job["progress"][-1]
+    assert job["pieces"]["source"] == "kit.stl" and job["pieces"]["wait_minutes"] == 60
+    picture = job["picture"]
+    assert picture == f"/api/jobs/{job_id}/pieces.png"
+    status, headers, data = running.request(picture)
+    assert status == 200 and headers["content-type"] == "image/png"
+    assert Image.open(io.BytesIO(data)).width > 100
+    # listed with the running jobs, its name held, nothing made yet
+    assert [j["id"] for j in running.get_json("/api/projects")["jobs"]] == [job_id]
+    assert running.app.busy == {"kit": job_id}
+    assert not (projects / "kit").exists()
+
+    # the answer needs the token and a sensible choice; the job keeps waiting meanwhile
+    status, data = running.post(f"/api/jobs/{job_id}/choose", {"piece": 2}, token=False)
+    assert status == 403
+    status, data = running.post(
+        f"/api/jobs/{job_id}/choose", {"piece": 2}, headers={"Origin": "http://evil.example"}
+    )
+    assert status == 403
+    status, _ = running.post(f"/api/jobs/{job_id}/choose", {"piece": 2}, host="evil.example")
+    assert status == 404
+    for bad, words in (
+        ({"piece": "biggest"}, "Choose which piece"),
+        ({"piece": 4}, "no piece 4"),
+        ({"piece": "²"}, "Choose which piece"),
+        ({"piece": 2.0}, "Choose which piece"),
+    ):
+        status, data = running.post(f"/api/jobs/{job_id}/choose", bad)
+        assert status == 400 and words in data["error"], data
+    assert running.get_json(f"/api/jobs/{job_id}")["state"] == "choosing"
+
+    status, data = running.post(f"/api/jobs/{job_id}/choose", {"piece": 2})
+    assert status == 200 and data == {"job": job_id}
+    answered = running.get_json(f"/api/jobs/{job_id}")
+    assert answered["pieces"] is None and answered["picture"] is None
+    job = running.wait(job_id)
+    assert job["state"] == "done", job
+    assert job["result"]["project"] == "kit"
+    assert any("piece 2 of kit.stl" in line for line in job["progress"])
+    project = Project(projects / "kit")
+    assert project.meta["piece"] == 2
+    assert running.get_json("/api/p/kit")["piece"] == 2
+    assert running.get_json("/api/p/pawn")["piece"] is None
+    assert job["pieces"] is None and job["picture"] is None and job["todo"] is None
+    assert running.request(picture)[0] == 404  # went with the upload's folder
+    assert not any((projects / ".incoming").glob("*"))
+    status, data = running.post(f"/api/jobs/{job_id}/choose", {"piece": 1})
+    assert status == 409 and "not waiting" in data["error"]
+    status, data = running.post("/api/jobs/0123456789abcdef/choose", {"piece": 1})
+    assert status == 404
+
+
+def test_choosing_to_build_nothing(running: Running, projects: Path, tmp_path: Path) -> None:
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl")
+    wait_state(running, answer["job"], "choosing")
+    status, _ = running.post(f"/api/jobs/{answer['job']}/choose", {"cancel": True})
+    assert status == 200
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and job["result"] == {"project": None, "cancelled": True}
+    assert sorted(p.name for p in projects.iterdir() if p.name != ".incoming") == ["pawn"]
+    assert not any((projects / ".incoming").glob("*"))
+    assert running.app.busy == {}
+
+
+def test_everything_together_or_a_piece_chosen_in_advance(
+    running: Running, projects: Path, tmp_path: Path
+) -> None:
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl")
+    wait_state(running, answer["job"], "choosing")
+    running.post(f"/api/jobs/{answer['job']}/choose", {"piece": "all"})
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and "piece" not in Project(projects / "kit").meta
+    assert any("all 3 pieces together" in line for line in job["progress"])
+
+    fields = {"studs": "8", "piece": "largest", "name": "kit one"}
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl", fields=fields)
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and job["pieces"] is None
+    assert Project(projects / "kit-one").meta["piece"] == 1
+
+    for bad in ("x", "²"):
+        status, data = running.upload(kit_bytes(tmp_path), fields={"studs": "8", "piece": bad})
+        assert status == 400 and "Choose which piece" in data["error"]
+    fields = {"studs": "8", "piece": "7"}
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl", fields=fields)
+    job = running.wait(answer["job"])
+    assert job["state"] == "failed" and "no piece 7" in job["error"]
+    assert job["todo"] == webapp.CHOOSE_AGAIN
+
+
+def test_one_object_never_asks(running: Running, pawn_path: Path) -> None:
+    status, answer = running.upload(pawn_path.read_bytes(), filename="pawn.stl")
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and job["pieces"] is None and job["picture"] is None
+    status, answer = running.upload(pawn_path.read_bytes(), fields={"studs": "8", "piece": "2"})
+    job = running.wait(answer["job"])
+    assert job["state"] == "failed" and "looks like one object" in job["error"]
+    assert job["todo"] == webapp.CHOOSE_AGAIN
+
+
+def test_two_answers_racing_take_one(running: Running, tmp_path: Path) -> None:
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl")
+    job_id = answer["job"]
+    wait_state(running, job_id, "choosing")
+    results: list[int] = []
+
+    def answer_with(piece: Any) -> None:
+        results.append(running.post(f"/api/jobs/{job_id}/choose", {"piece": piece})[0])
+
+    threads = [threading.Thread(target=answer_with, args=(p,)) for p in (1, 2, 3, "all")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == [200, 409, 409, 409]
+    assert running.wait(job_id)["state"] == "done"
+
+
+def test_nobody_choosing_in_time_fails_plainly(
+    running: Running, projects: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(webapp, "CHOICE_WAIT_S", 0.5)
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl")
+    job = running.wait(answer["job"])
+    assert job["state"] == "failed" and "Nobody chose which piece" in job["error"]
+    assert job["todo"] == webapp.CHOOSE_AGAIN
+    assert job["pieces"] is None and job["picture"] is None
+    assert not (projects / "kit").exists() and not any((projects / ".incoming").glob("*"))
+
+
+def _old(path: Path) -> None:
+    long_ago = time.time() - webapp.CHOICE_WAIT_S - webapp.STALE_MARGIN_S - 60
+    os.utime(path, (long_ago, long_ago), follow_symlinks=False)
+
+
+def test_stale_uploads_are_cleared_when_the_server_starts(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    incoming = root / ".incoming"
+    old = incoming / "0123456789abcdef"
+    fresh = incoming / "fedcba9876543210"
+    other = incoming / "keep-me"  # not a job's name: left alone, however old
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "precious.txt").write_text("keep", "utf-8")
+    for folder in (old, fresh, other):
+        folder.mkdir(parents=True)
+        (folder / "model.stl").write_bytes(b"x" * 100)
+    (old / "link").symlink_to(outside, target_is_directory=True)  # removed, never followed
+    linked = incoming / "abcdefabcdefabcd"  # a link named like a job: left alone
+    linked.symlink_to(outside, target_is_directory=True)
+    for path in (old, other, linked):
+        _old(path)
+    r = Running(root)
+    try:
+        assert not old.exists()
+        assert fresh.is_dir() and other.is_dir() and linked.is_symlink()
+        assert (outside / "precious.txt").read_text("utf-8") == "keep"
+    finally:
+        r.close()
+
+
+def test_a_linked_incoming_folder_is_never_cleared(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    elsewhere = tmp_path / "someone-elses-old-folders"
+    job_like = elsewhere / "0123456789abcdef"
+    job_like.mkdir(parents=True)
+    (job_like / "notes.txt").write_text("keep", "utf-8")
+    _old(job_like)
+    (root / ".incoming").symlink_to(elsewhere, target_is_directory=True)
+    r = Running(root)
+    try:
+        assert r.app.clear_stale_uploads() == 0
+        assert (job_like / "notes.txt").read_text("utf-8") == "keep"
+    finally:
+        r.close()
+
+
+def test_an_upload_gone_before_the_answer_fails_plainly(
+    running: Running, projects: Path, tmp_path: Path
+) -> None:
+    status, answer = running.upload(kit_bytes(tmp_path), filename="kit.stl")
+    job_id = answer["job"]
+    wait_state(running, job_id, "choosing")
+    for upload in (projects / ".incoming" / job_id).glob("*.stl"):
+        upload.unlink()  # as another server's clean-up would, after the computer slept
+    running.post(f"/api/jobs/{job_id}/choose", {"piece": 1})
+    job = running.wait(job_id)
+    assert job["state"] == "failed" and "no longer here" in job["error"]
+    assert "Could not find" not in job["error"] and job["todo"] == webapp.CHOOSE_AGAIN
+
+
+def test_which_way_is_up_can_be_given_with_the_upload(
+    running: Running, projects: Path, tmp_path: Path
+) -> None:
+    import trimesh
+
+    # a flat kit of three blocks one behind another, saved as .obj (read as y-up, so seen
+    # along the file's y they cover each other): found only with up = z
+    parts = []
+    for i in range(3):
+        box = trimesh.creation.box(extents=(20, 20, 5))
+        box.apply_translation((10, 30 * i + 10, 2.5))
+        parts.append(box)
+    joined: Any = trimesh.util.concatenate(parts)
+    path = tmp_path / "flat.obj"
+    joined.export(path)
+    status, answer = running.upload(path.read_bytes(), filename="flat.obj", fields={"studs": "8"})
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and Project(projects / "flat").meta["up"] is None
+    fields = {"studs": "8", "up": "z", "name": "flat up"}
+    status, answer = running.upload(path.read_bytes(), filename="flat.obj", fields=fields)
+    job = wait_state(running, answer["job"], "choosing")
+    assert job["pieces"]["count"] == 3
+    running.post(f"/api/jobs/{answer['job']}/choose", {"piece": 2})
+    assert running.wait(answer["job"])["state"] == "done"
+    meta = Project(projects / "flat-up").meta
+    assert meta["up"] == "z" and meta["piece"] == 2
+    status, data = running.upload(path.read_bytes(), filename="flat.obj", fields={"up": "w"})
+    assert status == 400 and "Which way is up" in data["error"]
+
+
+def test_a_scatter_is_told_in_the_progress(running: Running, tmp_path: Path) -> None:
+    import trimesh
+
+    many = []
+    for i in range(81):
+        box = trimesh.creation.box(extents=(3, 3, 3))
+        box.apply_translation((6 * (i % 9) + 1.5, 6 * (i // 9) + 1.5, 1.5))
+        many.append(box)
+    joined: Any = trimesh.util.concatenate(many)
+    path = tmp_path / "grid.stl"
+    joined.export(path)
+    status, answer = running.upload(path.read_bytes(), filename="grid.stl")
+    job = running.wait(answer["job"])
+    assert job["state"] == "done" and job["pieces"] is None
+    assert any("has 81 separate parts seen from above" in line for line in job["progress"])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/jobs/../pawn/pieces.png",
+        "/api/jobs/0123456789abcdef/pieces.png",
+        "/api/jobs/nothing/pieces.png",
+        "/api/jobs//pieces.png",
+    ],
+)
+def test_a_pieces_picture_is_served_only_for_its_job(running: Running, path: str) -> None:
+    assert running.request(path)[0] == 404
+
+
+@pytest.mark.browser
+def test_browser_choosing_a_piece_of_a_kit(
+    browser: Any, running: Running, projects: Path, tmp_path: Path
+) -> None:
+    kit = tmp_path / "upload" / "kit.stl"
+    kit.parent.mkdir()
+    kit.write_bytes(kit_bytes(tmp_path))
+    for width, height, name, piece in ((1200, 900, "kit", 2), (390, 844, "kit-2", 3)):
+        tab = Tab(browser, running.url, width=width, height=height).open()
+        try:
+            page = tab.page
+            page.set_input_files("#model", str(kit))
+            page.eval_on_selector(
+                "#studs", "e => { e.value = '8'; e.dispatchEvent(new Event('input')); }"
+            )
+            page.locator("#go").click()
+            page.wait_for_selector("#pieces")
+            assert "This file looks like 3 separate pieces" in tab.text("#pieces h3")
+            assert (
+                "the largest piece would be about 4 studs long; built alone, it would be 8"
+                in tab.text("#pieces .lead")
+            )
+            assert "waits an hour for your answer" in tab.text("#pieces")
+            assert "Which way is up in the file" in tab.text("#piecesSide")
+            page.wait_for_function(
+                "() => { const i = document.querySelector('.pieces-pic');"
+                " return i && i.complete && i.naturalWidth > 0; }"
+            )
+            labels = page.locator("#pieces label.way").all_text_contents()
+            assert len(labels) == 4
+            assert labels[0].startswith("Piece 1 alone, the largest")
+            assert "Built on its own: 8 × 4 × 2 studs." in labels[0]
+            assert labels[3].startswith("Everything together, as it is")
+            assert page.locator("#pieces input[value='1']").is_checked()
+            page.locator(f"#pieces label.way >> nth={piece - 1}").click()
+            tab.no_sideways_scroll()
+            tab.shot("pieces-choose" if width > 600 else "pieces-choose-phone")
+            page.locator("#piecesGo").click()
+            page.wait_for_selector("a.button.primary >> text=Open your model", timeout=60000)
+            page.wait_for_selector(f".pcard[data-project='{name}']")
+            assert Project(projects / name).meta["piece"] == piece
+            if width > 600:
+                tab.shot("pieces-built")
+            tab.assert_clean()
+        finally:
+            tab.close()
