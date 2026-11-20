@@ -373,8 +373,10 @@ def test_the_weak_spot_phase_never_leaves_a_finished_model_weaker(tmp_path_facto
         ("pineapple", 16, 6),
         ("spaceship", 16, 6),
         ("hat", 16, 6),
-        pytest.param("pawn", 12, 15, marks=pytest.mark.thorough),
-        ("hat", 12, 15),
+        # the pawn at 12 studs was here (15 cells); since the solver's sturdiness step got
+        # more work it leaves the pawn nothing heavy, so the phase fills nothing there, and
+        # the hat at 12 is the case with most cells: 8, where it once filled 15
+        ("hat", 12, 8),
     ],
 )
 def test_the_weak_spot_phase_fills_few_cells_and_only_beside_what_it_cures(

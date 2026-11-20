@@ -99,10 +99,19 @@ side. The layout solver cannot cure these, because it may not add cells. This pa
   for something that already holds.
 - Bounded: this phase may use at most ``max_sturdy_solves`` solves (default 8) beyond those
   the pass already used, taking away included, and stops early when no heavy lone link is
-  left; 0 leaves it out. It starts no solve that would end the pass more than 8 seconds
-  after it began, so a 16-stud model still finishes in under 10 seconds (unless repairing
-  what was loose took that long by itself). This is the one place where the clock matters:
-  on a machine slow enough for it to bind, fewer weak spots are cured.
+  left; 0 leaves it out. Its work is bounded too, counted in parts, not seconds, so that
+  the same Design gives the same result on any machine at any load: it starts no solve
+  once the parts of all the builds the pass's solves returned, plus those of the largest
+  of them (what the next solve will cost), would pass ``STURDY_WORK`` (17,000 parts; the
+  first solve of the phase needs only the pass to be under it). A solve's time follows the
+  parts it places. That is set so that no sample from 12 to 40 studs is held back by it
+  (the hat at 40 studs, 9 solves of about 1,660 parts, comes nearest), and that at 48
+  studs the cat and the spaceship make the solves they made with the 8-second clock this
+  replaced on a quiet machine (9 and 6); the hat at 48 makes 7 where the clock let it make
+  4. (Stage 4: the clock made a 48-stud cat come out three ways on a busy machine.) A clock
+  remains only as a safety net that no model reaches on a working machine: no solve of the
+  phase starts ``STURDY_SECONDS`` (60) after the pass began, and if that ever stops it, a
+  note says so.
 - The guarantees of the pass hold unchanged: nothing emptied, no visible cell recoloured,
   every filled or added cell reported in the masks and in a note. The notes for this phase
   say what was hanging and on what, what was done, and how it hangs in the build the pass
@@ -127,7 +136,9 @@ heavy lone link (unchanged, same fingerprint); the sample pineapple, spaceship a
 hold); every sample at 12, 16 and 24 studs still builds with no loose parts. After review:
 only cells beside the link, each needed (the crown with partly covered cells far from its
 neck); a bound that binds (four heads, budgets 1, 2 and 8) and a clock that binds (solves
-that take 3 seconds each); a weak spot never reached that could not have been helped
+that take 3 seconds each; since stage 4: work that binds, with the same build whether the
+solves take no time, 3 or 9 seconds each, and the safety-net clock saying so in a note
+when solves take 40 seconds each); a weak spot never reached that could not have been helped
 anyway, told apart from one the solves ran out for; the cat at 24 studs no weaker after
 finishing than without the phase; few cells at 12 and 16 studs; notes true of the build
 returned.
@@ -155,7 +166,8 @@ What must be true of the result
   a White part of the body reaches across under it and holds it: it touched the body only
   at its side.", and "Added 40 Black cells on top of the sheet at ...: it was one plate
   thin and lay on the ground, where nothing can go beneath it, ...".
-- Deterministic for a given ``seed``. A 16-stud model in under 10 seconds.
+- Deterministic for a given ``seed``, whatever the machine or its load (no clock decides
+  the result, see the weak-spot phase). A 16-stud model in under 10 seconds.
 
 Tests must include: a nose in its own colour on the front of a head; two colours meeting on
 one vertical plane through a thick block; a wide cap one plate thin on a narrow stem; a
@@ -331,8 +343,9 @@ group holds its group) are given up with it.
 - Cells changed by the loose repairs, and cells under detail parts, are never changed
   again. The phase stops when its solves are spent, after ``SLOW_PATIENCE`` solves that
   could not reach the floor of their Design, when no link is left to try, or when the
-  next solve, if it took as long as the longest one of the phase so far, would end later
-  than ``STURDY_SECONDS`` after the pass began. A model where nothing could be tried (the
+  next solve, if it returned as many parts as the largest of the pass so far, would take
+  the pass beyond ``STURDY_WORK`` (or, as a safety net, ``STURDY_SECONDS`` have passed).
+  A model where nothing could be tried (the
   neck in the tests) costs no solve at all.
 - Notes: one per change kept, saying what hung on what and how it hangs in the build that
   is returned (``_cure_words``: the lightest heavy link there that carries most of the
@@ -345,7 +358,9 @@ group holds its group) are given up with it.
 - Measured on the sample models at 12, 16 and 24 studs (heavy links of this pass's build,
   without the phase, then with it): 57 to 19 (before the review: 23), none left at 16
   studs; 106 cells added in all (before: 218), none recoloured; at 16 studs pineapple 4,
-  spaceship 4, hat 6; at 12 studs hat 15 (before: 53), pawn 6 (before: 44). After
+  spaceship 4, hat 6; at 12 studs hat 15 (before: 53), pawn 6 (before: 44). (Since the
+  solver's sturdiness step got more work in stage 4: at 16 studs pineapple 3, spaceship 4,
+  hat 1; at 12 studs hat 8, pawn 0, the solver leaving the pawn nothing heavy.) After
   finishing, heavy links go from 50 to 16 (before: 24), and no sample is weaker after
   finishing than without the phase (the cat at 24 studs had ended with 2 where finishing
   alone left none). Left: the bottle at 12 studs (its neck is two cells wide), the cat's
@@ -947,13 +962,32 @@ def side_stud_pins(design: Design, catalog: Catalog) -> tuple[Placement, ...]:
     return tuple(p for _, p in _plan_pins(design, catalog)[0])
 
 
-def _solve(solve, design: Design, catalog: Catalog, seed: int) -> Build:
+@dataclass
+class _Spent:
+    """The work the pass has done so far: the parts of every build its solves returned (a
+    solve's time follows the parts it places), the most parts any one solve returned, and
+    when the pass began (for the far-off safety net only)."""
+
+    started: float
+    parts: int = 0
+    most: int = 0
+
+
+def _solve(
+    solve, design: Design, catalog: Catalog, seed: int, spent: _Spent | None = None
+) -> Build:
     """``solve`` (``layout.solve``) with the side-stud bricks of ``design`` pinned; with none
-    to pin it is called exactly as before sideways parts existed."""
+    to pin it is called exactly as before sideways parts existed. The parts it returns are
+    added to ``spent``."""
     pins = side_stud_pins(design, catalog)
     if pins:
-        return solve(design, catalog, seed=seed, pinned=pins)
-    return solve(design, catalog, seed=seed)
+        build = solve(design, catalog, seed=seed, pinned=pins)
+    else:
+        build = solve(design, catalog, seed=seed)
+    if spent is not None:
+        spent.parts += len(build.parts)
+        spent.most = max(spent.most, len(build.parts))
+    return build
 
 
 def _pin_cells(design: Design, catalog: Catalog) -> np.ndarray:
@@ -1053,12 +1087,16 @@ SLOW_PATIENCE = 2  # such solves in a row, no better than the best, that end the
 CARRIED = "carried"  # another spot's change chosen this round joins the piece already
 _SHOWN_IF_JOINED = ("recolour", "skin", "thicken")  # rungs worth trying when the floor joins
 STURDY_SOLVES = 8  # default for ``max_sturdy_solves``
-HEAVY_CELLS = 40  # a lone link is heavy with at least this many cells hanging on it,
+HEAVY_CELLS = 40  # a lone link is heavy with at least this many cells hanging on it (the
+# finishing pass's ``_HEAVY_CELLS`` is the same 40, but fixed: it is the task's measure),
 HEAVY_SHARE = 1 / 10  # or this share of the model's filled cells, whichever is smaller,
 HEAVY_MIN = 12  # and never fewer than this
 LEFT_NOTES = 5  # weak spots left that get a note of their own; the rest are counted
 PRUNE_TRIES = 4  # solves to find what of a kept change a fresh layout does without
-STURDY_SECONDS = 8.0  # the weak-spot phase starts no solve that would end the pass later
+STURDY_WORK = 17_000  # parts the pass's solves may return in all before the weak-spot phase
+# starts no more solves (a solve's time follows the parts it places; see the contract)
+STURDY_SECONDS = 60.0  # safety net only: the weak-spot phase starts no solve this long after
+# the pass began, and says so in the notes; STURDY_WORK binds long before on any model seen
 
 
 def _apply(base: Design, spots: list[_Spot]) -> Design:
@@ -1285,16 +1323,16 @@ def _make_buildable(
 ) -> BuildableResult:
     from bricksnap.layout import solve
 
-    started = time.perf_counter()
+    spent = _Spent(time.perf_counter())
     nothing = np.zeros(design.shape, dtype=bool)
     given = design
     design, held = _hold_sideways(given, catalog)
-    build = _solve(solve, design, catalog, seed)
+    build = _solve(solve, design, catalog, seed, spent)
     solves = 1
     pc = _pieces(build, catalog)
     pieces_before = pc.count
     if pc.count <= 1:
-        st = _sturdy(design, design, build, pc, catalog, seed, max_sturdy_solves, started)
+        st = _sturdy(design, design, build, pc, catalog, seed, max_sturdy_solves, spent)
         work, build, pc = st.work, st.build, st.pc
         limit = heavy_limit(int(design.filled.sum()))
         notes = held + _sturdy_notes(catalog, work.colors, st, limit)
@@ -1392,7 +1430,7 @@ def _make_buildable(
         if not changed:
             break
         work = _apply(design, spots)
-        build = _solve(solve, work, catalog, seed)
+        build = _solve(solve, work, catalog, seed, spent)
         solves += 1
         pc = _pieces(build, catalog)
         struggled = pc.count > _floor_count(work.colors)
@@ -1406,10 +1444,10 @@ def _make_buildable(
             break  # the layout cannot get further, and every try like this costs seconds
 
     if best[1]:
-        best, solves, slow = _prune(design, best, catalog, seed, solves, slow, max_solves)
+        best, solves, slow = _prune(design, best, catalog, seed, solves, slow, max_solves, spent)
 
     _, _, work, build, pc, kept = best
-    st = _sturdy(design, work, build, pc, catalog, seed, max_sturdy_solves, started)
+    st = _sturdy(design, work, build, pc, catalog, seed, max_sturdy_solves, spent)
     work, build, pc = st.work, st.build, st.pc
     limit = heavy_limit(int(design.filled.sum()))
     sturdy = _sturdy_notes(catalog, work.colors, st, limit)
@@ -1428,6 +1466,7 @@ def _prune(
     solves: int,
     slow: int,
     max_solves: int,
+    spent: _Spent | None = None,
 ) -> tuple[tuple, int, int]:
     """Take away what the best repairs do not need, judged by the solver: each smaller
     version is solved and kept when it has no more pieces. Returns the new best and the
@@ -1561,7 +1600,7 @@ def _prune(
             continue
         seen.add(key(spots))
         trial = _apply(design, spots)
-        tb = _solve(solve, trial, catalog, seed)
+        tb = _solve(solve, trial, catalog, seed, spent)
         solves += 1
         tp = _pieces(tb, catalog)
         struggled = tp.count > _floor_count(trial.colors)
@@ -2095,6 +2134,7 @@ class _Sturdy:
     left: list[_Link] = field(default_factory=list)
     ran_out: bool = False
     solves: int = 0
+    timed_out: bool = False  # the safety net (``STURDY_SECONDS``) stopped it
 
 
 def _sturdy(
@@ -2105,14 +2145,16 @@ def _sturdy(
     catalog: Catalog,
     seed: int,
     budget: int,
-    started: float,
+    spent: _Spent,
 ) -> _Sturdy:
     """Cure the heaviest lone links of ``build`` (the best Design the pass found, ``work``)
     by small changes to the Design, each judged by a solve and kept only if the build is
     sturdier by enough (``_better``) and has no more pieces; then what a kept change of
     partly covered cells does not need goes, when a fresh solve agrees. A link is heavy by
-    the input Design's filled cells (``heavy_limit``). ``started`` is when the pass began
-    (``time.perf_counter``): no solve is started that would end after ``STURDY_SECONDS``."""
+    the input Design's filled cells (``heavy_limit``). ``spent`` is the work of the pass so
+    far: a solve is started only while its parts, and those of the largest solve so far,
+    fit in ``STURDY_WORK`` (the first of the phase only needs the pass to be under it); and,
+    as a safety net that has never bound, not ``STURDY_SECONDS`` after the pass began."""
     from bricksnap.layout import solve
 
     out = _Sturdy(work, build, pc)
@@ -2129,16 +2171,16 @@ def _sturdy(
     score = (heaviest, len(_stacks([(k.cells, k.group) for k in links])))
     given_up: list[_Link] = []
     slow = 0
-    longest = 0.0  # the longest solve of the phase so far: does another one fit in time?
 
     def attempt(trial: Design) -> tuple[Build, _Pieces, tuple[int, int], list[_Link]] | None:
-        nonlocal slow, longest
-        late = time.perf_counter() - started + longest >= STURDY_SECONDS
+        nonlocal slow
+        # the next solve costs about as much as the largest so far: does it fit the work?
+        late = spent.parts + (spent.most if out.solves else 0) > STURDY_WORK
+        if not late and time.perf_counter() - spent.started >= STURDY_SECONDS:
+            out.timed_out = late = True  # only when the work would still have allowed it
         if out.solves >= budget or slow >= SLOW_PATIENCE or late:
             return None
-        t = time.perf_counter()
-        tb = _solve(solve, trial, catalog, seed)
-        longest = max(longest, time.perf_counter() - t)
+        tb = _solve(solve, trial, catalog, seed, spent)
         out.solves += 1
         tp = _pieces(tb, catalog)
         slow += tp.count > _floor_count(trial.colors)
@@ -2387,5 +2429,11 @@ def _sturdy_notes(catalog: Catalog, colors: np.ndarray, st: _Sturdy, limit: floa
             f"{_count(more, 'more weak spot', 'more weak spots')} like these, each carrying "
             f"at least {int(np.ceil(limit))} cells, {'is' if more == 1 else 'are'} left as "
             "they are."
+        )
+    if st.timed_out:
+        out.append(
+            f"The pass stopped looking for weak spots to cure after {STURDY_SECONDS:.0f} "
+            "seconds, before its work was spent: this machine was much slower than usual, "
+            "so building again may give a sturdier result."
         )
     return out

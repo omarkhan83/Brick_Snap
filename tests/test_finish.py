@@ -310,6 +310,28 @@ def groups_as_input(
     return groups
 
 
+def heavy_as_checks(build: Build, catalog, before: Build | None = None) -> int:
+    """The lone links of 40 cells or more counted as the checks count them (in the build's
+    own parts), two that would take away the same parts of ``before`` (the input) counting
+    once: the stage 4 part of the rule allows no more of them than the input had."""
+    occ0 = occupancy(before if before is not None else build, catalog)[0]
+
+    def stands_for(i: int) -> frozenset:
+        p = build.parts[i]
+        own = frozenset({("own", p.part, p.color, p.x, p.y, p.z, p.rot)})
+        if p.part not in catalog.parts or min(p.x, p.y, p.z) < 0:
+            return own
+        region = occ0[catalog.cells(p)]
+        return frozenset(int(j) for j in region[region >= 0]) or own
+
+    keys = set()
+    for ln in lone_links(build, catalog):
+        if ln.cells >= 40:
+            assert ln.cells == cells_of(build, ln.members, catalog)
+            keys.add(frozenset().union(*(stands_for(m) for m in ln.members)))
+    return len(keys)
+
+
 def sturdiness_in_cells(build: Build, catalog, before: Build | None = None) -> tuple[int, int]:
     """(largest load in cells, number of lone links), seen as the input's parts."""
     groups = groups_as_input(build, catalog, before)
@@ -319,12 +341,15 @@ def sturdiness_in_cells(build: Build, catalog, before: Build | None = None) -> t
 def assert_no_less_sturdy(before: Build, after: Build, design: Design, catalog) -> None:
     """The stage 3 rule: compared with the input with the detail parts standing on it, and
     seen as the input's parts (``groups_as_input``), the largest load in cells is no higher
-    and there are no more lone links."""
+    and there are no more lone links; and (stage 4) counted as the checks count them, no
+    more lone links of 40 cells or more (``heavy_as_checks``)."""
     base = Build(shape=before.shape, parts=[*before.parts, *detail_parts(after, design)])
     most0, count0 = sturdiness_in_cells(base, catalog, before)
     most1, count1 = sturdiness_in_cells(after, catalog, before)
     assert most1 <= most0, f"the heaviest load went from {most0} to {most1} cells"
     assert count1 <= count0, f"the lone links went from {count0} to {count1}"
+    heavy0, heavy1 = heavy_as_checks(base, catalog, before), heavy_as_checks(after, catalog, before)
+    assert heavy1 <= heavy0, f"the lone links of 40+ cells went from {heavy0} to {heavy1}"
 
 
 def hanging_on_one_part(build: Build, catalog, before: Build | None = None) -> int:
@@ -1391,10 +1416,11 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
     before the sturdiness rule, so they hold with the rule switched off; with it, the
     first set (recorded when the rule took its present form) holds. Both are of the pass
     with merging switched off (it came later and changes no tile or slope); the last two
-    sets, with merging, were recorded when it was added. They were recorded before inverted
-    slopes too, so they hold for the cases with no underside cell marked sloped (byte for
-    byte); the random blobs mark some, and their fingerprints with them are recorded in
-    ``WITH_UNDERSIDES``."""
+    sets, with merging, were recorded when it was added (and the "shaped" ones again when
+    merges were held to the rule's limit on new groups of 40 cells or more). They were
+    recorded before inverted slopes too, so they hold for the cases with no underside cell
+    marked sloped (byte for byte); the random blobs mark some, and their fingerprints with
+    them are recorded in ``WITH_UNDERSIDES``."""
     full = mixed_cases(catalog)
     cases = no_undersides(full)
     blobs = full["blobs"]
@@ -1433,13 +1459,13 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
             builds = [finish(build, design, catalog) for design, build in group]
             assert parts_fingerprint(builds) == want[name], name
         assert blob_print() == WITH_UNDERSIDES["unmerged, no rule"]
-    want = {"blobs": "9975c0dfc0f3508a", "stairs": "6ed0b4d017052265", "shaped": "168f8170b8a0be96"}
+    want = {"blobs": "9975c0dfc0f3508a", "stairs": "6ed0b4d017052265", "shaped": "02621d56e12f83b7"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
     assert blob_print() == WITH_UNDERSIDES["merged"]
     without_the_sturdiness_rule(monkeypatch)
-    want = {"blobs": "a4dfcb839870ddf1", "stairs": "5e3974e110b7e9c4", "shaped": "47e87f92bfdefcdc"}
+    want = {"blobs": "a4dfcb839870ddf1", "stairs": "5e3974e110b7e9c4", "shaped": "4170c57cad16e362"}
     for name, group in cases.items():
         builds = [finish(build, design, catalog) for design, build in group]
         assert parts_fingerprint(builds) == want[name], name
@@ -1450,6 +1476,29 @@ def test_the_notes_change_nothing_in_the_build(catalog, monkeypatch):
         for design, build in blobs
         for p in finish(build, design, catalog).parts
     )
+
+
+def test_a_swap_may_not_trade_a_small_weak_spot_for_a_new_heavy_one():
+    """Counted as the checks count them (in the build's own parts), the input had one lone
+    link of 40 cells or more (89 cells, its parts 0 and 1 hanging). A finished build with a
+    second one, 45 cells, keeps the old two numbers (no heavier than 89, no more groups) but
+    has two of 40 cells or more: the new one breaks the rule. One under 40 cells, or a new
+    heavy one that replaced the input's, does not."""
+    from bricksnap.connect import LoneLink
+
+    rule = object.__new__(finish_module._Sturdy)
+    originals = [(n,) for n in range(6)]  # each part stands for the input part it was
+    rule.most, rule.count, rule.known = 89, 3, set()
+    rule.heavy = {frozenset({0, 1})}
+    old = LoneLink(2, 9, None, False, 1, (0, 1), 89)
+    new = LoneLink(2, 9, None, False, 1, (2, 3), 45)
+    small = LoneLink(2, 9, None, False, 1, (4, 5), 39)
+    assert finish_module._HEAVY_CELLS == 40
+    assert rule._offenders({}, [old], originals) == {}
+    traded = rule._offenders({}, [old, new], originals)
+    assert [g[2] for g in traded.values()] == [new]
+    assert rule._offenders({}, [old, small], originals) == {}
+    assert rule._offenders({}, [new], originals) == {}
 
 
 def test_nothing_changes_where_no_swap_threatens_sturdiness(catalog, monkeypatch):
@@ -1642,7 +1691,9 @@ def test_speed_3000_parts(catalog):
     elapsed = time.perf_counter() - start
     # about 3.3 s on the lead's machine (2 s before merging): the limit allows a slower or
     # busy one
-    assert elapsed < 10.0, f"{elapsed:.1f} s"
+    # (3.5 s measured in stage 4, with the larger measuring budget: the limit is about three
+    # times that)
+    assert elapsed < 11.0, f"{elapsed:.1f} s"
     c = assert_finished(build, after, design, catalog)
     assert c["tiles"] > 0 and sum(c["slopes"].values()) > 0
 
@@ -1660,7 +1711,7 @@ def test_speed_3000_parts_with_undersides(catalog):
     start = time.perf_counter()
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
-    assert elapsed < 13.0, f"{elapsed:.1f} s"
+    assert elapsed < 13.5, f"{elapsed:.1f} s"  # 4.4 s measured in stage 4: about three times
     c = assert_finished(build, after, design, catalog)
     assert sum(c["inverted"].values()) > 0
 
@@ -1715,7 +1766,7 @@ def test_speed_thin_slab_3000_parts(catalog):
     start = time.perf_counter()
     after = finish(build, design, catalog)
     elapsed = time.perf_counter() - start
-    assert elapsed < 12.0, f"{elapsed:.1f} s"
+    assert elapsed < 12.0, f"{elapsed:.1f} s"  # 3.8 s measured in stage 4: about three times
     c = assert_finished(build, after, design, catalog)  # includes the sturdiness rule
     assert c["smooth_left"] <= 0.02 * c["smooth"], c["smooth_left"]
 
@@ -1917,9 +1968,11 @@ def test_the_pawn_is_no_less_sturdy_after_finishing(catalog, samples):
 # sturdy, recorded before the rule was added: the rule must leave them exactly as they were.
 # They depend on the voxeliser, the solver and the make-buildable pass too.
 # Recorded again for the coverage fill with the pass as it was before the rule (360ac0d).
-# The same with merging switched off; and with it, recorded when merging was added.
-UNCHANGED_AT_16 = {"bottle": "49bd6a50cd03b78f", "cat": "dce7b135fb28f6a2"}
-MERGED_AT_16 = {"bottle": "d7473b1923c89b46", "cat": "1b564f62cb6b60be"}
+# The same with merging switched off; and with it, recorded when merging was added (the
+# bottle's and the cat's again when the solver's sturdiness step got more work: their layouts
+# changed).
+UNCHANGED_AT_16 = {"bottle": "d466da8574c8370c", "cat": "918511820b46e859"}
+MERGED_AT_16 = {"bottle": "96e3dcdc4bffecda", "cat": "7be2b60f5a723ff5"}
 
 
 # every sample is a thorough sweep; the pawn test below is its quick representative
@@ -2028,13 +2081,20 @@ def test_the_number_in_the_note_is_what_the_refused_swap_leaves(catalog, samples
         most = max((cells for _, cells in input_groups.values()), default=0)
         groups = groups_as_input(Build(shape=guard.shape, parts=now), catalog, before)
         old = groups_as_input(Build(shape=guard.shape, parts=prev), catalog, before)
+        heavy0 = heavy_as_checks(base, catalog, before)
+        heavy_old = heavy_as_checks(Build(shape=guard.shape, parts=prev), catalog, before)
+        heavy_now = heavy_as_checks(Build(shape=guard.shape, parts=now), catalog, before)
         assert max((c for _, c in old.values()), default=0) <= most
         assert len(old) <= len(input_groups), "the build before the swap kept the rule"
-        assert max((c for _, c in groups.values()), default=0) > most or len(groups) > len(
-            input_groups
+        assert heavy_old <= heavy0, "the build before the swap kept the rule"
+        assert (
+            max((c for _, c in groups.values()), default=0) > most
+            or len(groups) > len(input_groups)
+            or heavy_now > heavy0
         ), "the swap broke the rule"
         made = [n for held, (n, _) in groups.items() if held not in old]
-        assert said == max(made), (said, sorted(made))
+        if made:  # (a swap that broke only the 40-cell part may have made no new group)
+            assert said == max(made), (said, sorted(made))
 
 
 def test_a_part_sticking_out_of_the_grid_does_not_stop_the_pass(catalog, monkeypatch):
@@ -2077,7 +2137,8 @@ def test_larger_builds_keep_what_the_rule_allows(catalog, samples_at_24, monkeyp
     alone once kept 28 of 43 on the pineapple) wherever the budget let it try them all again,
     and a cell gets the note "a slope there would leave N parts hanging" only if its own swap
     was measured. Which builds the budget covers depends on the conversion: with the coverage
-    fill the duck (1,088 parts) misses it by 4% in one class and keeps 189 slopes of 225."""
+    fill the duck (1,088 parts) missed it by 4% in one class with a budget of 150,000 parts
+    and kept 189 slopes of 225; at 200,000 it is covered."""
     measured: set[tuple[int, int, int]] = set()
     reasons: dict = {}
     afforded: list[bool] = []
@@ -2121,7 +2182,7 @@ def test_larger_builds_keep_what_the_rule_allows(catalog, samples_at_24, monkeyp
             c for key, cells in reasons.items() if key[1] == finish_module._STURDY for c in cells
         }
         assert said <= measured, (name, sorted(said - measured)[:5])
-    assert len(tried_all) >= 2, tried_all
+    assert len(tried_all) >= 2 and "duck" in tried_all, tried_all
 
 
 def test_the_designed_cat_keeps_its_tiles(catalog):
@@ -2435,6 +2496,52 @@ def test_inverted_slopes_never_add_a_weak_spot_on_the_samples(catalog, samples):
         most, count = checks_weak_spots(after, catalog)
         most0, count0 = checks_weak_spots(was, catalog)
         assert most <= most0 and count <= count0, (name, most, most0, count, count0)
-        assert len(after.parts) <= len(was.parts) + 6, (name, len(after.parts), len(was.parts))
+        # the duck needs 8 more for its 16 (5 more for 15 before the solver's sturdiness step
+        # got more work, on a build that ties more and so leaves fewer plates to merge)
+        assert len(after.parts) <= len(was.parts) + 8, (name, len(after.parts), len(was.parts))
         got[name] = sum(1 for p in after.parts if kind(catalog, p) == "slope_inverted")
     assert got["duck"] >= 8 and got["teapot"] >= 4 and got["pawn"] >= 2, got
+
+
+def _thin_there(name: str, studs: int, build: Build, link) -> bool:
+    """The two places where a sample model really is too thin to tie, each as narrow as the
+    one section it excuses:
+
+    - The bottle at 12 studs (at most 96 cells, all in x 3 to 4, y 3 to 4): from just above
+      its foot to its top the conversion makes it a column 2 x 2 studs, with only cells the
+      model covers less than half of around it. Filling one level of those beside the link
+      does not help (the make-buildable pass tries it), filling the whole ring would make it
+      4 x 4, and in a 2 x 2 column every brick carries everything above it. The mesh's neck
+      is 3.2 to 3.7 studs across, so this is the conversion's to fix, not the solver's.
+    - The pineapple at 24 studs, one leaf of its crown (at most 61 cells, in x 5 to 11, y 11
+      and up, z 44 and up): a wall one cell thick joined to the crown along one row, with
+      no cell of its colour beside it, so no part can give it a second hold (the
+      make-buildable pass says so in its notes; the solver alone, with fifty times its work,
+      still leaves 80 cells there). The crown's other leaves, which hung 89, 73, 49 and 41
+      cells on single parts before the task on weak spots in thin models, are not excused.
+    """
+    p = build.parts[link.part]
+    group = [p, *(build.parts[i] for i in link.members)]
+    if (name, studs) == ("bottle", 12):
+        return link.cells <= 96 and all(3 <= q.x <= 4 and 3 <= q.y <= 4 for q in group)
+    if (name, studs) == ("pineapple", 24):
+        return link.cells <= 61 and all(5 <= q.x <= 11 and q.y >= 11 and q.z >= 44 for q in group)
+    return False
+
+
+@pytest.mark.thorough
+def test_no_sample_hangs_forty_cells_on_one_part(catalog, samples, tmp_path_factory):
+    """The task on weak spots in thin models: at 12, 16 and 24 studs, no finished sample has
+    a section of 40 cells or more hanging on a single part or stud, except where the model
+    really is that thin."""
+    by_studs = {12: samples[12], 16: samples[16]}
+    by_studs[24] = sample_builds(24, tmp_path_factory.mktemp("samples24all"), catalog)
+    heavy = []
+    for studs, builds in by_studs.items():
+        assert len(builds) >= 11
+        for name, (design, build) in builds.items():
+            after = finish(build, design, catalog)
+            for link in lone_links(after, catalog):
+                if link.cells >= 40 and not _thin_there(name, studs, after, link):
+                    heavy.append((name, studs, link.cells, after.parts[link.part]))
+    assert heavy == []

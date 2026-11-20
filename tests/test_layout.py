@@ -984,6 +984,73 @@ def test_small_builds_get_enough_work_for_sturdiness(catalog):
     assert sturdiness(build, catalog)[0] <= 5
 
 
+@pytest.mark.parametrize(("seed", "most"), [(4020, 0), (4236, 4)])
+def test_thin_shells_get_enough_work_to_be_tied(seed, most, catalog, monkeypatch):
+    # one-cell-thick shells (the hat's brim, the pineapple's skin): every layer is a thin
+    # ring, so a tie takes several re-tilings. With work for about three quarters of the
+    # solve and as many re-tilings as before the step (the old allowance) these kept 10 and
+    # 23 parts on one link; the step now has the work to tie them
+    import bricksnap.layout as layout_module
+    from bricksnap.layout import sturdiness
+
+    design = random_shell(seed)
+    build = solve_checked(design, catalog)
+    assert_one_piece(build, catalog)
+    assert sturdiness(build, catalog)[0] <= most
+    monkeypatch.setattr(layout_module, "STURDY_SHARE", 0.75)
+    monkeypatch.setattr(layout_module, "STURDY_TILE_SHARE", 1.0)
+    assert sturdiness(solve(design, catalog), catalog)[0] >= 10
+
+
+def test_lone_links_get_parts_of_their_own_after_the_faces(catalog, monkeypatch):
+    # the faces are crossed first and may use all the parts the step may add; the lone links
+    # then get as many again, or they could only be given changes that add no part (this
+    # shell kept 6 parts on one link that way; the sample pineapple and duck did the same)
+    import bricksnap.layout as layout_module
+    from bricksnap.layout import sturdiness
+
+    design = random_shell(3225)
+    plain = solve(design, catalog, sturdy=False)
+    build = solve_checked(design, catalog)
+    assert sturdiness(build, catalog) == (0, 0, 0)
+    n = len(plain.parts)
+    assert len(build.parts) <= n + 2 * max(3, int(0.02 * n))
+    cross = layout_module._Solver._cross_faces
+    used: list[int] = []
+
+    def counted(self, score, max_parts):
+        before = sum(p is not None for p in self.parts)
+        cross(self, score, max_parts)
+        used.append(sum(p is not None for p in self.parts) - before)
+
+    monkeypatch.setattr(layout_module._Solver, "_cross_faces", counted)
+    solve(design, catalog)
+    assert used and used[0] > 0  # the faces did use parts here
+
+
+@pytest.mark.thorough
+def test_the_sturdiness_step_at_most_quadruples_the_time_on_spikes(catalog):
+    # the contract's promise, on the kind of shape that costs the step most: a field of thin
+    # spikes 24 studs square, about 1,400 parts, hundreds of weak spots with places to try.
+    # Measured 3.2 times (1.69 s against 0.53); taken alternately, the best of three each, so
+    # a busy machine slows both alike
+    rng = np.random.default_rng(8)
+    heights = np.full((24, 24), 6)
+    pick = rng.random((24, 24)) < 0.5
+    heights[pick] = rng.integers(12, 40, size=int(pick.sum()))
+    design = design_of(np.arange(40)[None, None, :] < heights[:, :, None])
+    with_step, without = [], []
+    for _ in range(3):
+        start = time.perf_counter()
+        solve(design, catalog, sturdy=False)
+        without.append(time.perf_counter() - start)
+        start = time.perf_counter()
+        solve(design, catalog)
+        with_step.append(time.perf_counter() - start)
+    ratio = min(with_step) / min(without)
+    assert ratio <= 4.0, f"{min(with_step):.2f} s against {min(without):.2f} s"
+
+
 @pytest.mark.thorough
 def test_sturdiness_never_makes_random_blobs_worse(catalog):
     from bricksnap.layout import sturdiness
@@ -997,9 +1064,10 @@ def test_sturdiness_never_makes_random_blobs_worse(catalog):
         got, before = sturdiness(build, catalog), sturdiness(plain, catalog)
         assert got[0] <= before[0], f"seed {seed}: largest load {before[0]} -> {got[0]}"
         assert got <= before, f"seed {seed}: {before} -> {got}"
-        # the step may add at most 2 parts in 100 to what there was, and at least 3 parts
+        # crossing faces may add at most 2 parts in 100 to what there was (at least 3 parts),
+        # and the lone links as many again
         n = len(plain.parts)
-        assert len(build.parts) <= n + max(3, int(0.02 * n)), f"seed {seed}"
+        assert len(build.parts) <= n + 2 * max(3, int(0.02 * n)), f"seed {seed}"
         better += got < before
     assert better >= 10, f"only {better} of 100 blobs got sturdier"
 

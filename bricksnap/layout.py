@@ -80,9 +80,13 @@ number of lone links is the number of weak spots it reports. The measure lives i
 - Seams. Where two regions of one colour meet on a vertical plane through several layers (a
   head against a body), parts cross that plane in at least every second layer wherever the
   cells allow a part to cross.
-- Bounded and deterministic, like the rest of the solver. Speed: no more than twice the
-  time the solver took before on the sample models at 16 studs, and the 34,000-cell solid
-  box still well under 20 seconds.
+- Bounded and deterministic, like the rest of the solver. Speed: the 34,000-cell solid box
+  still well under 20 seconds, and (since stage 4, which gave the step more work) the whole
+  solve takes about four times as long as with ``sturdy=False`` at most: measured, 2.4 times
+  over the eleven samples at 16 studs (1.34 s against 0.55), 2.3 times at 24, 3.5 times on
+  fields of thin spikes (25.2 s against 7.2 on one of 13,800 parts), and 3.9 to 4.2 times on
+  the worst shape tried, a field 40 studs square with spikes up to 120 plates tall; a field
+  of spikes 24 studs square holds four times in the tests.
 - Tests must include: a head against a body (two boxes of one colour sharing a face six
   studs wide and four bricks tall, the head standing on nothing else): parts cross the
   shared plane in at least half the layers, and no lone link carries more than a quarter of
@@ -199,15 +203,37 @@ are counted again and the change is kept only if (largest load, number, sum of l
 down, and undone through the journal if not. A link none of whose places helps is given up
 on until the parts around it change. The work allowed is ``STURDY_SHARE`` times the parts
 placed before the step, with each attempt and each count of lone links or of gaps charged as
-the placements it costs in time, so the step takes at most about three quarters as long as
-the rest of the solve; with tiling itself a little slower for the seam weighting, the
-samples at 16 studs stay under twice the time with some room (placements track time only
-roughly). A small build gets at least ``STURDY_MIN_WORK``
+the placements it costs in time, and at most ``STURDY_TILE_SHARE`` times the re-tilings made
+before it. It was three quarters of the placements and as many re-tilings as before, so
+that the samples at 16 studs stayed under twice the time without the step; but that ran out
+on every thin model (a hat's brim, a pineapple's skin: one-cell rings where each tie takes
+several re-tilings) long before the lone links did: on most samples the placements ran out
+first, on some the re-tilings. Stage 4 (the
+task on weak spots in thin models) raised it to three times the placements, with the
+re-tilings no longer the limit: over the eleven samples the solver takes 1.34 seconds at 16
+studs where it took 0.8 (0.55 without the step), and lone links in the finished builds fall
+from 180 to 123 at 16 studs and from 289 to 176 at 24, where the hat's eleven
+sections of 40 cells or more on one part are gone. The whole build (make buildable, lay
+out, finish) is about an eighth slower at 16 studs; the make-buildable pass needs fewer
+solves of its own for weak spots. A small build gets at least ``STURDY_MIN_WORK``
 (its whole solve takes a few hundredths of a second, and a share of that is only a handful
 of trials); the smallest sample, the star, makes more placements than that before the step.
-The step adds at most ``STURDY_EXTRA_PARTS`` of the parts there were, but at least
+Crossing faces adds at most ``STURDY_EXTRA_PARTS`` of the parts there were, but at least
 ``STURDY_MIN_EXTRA`` parts: rounded down, 2 in 100 is none below 50 parts, and most fixes
-cost one part.
+cost one part. The lone links then get as many parts again, counted from where the faces
+left the build: the faces go first, and on the sample pineapple, duck and knight they used
+the whole allowance, so the lone links could only be given changes that add no part. The
+finishing pass merges most of what this costs: the finished samples have about as many
+parts as before (2,412 against 2,416 at 16 studs).
+
+A trial costs what it touches where that was simple: the places to tie a group are looked
+for in the group's box (one stud wider), the group's cells come from its parts' boxes, and the
+faces are labelled once per solve (they depend only on the Design), so a count of gaps only
+checks which pairs are crossed now and makes the places to cross them one at a time, as they
+are tried. Builds are the same, part for part. What still costs the whole build each time is
+the count of lone links (``connect.lone_links_of_graph``, a search over every part), which is
+most of the step's time on large spiky shapes; making it follow only what a trial changed
+would be a change to ``bricksnap.connect``.
 
 What the face crossing does not reach: a face only one course tall has no gap to find, and
 a face that a part can cross only by cutting the model into pieces, or only by making some
@@ -248,6 +274,7 @@ tiled only where no part stands yet, so nothing can move them.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
 
@@ -308,7 +335,8 @@ STURDY_DEMOTES = 2  # places per lone link where bricks are turned into plates f
 STURDY_DEMOTE_RADII = (0, 1)
 STURDY_EXTRA_PARTS = 0.02  # parts sturdiness may add, as a share of the parts there were
 STURDY_MIN_EXTRA = 3  # ... but at least this many, so a small build can take a fix at all
-STURDY_SHARE = 0.75  # work allowed for sturdiness, as a share of the placements made before
+STURDY_SHARE = 3.0  # work allowed for sturdiness, as a share of the placements made before
+STURDY_TILE_SHARE = 20.0  # re-tilings allowed for sturdiness, as a share of those before
 STURDY_MIN_WORK = 100  # ... but at least this much, so a small build gets more than a few trials
 SEAM_COST = 2  # placement-equivalents of time a count of uncrossed faces costs
 LINKS_COST = 20  # parts per placement-equivalent of time, for counting the analysis
@@ -440,6 +468,7 @@ class _Solver:
         self.parts: list[_Part | None] = []
         self._log: list[tuple] = []  # journal of changes, so they can be undone
         self._shape_cache: dict[tuple[str, int], list[tuple[int, int, str, int]]] = {}
+        self._face_cache: list[tuple[np.ndarray, ...]] | None = None
         self._kind_shapes = {k: self._shapes_of_kind(k) for k in ("brick", "plate")}
         spans = [max(w, d) for k in self._kind_shapes.values() for w, d, _, _ in k]
         self.span = max(spans) if spans else 1
@@ -1321,7 +1350,29 @@ class _Solver:
         uniq, counts = np.unique(code, return_counts=True)
         return ids, uniq // max(n, 1), uniq % max(n, 1), counts
 
-    def _may_help(self, group_cells: np.ndarray, link: LoneLink) -> bool:
+    def _cells_of(self, members) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """The cells the parts ``members`` cover, as index arrays (what ``np.isin(self.occ,
+        members)`` would mark, without looking at the whole grid)."""
+        xs, ys, zs = [], [], []
+        for i in members:
+            q = self.parts[i]
+            if q is None:
+                continue
+            gx, gy, gz = np.meshgrid(
+                np.arange(q.x, q.x + q.w),
+                np.arange(q.y, q.y + q.d),
+                np.arange(q.z, q.z + q.h),
+                indexing="ij",
+            )
+            xs.append(gx.ravel())
+            ys.append(gy.ravel())
+            zs.append(gz.ravel())
+        if not xs:
+            empty = np.zeros(0, dtype=np.int64)
+            return empty, empty, empty
+        return np.concatenate(xs), np.concatenate(ys), np.concatenate(zs)
+
+    def _may_help(self, group_cells: tuple[np.ndarray, ...], link: LoneLink) -> bool:
         """A quick test before the full count: the build is still one piece, and the parts
         on ``group_cells`` reach the ground without ``link`` (a change that leaves the group
         hanging on the same link cannot help it)."""
@@ -1389,15 +1440,27 @@ class _Solver:
         """
         group = np.zeros(len(self.parts) + 1, dtype=bool)
         group[list(link.members)] = True
-        occ = self.occ
+        # every pair has a cell in the group, so only the group's box, one stud wider each
+        # way, is looked at (the whole grid once cost most of the step on many small groups)
+        boxes = [q for i in link.members if (q := self.parts[i]) is not None]
+        if not boxes:
+            return []
+        x0 = max(0, min(q.x for q in boxes) - 1)
+        x1 = min(self.nx, max(q.x + q.w for q in boxes) + 1)
+        y0 = max(0, min(q.y for q in boxes) - 1)
+        y1 = min(self.ny, max(q.y + q.d for q in boxes) + 1)
+        z0 = min(q.z for q in boxes)
+        z1 = max(q.z + q.h for q in boxes)
+        win = (slice(x0, x1), slice(y0, y1), slice(z0, z1))
+        occ = self.occ[win]
         in_g = (occ >= 0) & group[occ]
         rest = (occ >= 0) & ~in_g
         if link.joint is None:
             rest &= occ != link.part
         p = self.parts[link.part]
         zp = p.z if p is not None else 0
-        col, br = self.colors, self._brick_cells()
-        upper = br & (np.arange(self.nz) % PLATES_PER_BRICK != 0)  # a brick is listed once
+        col, br = self.colors[win], self._brick_cells()[win]
+        upper = br & (np.arange(z0, z1) % PLATES_PER_BRICK != 0)  # a brick is listed once
         found: dict[tuple[int, int, int, int], list[tuple[Cell, Cell]]] = {}
         for axis, (lo, hi) in enumerate(_SIDE):
             colour = col[lo] == col[hi]
@@ -1406,6 +1469,7 @@ class _Solver:
                 for flip, (g, r) in enumerate(((in_g, rest), (rest, in_g))):
                     xs, ys, zs = np.nonzero(same & g[lo] & r[hi])
                     for x, y, z in zip(xs.tolist(), ys.tolist(), zs.tolist(), strict=True):
+                        x, y, z = x + x0, y + y0, z + z0
                         b = (x + 1, y) if axis == 0 else (x, y + 1)
                         found.setdefault((mode, z, axis, flip), []).append(((x, y), b))
         moves = []
@@ -1418,7 +1482,7 @@ class _Solver:
         demotes = [(z, a, b, "demote") for m, _, z, a, b in moves if m == 1][:STURDY_DEMOTES]
         return joins + demotes
 
-    def _face_gaps(self) -> tuple[int, list[Move]]:
+    def _face_gaps(self) -> tuple[int, Iterator[Move]]:
         """(gaps, places to cross them) on faces shared through several brick courses.
 
         A face is a patch of side-by-side cells of one colour, one on each side of a vertical
@@ -1426,40 +1490,79 @@ class _Solver:
         on one plane are two faces). A gap is two neighbouring courses in which the face has
         such cells but no part reaches across it. For each gap, the middle pair of the level
         with the most pairs, in the upper course and then in the lower one.
+
+        The faces depend only on the Design, so they are labelled once (``_faces``); each
+        call only looks at which pairs a part crosses now. The places come one at a time, as
+        they are asked for (the caller tries them in order and stops at the first that
+        helps), each once; the build must be as it was when this was called whenever the
+        next one is asked for.
         """
-        occ, col, f = self.occ, self.colors, self.filled
-        nc, nz = self.ncourse, self.nz
-        course = np.arange(nz) // PLATES_PER_BRICK
+        occ, nc = self.occ, self.ncourse
         gaps = 0
-        moves: dict[Move, None] = {}
-        for axis, (lo, hi) in enumerate(_SIDE):
-            pair = f[lo] & f[hi] & (col[lo] == col[hi])
-            cross = pair & (occ[lo] == occ[hi])
+        found: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+        for axis, (lo, hi), (pair, lab, ks, has, plane_of) in zip(
+            (0, 1), _SIDE, self._faces(), strict=True
+        ):
+            if not len(plane_of):
+                continue
+            cross = occ[lo] == occ[hi]
             if axis == 1:
-                pair, cross = pair.transpose(1, 0, 2), cross.transpose(1, 0, 2)
-            for p in np.nonzero(pair.any(axis=(1, 2)))[0].tolist():
-                lab, n = ndimage.label(pair[p])
-                ks = np.broadcast_to(course, lab.shape)
-                has = np.bincount(lab.ravel() * nc + ks.ravel(), minlength=(n + 1) * nc)
-                cr = cross[p]
-                hit = np.bincount(lab[cr] * nc + ks[cr], minlength=(n + 1) * nc)
-                open_ = ((has > 0) & (hit == 0)).reshape(n + 1, nc)[1:]
-                cs, kk = np.nonzero(open_[:, :-1] & open_[:, 1:])
-                gaps += len(cs)
-                for c, k in zip((cs + 1).tolist(), kk.tolist(), strict=True):
-                    for k2 in (k + 1, k):
-                        zs = list(range(3 * k2, min(3 * k2 + 3, nz)))
-                        count = (lab[:, zs] == c).sum(axis=0)
-                        z = zs[int(np.argmax(count))]
-                        qs = np.nonzero(lab[:, z] == c)[0]
-                        q = int(qs[len(qs) // 2])
-                        a, b = ((p, q), (p + 1, q)) if axis == 0 else ((q, p), (q, p + 1))
-                        ka, kb = self._key_of(z, a), self._key_of(z, b)
-                        if ka == kb:
-                            moves[(ka[1], a, b, "join")] = None
-                        else:
-                            moves[(z, a, b, "demote")] = None
-        return gaps, list(moves)
+                cross = cross.transpose(1, 0, 2)
+            cr = pair & cross
+            hit = np.bincount(lab[cr] * nc + ks[cr], minlength=has.size)
+            open_ = ((has > 0) & (hit == 0)).reshape(-1, nc)[1:]
+            cs, kk = np.nonzero(open_[:, :-1] & open_[:, 1:])
+            gaps += len(cs)
+            found.append((axis, lab, plane_of, cs + 1, kk))
+        return gaps, self._face_moves(found)
+
+    def _face_moves(self, found) -> Iterator[Move]:
+        """The places to cross the gaps ``_face_gaps`` found, in its order, each once."""
+        nz = self.nz
+        seen: set[Move] = set()
+        for axis, lab, plane_of, cs, kk in found:
+            for c, k in zip(cs.tolist(), kk.tolist(), strict=True):
+                p = int(plane_of[c])
+                plane = lab[p]
+                for k2 in (k + 1, k):
+                    zs = list(range(3 * k2, min(3 * k2 + 3, nz)))
+                    count = (plane[:, zs] == c).sum(axis=0)
+                    z = zs[int(np.argmax(count))]
+                    qs = np.nonzero(plane[:, z] == c)[0]
+                    q = int(qs[len(qs) // 2])
+                    a, b = ((p, q), (p + 1, q)) if axis == 0 else ((q, p), (q, p + 1))
+                    ka, kb = self._key_of(z, a), self._key_of(z, b)
+                    move = (ka[1], a, b, "join") if ka == kb else (z, a, b, "demote")
+                    if move not in seen:
+                        seen.add(move)
+                        yield move
+
+    def _faces(self) -> list[tuple[np.ndarray, ...]]:
+        """Per axis: (the side-by-side pairs of one colour, plane first; their face labels,
+        numbered across all planes in plane order; the course of each level; the pairs per
+        face and course; the plane of each label). Worked out once per solve."""
+        if self._face_cache is None:
+            f, col, nc = self.filled, self.colors, self.ncourse
+            course = np.arange(self.nz) // PLATES_PER_BRICK
+            out: list[tuple[np.ndarray, ...]] = []
+            for axis, (lo, hi) in enumerate(_SIDE):
+                pair = f[lo] & f[hi] & (col[lo] == col[hi])
+                if axis == 1:
+                    pair = pair.transpose(1, 0, 2)
+                pair = np.ascontiguousarray(pair)
+                lab = np.zeros(pair.shape, dtype=np.int64)
+                plane_of = [0]
+                for p in np.nonzero(pair.any(axis=(1, 2)))[0].tolist():
+                    local, n = ndimage.label(pair[p])
+                    lab[p] = np.where(local > 0, local + (len(plane_of) - 1), 0)
+                    plane_of.extend([p] * n)
+                ks = np.broadcast_to(course, pair.shape)
+                has = np.bincount(lab.ravel() * nc + ks.ravel(), minlength=len(plane_of) * nc)
+                planes = np.asarray(plane_of if len(plane_of) > 1 else [], dtype=np.int64)
+                out.append((pair, lab, ks, has, planes))
+            self._face_cache = out
+            return out
+        return self._face_cache
 
     def _cross_faces(self, score: tuple[int, int, int], max_parts: int) -> None:
         """Put parts across faces left uncrossed in two neighbouring courses (a head against
@@ -1514,22 +1617,28 @@ class _Solver:
         """Give heavily loaded groups a second connection, as far as the Design allows.
 
         Only for a model that is one piece. First faces left uncrossed in two neighbouring
-        courses get a part across (``_cross_faces``). Then a change is kept when the number
-        of pieces stays one, the parts added stay within ``STURDY_EXTRA_PARTS`` (at least
-        ``STURDY_MIN_EXTRA``), and (largest load, lone links, sum of loads) goes down; the
+        courses get a part across (``_cross_faces``), adding at most ``STURDY_EXTRA_PARTS``
+        of the parts (at least ``STURDY_MIN_EXTRA``). Then a change is kept when the number
+        of pieces stays one, the parts added since the faces stay within as many again, and
+        (largest load, lone links, sum of loads) goes down; the
         heaviest lone link is worked on first. The work is bounded by a share of the work
         done before (at least ``STURDY_MIN_WORK``), so it always ends.
         """
         if self.nseg == 0 or self.piece_count() != 1:
             return
-        # the work allowed is a share of the work done so far, so the whole solve takes at
-        # most about (1 + STURDY_SHARE) times as long as it did without this step; a small
-        # build, whose solve takes hundredths of a second, gets a fixed amount instead
-        self.tile_budget = 2 * self.tiles_done + 1
+        # the work allowed is a share of the work done so far (placements track time only
+        # roughly: the whole solve takes about four times as long as without this step at most,
+        # see the contract); a small build, whose solve takes hundredths of a second, gets a
+        # fixed amount instead
+        self.tile_budget = self.tiles_done + int(STURDY_TILE_SHARE * self.tiles_done) + 1
         self.place_budget = self.placed + max(STURDY_MIN_WORK, int(STURDY_SHARE * self.placed))
         n_parts = sum(p is not None for p in self.parts)
         max_parts = n_parts + max(STURDY_MIN_EXTRA, int(STURDY_EXTRA_PARTS * n_parts))
         self._cross_faces(self.links()[0], max_parts)
+        # the lone links get an allowance of their own: on the pineapple, the duck and the
+        # knight the faces used all of it, and the links could then only be given changes
+        # that add no part
+        max_parts += sum(p is not None for p in self.parts) - n_parts
         self._log.clear()
         score, links = self.links()
         failed: set[tuple] = set()
@@ -1546,7 +1655,7 @@ class _Solver:
             if target is None:
                 return
             improved = False
-            group_cells = np.isin(self.occ, target.members)
+            group_cells = self._cells_of(target.members)
             for place, (z, a, b, mode) in enumerate(self._sturdy_moves(target)):
                 key = self._key_of(z, a)
                 if mode == "join":

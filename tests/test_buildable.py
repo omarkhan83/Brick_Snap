@@ -1227,9 +1227,8 @@ def test_the_weak_spot_phase_keeps_to_its_solves_when_it_needs_more(catalog, mon
             assert any("ran out of attempts" in n for n in result.notes), result.notes
 
 
-def test_the_weak_spot_phase_stops_in_time_when_solves_are_slow(catalog, monkeypatch):
-    # every solve "takes" 3 seconds on a clock the test controls: the pass must still end
-    # in under 10 seconds, curing what it can in that time, and say it ran out
+def _slow_clock(monkeypatch, seconds: float) -> list[float]:
+    """Every solve "takes" ``seconds`` on a clock the test controls."""
     import types
 
     import bricksnap.buildable
@@ -1239,18 +1238,68 @@ def test_the_weak_spot_phase_stops_in_time_when_solves_are_slow(catalog, monkeyp
     real = bricksnap.layout.solve
 
     def slow(*args, **kwargs):
-        clock[0] += 3.0
+        clock[0] += seconds
         return real(*args, **kwargs)
 
     monkeypatch.setattr(bricksnap.layout, "solve", slow)
     monkeypatch.setattr(
         bricksnap.buildable, "time", types.SimpleNamespace(perf_counter=lambda: clock[0])
     )
+    return clock
+
+
+def test_the_weak_spot_phase_stops_when_its_work_is_spent_whatever_the_clock(catalog, monkeypatch):
+    # three heads on single studs, each needing a solve of its own, and work for the first
+    # solve and about one and a half more: the phase cures one head and says it ran out. The
+    # work is counted in parts solved, not seconds, so the build is the same however slow
+    # the solves are (the same model once came out three ways at 48 studs on a busy machine)
+    import bricksnap.buildable
+    from bricksnap.layout import solve
+
+    design = heads_on_a_bar((6, True), (6, True), (6, True))
+    first = len(solve(design, catalog).parts)
+    monkeypatch.setattr(bricksnap.buildable, "STURDY_WORK", int(2.5 * first))
+    quick = make_buildable(design, catalog)
+    assert quick.added.any()  # it had the work for one head
+    assert any("ran out of attempts" in n for n in quick.notes), quick.notes
+    for seconds in (0.0, 3.0, 9.0):
+        with monkeypatch.context() as m:
+            _slow_clock(m, seconds)
+            again = make_buildable(design, catalog)
+        assert again.build.parts == quick.build.parts, seconds
+        assert again.design.fingerprint() == quick.design.fingerprint(), seconds
+        assert again.notes == quick.notes, seconds
+
+
+def test_spent_work_is_not_blamed_on_the_clock(catalog, monkeypatch):
+    # the work runs out after one solve of the phase while solves "take" 40 seconds each, so
+    # more than 60 seconds have passed when it stops: it stopped because its work was spent,
+    # building again gives the same build, and the notes must not say the machine was slow
+    import bricksnap.buildable
+    from bricksnap.layout import solve
+
+    design = heads_on_a_bar((6, True), (6, True), (6, True))
+    first = len(solve(design, catalog).parts)
+    monkeypatch.setattr(bricksnap.buildable, "STURDY_WORK", int(2.5 * first))
+    quick = make_buildable(design, catalog)
+    clock = _slow_clock(monkeypatch, 40.0)
+    slow = make_buildable(design, catalog)
+    assert clock[0] > bricksnap.buildable.STURDY_SECONDS
+    assert slow.build.parts == quick.build.parts
+    assert not any("stopped looking for weak spots" in n for n in slow.notes), slow.notes
+    assert any("ran out of attempts" in n for n in slow.notes), slow.notes
+
+
+def test_a_far_off_clock_stops_the_phase_only_on_a_very_slow_machine(catalog, monkeypatch):
+    # a safety net, never reached by a model on a working machine: solves that each "take"
+    # 40 seconds stop the phase after the first of its solves, and the notes say so
+    import bricksnap.buildable
+
+    clock = _slow_clock(monkeypatch, 40.0)
     design = heads_on_a_bar((6, True), (6, True), (6, True))
     result = make_buildable(design, catalog)
-    assert clock[0] < 10
-    assert result.added.any()  # it had time for one head
-    assert any("ran out of attempts" in n for n in result.notes), result.notes
+    assert clock[0] <= bricksnap.buildable.STURDY_SECONDS + 40.0
+    assert any("stopped looking for weak spots" in n for n in result.notes), result.notes
 
 
 def test_weak_spots_not_reached_say_whether_anything_could_be_tried(catalog):

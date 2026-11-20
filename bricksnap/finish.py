@@ -156,6 +156,16 @@ together into smaller parts.
   it, since they stand there either way), both seen as the input's parts, the result's
   largest load in cells is no higher and it has no more lone links. A swap that would break
   the rule is not made, or is undone, exactly like a swap that would loosen something.
+  (Stage 4, the task on weak spots in thin models: and it has no more lone links of 40 cells
+  or more, ``_HEAVY_CELLS``, than the input, each measured as the checks measure it (in the
+  build's own parts) but counted once per set of input parts that would come away there:
+  two that would take away the same input parts are one, so the checks can list more such
+  sections after finishing than the rule counts. The two numbers
+  above let a swap trade a small weak spot for a new section of 40 cells or more, as long as
+  it was not the heaviest: on the pineapple at 24 studs finishing hung a 45-cell strip of
+  its side and a 47-cell part of the crown on single parts that way. When there are too
+  many, those not taking away the same input parts as one of the input's are blamed, or all
+  of them if every one does.)
 - Not promised: the weak spots the checks report count every lone link in finished parts,
   so their number and their largest load can go up after finishing, because a brick cut
   into plates and a tile is a lone link of its own wherever it carries two parts or stands
@@ -287,7 +297,10 @@ measuring (only the duck, at 1,360 parts, cannot afford all its retries). Judgin
 on its own from the start, as this pass once did where it could, kept fewer on the larger
 builds: what one swap uses up of the rule, the next cannot use. On the 153 x 153 slab two
 plates thick (about 3,000 parts, where almost every tile threatens the rule) the pass takes
-about 3.5 seconds.
+about 3.5 seconds. (The budget was 150,000 parts; on the duck at 24 studs, with the coverage
+fill, that fell 4% short and the pass gave up 36 slopes it could have kept. At 200,000 it
+keeps them, about three quarters of a second more on that build (0.74 s measured) and no
+change on the others.)
 While it works the pass measures its own state (``_State.lone_links``): the same search,
 ``connect.lone_links_of_graph``, fed from the state's cells and studs with the parts numbered
 in the order of the result, which gives exactly what ``connect.lone_links`` gives on the
@@ -414,8 +427,10 @@ lower half of anything round) stayed a staircase. Now its mirror image is done u
   colour; or no inverted slope fits there.
 - Speed: a 3,000-part build still finishes in under 5 seconds.
 - Measured on the scorecard at 16 studs: 49 inverted slopes over the eleven sample models
-  (the duck 15, the star 16, the teapot 7, the pawn and the knight 4, the pineapple 3); parts
-  2,416 before and after (no model more than 5 more); weak spots 186 become 180, none more on
+  (the duck 15, the star 16, the teapot 7, the pawn and the knight 4, the pineapple 3; since
+  the solver's sturdiness step got more work the duck 16, the star 15, the pineapple 4); parts
+  2,416 before and after (no model more than 5 more; 8 on the duck since the solver's
+  sturdiness step got more work); weak spots 186 become 180, none more on
   any model. The outline match falls by up to half a point where they cut a model's side in
   profile (the star's front, the duck's right), as the slopes on top already do: a 45-degree
   part cut into a staircase of filled cells takes off a little more than the model leaves.
@@ -465,7 +480,10 @@ _VARIANTS_TALL = ("bricks", "plates")
 _VARIANTS_LOW = ("plates", "bricks")
 _RETRY_ROUNDS = 3
 _STURDY_ROUNDS = 8  # rounds of refusing the swaps to blame, per class, before a broad one
-_MEASURE_BUDGET = 150_000  # parts measured, summed over the swaps judged one by one
+_HEAVY_CELLS = 40  # the rule allows no more lone links this heavy (as the checks count) than
+# the input had. The same 40 as ``buildable.HEAVY_CELLS``, which also calls a link heavy at a
+# tenth of a small model: here it is the task's fixed measure, a section of 40 cells or more
+_MEASURE_BUDGET = 200_000  # parts measured, summed over the swaps judged one by one
 _MEASURE_MARGIN = 2  # a class is judged swap by swap when twice its swaps' measuring fits
 _MERGE_ROUNDS = 3  # passes over the parts the swaps made, joining them into larger ones
 _MERGE_BUDGET = 60_000  # parts measured while judging merges, summed over the pass
@@ -1708,6 +1726,8 @@ class _Sturdy:
         self.exact = exact  # measure with connect.lone_links itself (an awkward input)
         self.originals: dict[Placement, tuple] = {}  # part -> the input parts it stands for
         self.most = self.count = -1  # the input's, measured when first needed
+        self.heavy: set[frozenset] = set()  # the input's lone links of at least _HEAVY_CELLS
+        # cells, counted as the checks count them, each as the input parts that hang there
         self.known: set[frozenset] = set()  # the input's groups
         self.budget = _MEASURE_BUDGET  # parts that may still be measured swap by swap
         self.load = np.zeros(build.shape, dtype=np.int64)  # the fewest parts a swap wanting
@@ -1786,15 +1806,17 @@ class _Sturdy:
             return
         base = self.input + self.details
         links = lone_links(Build(shape=self.shape, parts=base), self.catalog)
-        groups = self._groups(base, [self._originals(p) for p in base], links)
+        originals = [self._originals(p) for p in base]
+        groups = self._groups(base, originals, links)
         self.most = max((g[1] for g in groups.values()), default=0)
         self.count = len(groups)
+        self.heavy = set(_heavy(links, originals))
         self.known = set(groups)
 
     def holds(self, parts: list[Placement]) -> bool:
         links = lone_links(Build(shape=self.shape, parts=parts), self.catalog)
-        groups = self._groups(parts, [self._originals(p) for p in parts], links)
-        return not self._offenders(groups)
+        originals = [self._originals(p) for p in parts]
+        return not self._offenders(self._groups(parts, originals, links), links, originals)
 
     def _measure(self, state: _State) -> tuple[list[int], list[Placement], list[LoneLink]]:
         ids = [i for i, _ in state.final_order()]
@@ -1803,17 +1825,18 @@ class _Sturdy:
             return ids, parts, lone_links(Build(shape=self.shape, parts=parts), self.catalog)
         return ids, parts, state.lone_links(ids, self.details)
 
-    def _state_groups(
-        self, state: _State
-    ) -> tuple[list[int], list[Placement], dict[frozenset, tuple[int, int, LoneLink]]]:
-        ids, parts, _, groups = self._state_links(state)
-        return ids, parts, groups
-
-    def _state_links(
+    def _state_judged(
         self, state: _State
     ) -> tuple[
-        list[int], list[Placement], list[LoneLink], dict[frozenset, tuple[int, int, LoneLink]]
+        list[int],
+        list[Placement],
+        list[LoneLink],
+        dict[frozenset, tuple[int, int, LoneLink]],
+        dict[frozenset, tuple[int, int, LoneLink]],
     ]:
+        """The state measured: (ids in the result's order, parts, lone links counted as the
+        checks count them, groups seen as the input's parts, the groups that break the
+        rule)."""
         ids, parts, links = self._measure(state)
         originals = []
         for i in ids:
@@ -1822,30 +1845,43 @@ class _Sturdy:
                 got = state.originals[i] = self._originals(state.parts[i])
             originals.append(got)
         originals += [self._originals(p) for p in self.details]
-        return ids, parts, links, self._groups(parts, originals, links)
+        groups = self._groups(parts, originals, links)
+        return ids, parts, links, groups, self._offenders(groups, links, originals)
 
     def _offenders(
-        self, groups: dict[frozenset, tuple[int, int, LoneLink]]
+        self,
+        groups: dict[frozenset, tuple[int, int, LoneLink]],
+        links: list[LoneLink],
+        originals: list[tuple],
     ) -> dict[frozenset, tuple[int, int, LoneLink]]:
-        """The groups that break the rule; none when it holds.
+        """What breaks the rule; nothing when it holds.
 
-        A group breaks it when it covers more cells than the input's heaviest, or, when there
-        are more groups than the input had, when it is not one of the input's (the same input
-        parts hanging).
+        Seen as the input's parts, a group breaks it when it covers more cells than the
+        input's heaviest, or, when there are more groups than the input had, when it is not
+        one of the input's (the same input parts hanging). Counted as the checks count them
+        (in the build's own parts), there may be no more lone links of ``_HEAVY_CELLS`` cells
+        or more than the input had: when there are, those that are not the input's (other
+        input parts hang there) break it, or all of them if every one is.
         """
         self._measure_input()
         too_many = len(groups) > self.count
-        return {
+        out = {
             k: g
             for k, g in groups.items()
             if g[1] > self.most or (too_many and k not in self.known)
         }
+        heavy = _heavy(links, originals)
+        if len(heavy) > len(self.heavy):
+            new = {k: ln for k, ln in heavy.items() if k not in self.heavy} or heavy
+            for k, ln in new.items():
+                out.setdefault(frozenset({("heavy", k)}), (len(k), ln.cells, ln))
+        return out
 
     def weak_spots(self, state: _State) -> tuple[int, int, int, int]:
         """The state's weak spots, measured now: the largest load in cells and the number of
         lone links counted as the checks count them (in the state's own parts), then the same
         two seen as the input's parts (as the rule counts them)."""
-        _, _, links, groups = self._state_links(state)
+        _, _, links, groups, _ = self._state_judged(state)
         return (
             max((ln.cells for ln in links), default=0),
             len(links),
@@ -1856,8 +1892,8 @@ class _Sturdy:
     def allows(self, state: _State, limit: tuple[int, int, int, int]) -> bool:
         """Whether the state keeps the rule and none of the four ``weak_spots`` numbers is
         above ``limit`` (used to judge merges)."""
-        _, _, links, groups = self._state_links(state)
-        if self._offenders(groups):
+        _, _, links, groups, offenders = self._state_judged(state)
+        if offenders:
             return False
         now = (
             max((ln.cells for ln in links), default=0),
@@ -1877,7 +1913,7 @@ class _Sturdy:
         if n > self.budget:
             return False
         self.budget -= n
-        self.prev = set(self._state_groups(state)[2])
+        self.prev = set(self._state_judged(state)[3])
         return True
 
     def keeps(self, state: _State, key: tuple[Placement, ...]) -> bool:
@@ -1892,8 +1928,7 @@ class _Sturdy:
             self._mark(key, load or self.worst, "together")
             return False
         self.budget -= n
-        groups = self._state_groups(state)[2]
-        offenders = self._offenders(groups)
+        _, _, _, groups, offenders = self._state_judged(state)
         if not offenders:
             self.prev = set(groups)
             return True
@@ -1918,8 +1953,7 @@ class _Sturdy:
         changes how the groups around it are counted), the swap made nearest to the part it
         hangs on. ``broad`` refuses all of the first three at once.
         """
-        ids, parts, groups = self._state_groups(state)
-        offenders = self._offenders(groups)
+        ids, parts, _, _, offenders = self._state_judged(state)
         if not offenders:
             return None
         recent = set(state.done[start:])
@@ -1976,6 +2010,20 @@ class _Sturdy:
         for key, load in blamed:
             state.banned.add(key)
             self._mark(key, load, "together")
+
+
+def _heavy(links: list[LoneLink], originals: list[tuple]) -> dict[frozenset, LoneLink]:
+    """The lone links of at least ``_HEAVY_CELLS`` cells, counted as the checks count them,
+    each under the input parts that would come away there (two links that would take the
+    same input parts away count once, the heavier kept)."""
+    out: dict[frozenset, LoneLink] = {}
+    for ln in links:
+        if ln.cells < _HEAVY_CELLS:
+            continue
+        key = frozenset(o for m in ln.members for o in originals[m])
+        if key not in out or ln.cells > out[key].cells:
+            out[key] = ln
+    return out
 
 
 def _fell_back(why: str) -> None:
