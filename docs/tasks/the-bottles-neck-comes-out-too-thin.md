@@ -1,6 +1,6 @@
 # The bottle's neck comes out as a 2 x 2 column where the model is over 3 studs across
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-20)
 - stage: 4
 
 At 12 studs the sample bottle's neck is 3.2 to 3.7 studs across in the model, but the conversion makes it
