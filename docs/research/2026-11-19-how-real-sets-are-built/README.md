@@ -791,6 +791,8 @@ each was read):
 - `reports/written-knowledge.md`: what designers and builders have published.
 - `experiments.md`: the first two experiments, run on 19 November with no AI build: our checker on
   official sets, and the AI's existing models measured against the guide's rules.
+- `experiment-4-one-sideways-face.md` and `experiment-4/`: one face of three converted models rebuilt by
+  hand as a flat panel pressed on sideways, with before-and-after pictures and the model files.
 - `scripts/`: the small programs behind `reports/numbers.md` and `experiments.md` (those named `exp_`),
   as the researchers wrote them. Each takes
   the folders of downloaded data as arguments; the data itself (Rebrickable's catalogue files and the

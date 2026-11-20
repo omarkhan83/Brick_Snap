@@ -1,0 +1,9 @@
+Attempt 0 (the model you start from).
+
+SUMMARY: 132 parts of 20 kinds, no problems: every part is held, nothing overlaps, and it stands.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 5, line 6, line 7, line 8
+- 116 parts are held by studs: 209 connections, 470 studs in all. (part_info with a line number shows what holds one part.)
+- held by a single stud (17 parts; fine for a detail, weak for anything that carries others): lines 33, 34, 71, 73, 78, 93, 95, 102, 104, 109, 111, 125, 126, 137, 138, 144, 145
+- stands: its centre of mass (x 0, z 203) is over what touches the ground.

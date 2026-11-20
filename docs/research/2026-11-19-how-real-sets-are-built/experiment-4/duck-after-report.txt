@@ -1,0 +1,30 @@
+Attempt 3 (the model as built). Checks left after this one: 96.
+
+SUMMARY: 394 parts of 34 kinds, 1 problem, 14 warnings.
+
+PROBLEMS (fix these):
+1. Loose: line 371 (54200.dat Slope Brick 31 1 x 1 x 0.667, yellow, at 90 -200 130) is not connected to anything that reaches the ground; nothing holds it. It rests on line 359 (3665.dat ~Moved to 3665a, yellow, at 90 -200 150) but no stud goes into it: check that the studs line up with its sockets (and that the part below has studs there).
+
+WARNINGS:
+- Line 50: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 52: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 58: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 60: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 80: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 82: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 92: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 93: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 95: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 118: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 316: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 326: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 328: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+- Line 359: 3665.dat is an old number; the library says '~Moved to 3665a'. It is drawn, but use the new number.
+
+HOW IT HOLDS TOGETHER:
+- on the ground: line 5, line 6, line 7, line 8, line 9, line 10, line 11, line 12, line 14, line 15
+- 347 parts are held by studs: 611 connections, 1164 studs in all, 19 of them sideways or upside down. (part_info with a line number shows what holds one part.)
+- held by a single stud (136 parts; fine for a detail, weak for anything that carries others): lines 24, 25, 26, 27, 40, 44, 50, 52, 58, 60, 70, 71, 72, 76, 80, 82, 83, 92, 93, 95, 98, 118, 123, 131, 133, 138, 143, 154, 155, 158 and 106 more
+- stands: its centre of mass (x 0, z 199) is over what touches the ground.
+
+(The overlap check is rough: it fills each part's hollow underside, so arches, overhangs and parts that go into one another can give false alarms; joints other than studs are never confirmed.)

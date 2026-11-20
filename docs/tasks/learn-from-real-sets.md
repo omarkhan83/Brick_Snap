@@ -54,6 +54,14 @@ Done when:
   AI's 20 existing builds 3% of studded parts face sideways against 27% in 18 official models; wheels
   go on a tenth of the way through against last; the core is always the very bottom. It already
   mirrors and already prefers larger parts.
+- 20 November, experiment 4 (`experiment-4-one-sideways-face.md`): on three models the converter made
+  at 16 studs, one face was rebuilt by hand with the builder's tools as a flat panel on side studs.
+  By the builder's own eye: clearly better on the cat, about the same on the car's nose, worse on the
+  duck (a flat board on a round head; the beak reads as teeth). Not the clear win the study asked for
+  before teaching the converter to leave side studs; Alec has the pictures to judge blind. What it did
+  show: a panel needs a flat face of about 6 by 4 studs on a boxy shape, a plate running back into the
+  body, clear depth in front, and tiles under its bottom edge; a round head needs a whole core with
+  panels, which is the AI builder's kind of work, not the converter's.
 - Alec decided on 19 November that statistics worked out from Rebrickable's catalogue may be used in
   the guide, with credit (see the decision of that date).
 - 20 November (branch `wip/Alec-42-guide`, not merged): the guide can now be given to the AI
