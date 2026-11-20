@@ -45,6 +45,7 @@ the conversion.
   makes 0.7 to 2.5 studs across and the conversion already fills 2 x 2. `_thin_there` in
   tests/test_finish.py now excuses only that (at most 48 cells, z 17 and up). The cure for it
   would be in the solver: a 2 x 2 column laid as pairs of 1 x 2 plates crossing level to level
-  has no lone link at all; today it lays 2 x 2 plates and bricks. Not done here.
+  should have no lone link at all (reasoned, not tried); today it lays 2 x 2 plates and
+  bricks. Not done here.
 - Not done: the plus shape seen from above at 16 studs (the hexagon does not come out a
   hexagon); the outline match from above is unchanged by this work.
