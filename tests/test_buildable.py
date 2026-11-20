@@ -9,6 +9,7 @@ straight from bricksnap.connect, independently of the module under test.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import networkx as nx
 import numpy as np
@@ -1097,6 +1098,134 @@ def test_a_neck_that_really_is_one_cell_wide_is_left_and_the_note_says_so(catalo
     (note,) = result.notes  # the links stacked in the neck are one weak spot
     assert "x=3, y=3" in note and "hangs on" in note
     assert "no partly covered cell" in note and "that thin" in note
+
+
+MODELS = Path(__file__).resolve().parent.parent / "samples" / "models"
+
+
+def on_a_block(column, catalog) -> Design:
+    """A model, converted: a block 6 x 6 studs and two bricks tall with ``column`` (a mesh, in
+    millimetres, standing on the block from z = 19.2 mm) on it, 30 plates tall. The block
+    starts at the origin, so its cells are those of the mesh, two over for the padding."""
+    import trimesh
+
+    from bricksnap.types import Seed
+    from bricksnap.voxelize import voxelize
+
+    block = trimesh.creation.box(bounds=[[0.0, 0.0, 0.0], [48.0, 48.0, 19.2]])
+    mesh = trimesh.util.concatenate([block, column])
+    seed = Seed(vertices=np.asarray(mesh.vertices, float), faces=np.asarray(mesh.faces))
+    return voxelize(seed, catalog)
+
+
+def round_column(diameter_studs: float):
+    """An upright round column, centred on the corner where four cells meet (x = y = 3
+    studs), 30 plates tall on top of the block of ``on_a_block``."""
+    import trimesh
+
+    column = trimesh.creation.cylinder(radius=diameter_studs * 4.0, height=96.0, sections=96)
+    column.apply_translation([24.0, 24.0, 19.2 + 48.0])
+    return column
+
+
+PLUS = np.array(
+    [[0, 1, 1, 0], [1, 1, 1, 1], [1, 1, 1, 1], [0, 1, 1, 0]], dtype=bool
+)  # the column 2 x 2 at x, y = 3 to 4 (padded: 4 to 5) and its eight sides
+
+
+@pytest.mark.parametrize("diameter", [3.0, 3.2])
+def test_a_round_column_two_cells_wide_is_filled_out_to_its_sides(catalog, diameter):
+    """A round neck about 3 studs across on the corner of four cells: the conversion makes it
+    a column 2 x 2 (every cell around it is under half covered), on whose bottom part all of
+    it hangs. The pass fills the eight cells beside it along its whole height, never the four
+    corners, so it is 4 studs across from the front and the side, not 2 and not a full 4 x 4,
+    and nothing heavy hangs on one part any more."""
+    design = on_a_block(round_column(diameter), catalog)
+    levels = range(8, 34)  # the column's levels, clear of the block and of its top
+    assert design.skin is not None
+    for z in levels:  # what the conversion made: 2 x 2, the twelve around it partly covered
+        assert (design.filled[3:7, 3:7, z] == np.pad(np.ones((2, 2), bool), 1)).all()
+    heaviest, heavy = weakness(design, catalog)
+    assert heaviest >= 100 and heavy >= 1
+    result = run(design, catalog)
+    assert result.pieces_after == 1 and not result.recoloured.any()
+    for z in levels:
+        assert (result.design.filled[3:7, 3:7, z] == PLUS).all(), z
+    # only partly covered cells, in their own colour
+    assert (design.skin[result.added] != EMPTY).all()
+    assert np.array_equal(result.design.colors[result.added], design.skin[result.added])
+    after, heavy_after = weakness(result.design, catalog)
+    assert heavy_after == 0 and after < heavy_limit(design)
+    assert result.notes[0].startswith("Filled ") and "partly covered cells" in result.notes[0]
+    # the same every time
+    assert make_buildable(design, catalog).design.fingerprint() == result.design.fingerprint()
+
+
+def thin_rod():
+    """A rod 1.4 studs across on the corner of four cells: it fills those four cells (each
+    about 0.4 covered: rule 2 keeps it), and never reaches the cells around them."""
+    return round_column(1.4)
+
+
+def narrow_neck():
+    """A round neck 2.6 studs across on the corner of four cells: 2 x 2, with the eight cells
+    beside it partly covered but not the four corners (it is under 2.83 studs across, so an
+    outline 2 studs wide matches it better than one 4 studs wide)."""
+    return round_column(2.6)
+
+
+def thin_wall():
+    """A wall one cell thick (6 mm) and 4 studs long, as tall as the columns."""
+    import trimesh
+
+    return trimesh.creation.box(bounds=[[9.0, 21.0, 19.2], [41.0, 27.0, 115.2]])
+
+
+@pytest.mark.parametrize("make_thin", [thin_rod, narrow_neck, thin_wall])
+def test_a_thin_rod_or_wall_is_not_filled_out(catalog, monkeypatch, make_thin):
+    """What is meant to be thin stays exactly as the pass made it before the sides of thin
+    columns were filled: byte for byte the same Design, build and notes."""
+    import bricksnap.buildable as buildable
+
+    design = on_a_block(make_thin(), catalog)
+    assert weakness(design, catalog)[1] >= 1  # the phase looks at it
+    result = run(design, catalog)
+    monkeypatch.setattr(buildable, "_column_sides", lambda *a, **k: {})
+    before = make_buildable(design, catalog)
+    assert result.design.fingerprint() == before.design.fingerprint()
+    assert result.build.parts == before.build.parts
+    assert result.notes == before.notes
+
+
+def test_the_bottle_at_twelve_studs_has_a_neck_three_studs_across(catalog, tmp_path):
+    """The sample bottle at 12 studs: its neck, 2.85 to 3.3 studs across in the model (a
+    hexagon), came out a column 2 x 2 from just above its foot to its top, with 96 cells
+    hanging on one part and an outline match of 70.5% from the front, 73.7% from the side
+    and 71.9% from above (finished, as the scorecard measures it). Now the neck is 4 studs
+    across from the front and the side wherever the model's is (levels 3 to 17), and what
+    still hangs on one part is its mouth (levels 18 up), which the model makes 0.7 to 2.5
+    studs across: 48 cells, filled 2 x 2 already."""
+    from bricksnap.bench import VIEWS, outline_match
+    from bricksnap.finish import finish
+    from bricksnap.pipeline import create_project, load_project_seed
+
+    project = create_project(MODELS / "bottle.glb", studs=12, directory=tmp_path, name="b")
+    design = project.load_design()
+    result = run(design, catalog)
+    build = finish(result.build, result.design, catalog)
+    filled = result.design.filled
+    for z in range(3, 18):
+        level = filled[:, :, z]
+        assert level.any(axis=1).sum() >= 3 and level.any(axis=0).sum() >= 3, z
+    occ = occupancy(build, catalog)[0]
+    for link in lone_links(build, catalog):
+        if link.cells >= 40:  # only the mouth
+            assert link.cells <= 48
+            assert np.argwhere(np.isin(occ, link.members))[:, 2].min() >= 18
+    seed = load_project_seed(project)
+    match = [outline_match(seed, build, catalog, v, design.seed_offset) for v in VIEWS]
+    today = [round(m, 4) for m in match]
+    assert today[0] > 0.80 and today[1] >= 0.7374 and today[2] >= 0.7194
 
 
 def test_a_model_with_no_heavy_lone_link_is_returned_unchanged(catalog):

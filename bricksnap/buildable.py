@@ -89,6 +89,9 @@ side. The layout solver cannot cure these, because it may not add cells. This pa
   has no more pieces than before (one, when it was one piece) and nothing that was
   attached comes loose. Partly covered cells of a kept change that a fresh solve can do
   without are taken away again:
+  0. (stage 4) when the link is in a column 2 x 2 cells across that the model surrounds,
+     fill the partly covered cells beside that column along the whole stretch of it (see
+     "A thin column" below), all at once;
   1. fill partly covered cells (skin) around the link: the cells beside the part or joint
      and beside the group's cells next to it, in their own colour, smallest set first;
   2. recolour hidden cells there, as for loose pieces, so one part can span the seam where
@@ -112,6 +115,35 @@ side. The layout solver cannot cure these, because it may not add cells. This pa
   remains only as a safety net that no model reaches on a working machine: no solve of the
   phase starts ``STURDY_SECONDS`` (60) after the pass began, and if that ever stops it, a
   note says so.
+- A thin column (stage 4). A column 2 x 2 cells across is one weak spot whatever the
+  layout does with it: its parts are as wide as the column, so each carries everything
+  above it, and there is nothing beside it to tie it to. The conversion makes such a column
+  where a round neck about 3 studs across sits on the corner where four cells meet (the
+  sample bottle at 12 studs: 2.85 to 3.3 studs across, filled 2 x 2, each of the twelve
+  cells around it covered less than half). Filling one level of them only moves the weak
+  spot one level up, which the phase refuses (below), so the whole stretch is filled at
+  once: the levels, next to one another and starting at the link or the level just above
+  it, where the 2 x 2 column is filled, nothing else in its level touches it, and all
+  twelve cells around it (the four corners too) are partly covered and free. In each, the
+  eight cells that share a face with the column are filled (never the corners), in the
+  colour of the model there, and so are those of the eight that are partly covered in the
+  level just below the stretch, where the column stands on what it grows from. The column
+  becomes a plus 4 cells across, which parts of two widths can tie. The corner test is what
+  keeps it true to the model: a model that reaches into all four corner cells reaches at
+  least 1.41 cells from the column's middle on the diagonals, so it is at least 2.83 cells
+  across, and from the front or the side an outline 4 cells wide then matches it at least
+  as well as one 2 cells wide (2 / w against w / 4). A thinner neck (the bottle's mouth,
+  0.7 to 2.5 studs across), a thin rod and a wall one cell thick never touch those corners
+  and are left as they are. The change is judged like any other, and is kept or dropped
+  whole: none of its cells is taken away again (a neck with some of its sides filled and
+  others not is ragged, and not the model's shape either). On the sample models at 12, 16
+  and 24 studs it is kept once, on the bottle at 12 studs: 116 cells, the heaviest load 96
+  cells down to 48 (the mouth, which really is that thin), the outline from the front 70.5%
+  to 84.0%, from the side 73.7% to 73.8%, from above unchanged. Tests must include: round
+  columns 3.0 and 3.2 studs across on the corner of four cells (filled out to a plus along
+  their height, corners empty, nothing heavy left, the same on a second run); a rod 1.4
+  studs across, a neck 2.6 studs across and a wall one cell thick (exactly as before);
+  and the sample bottle at 12 studs.
 - The guarantees of the pass hold unchanged: nothing emptied, no visible cell recoloured,
   every filled or added cell reported in the masks and in a note. The notes for this phase
   say what was hanging and on what, what was done, and how it hangs in the build the pass
@@ -298,7 +330,8 @@ kind go first (heaviest first among them): in a thin place several links stack u
 pineapple's single cell is three joints and a part, one on the other), and only curing the
 one the Design itself cuts can help; once it is given up, the links stacked on it (whose
 group holds its group) are given up with it.
-- The changes for a link, each the first that could help being solved: partly covered
+- The changes for a link, each the first that could help being solved: the sides of a thin
+  column (``_column_sides``), when the link is in one; then partly covered
   cells, the fewest first, of four sets: those touching both group and rest within two
   cells of the place; those touching the place; those touching the place or the group's
   and the rest's cells beside it; and also those touching them (``_skin``, so their colour
@@ -322,9 +355,10 @@ group holds its group) are given up with it.
   24 cells (74 to 54), which finishing alone would have held at 36; and a lower heaviest
   load bought with one more weak spot let one clamp cell on the pineapple at 24 studs hang
   41 cells more on the part it was meant to relieve.
-- Taking away (partly covered cells only; a clamp is one cell and a recolour cannot be
-  seen). First, without a solve (``_ranked``), the cells the new build leans on: taken out
-  of it one at a time, farthest from the link first, each stays out when the build without
+- Taking away (partly covered cells only, not the sides of a thin column, which are the
+  model's shape along it; a clamp is one cell and a recolour cannot be seen). First,
+  without a solve (``_ranked``), the cells the new build leans on: taken out of it one at
+  a time, farthest from the link first, each stays out when the build without
   it (``_estimate``: each part keeps its other cells and holds through those, and a part
   that falls into two is two) has no more pieces, no heavier load and no more heavy weak
   spots; those that cannot stay out are the ones it leans on. That alone is a poor judge
@@ -363,11 +397,12 @@ group holds its group) are given up with it.
   hat 1; at 12 studs hat 8, pawn 0, the solver leaving the pawn nothing heavy.) After
   finishing, heavy links go from 50 to 16 (before: 24), and no sample is weaker after
   finishing than without the phase (the cat at 24 studs had ended with 2 where finishing
-  alone left none). Left: the bottle at 12 studs (its neck is two cells wide), the cat's
-  legs at 24 (4, none after finishing), the hat at 24 (its solves ran out:
-  11 left), and the pineapple at 24 (3), whose crown is a hollow wall one cell thick with
-  no partly covered cell near it. Most cells are still at 24 studs: the bottle 22, the
-  spaceship 25 and the hat 16, where the search ran out of solves before it found fewer.
+  alone left none). Left: the bottle at 12 studs (its neck was two cells wide; since
+  stage 4, see "A thin column", only its mouth: 48 cells), the cat's legs at 24 (4, none
+  after finishing), the hat at 24 (its solves ran out: 11 left), and the pineapple at 24
+  (3), whose crown is a hollow wall one cell thick with no partly covered cell near it.
+  Most cells are still at 24 studs: the bottle 22, the spaceship 25 and the hat 16, where
+  the search ran out of solves before it found fewer.
   The phase made 61 solves in all over the 33 runs; the slowest pass is the hat at 12
   studs, 4 seconds. Every sample still builds with no loose parts.
 
@@ -1864,6 +1899,7 @@ def _notes(
 # ---- the worst weak spots ------------------------------------------------------------------
 
 _STURDY_WORDS = {
+    "column": "filling the partly covered cells beside the column it is in",
     "skin": "filling the partly covered cells beside it",
     "recolour": "giving the hidden cells at the seam its colour",
     "clamp": "adding a cell of the body's colour under or over it",
@@ -2074,12 +2110,71 @@ def _ranked(
     return order, sum(not removed[c] for c in change)
 
 
+def _column_sides(colors, skin, lk: _Link, claimed, edited) -> dict[Cell, int]:
+    """The partly covered cells beside a column 2 x 2 cells across that the link is in,
+    along the whole stretch of it that the model surrounds: the levels, next to one another
+    and starting at the link or the level just above it, where the column is filled,
+    nothing else in the level touches it, and all twelve cells around it (the four corners
+    too) are partly covered and free. The eight that share a face with the column in each
+    such level, and those of them that are partly covered in the level just below the
+    stretch, in the colour of the model there (``_skin_colour``); none when the link is not
+    in such a column (see "A thin column" in the contract)."""
+    filled = colors != EMPTY
+    free = (skin != EMPTY) & ~filled & ~claimed
+    nx_, ny_, nz_ = colors.shape
+    piece = lk.at | lk.group
+    xs, ys, zs = np.nonzero(lk.at)
+    corner = None
+    for z in range(int(zs.min()), int(zs.max()) + 2):  # the link's levels, and the one above
+        if z >= nz_ or not (piece[:, :, z] & filled[:, :, z]).any():
+            continue
+        lab, _ = ndimage.label(filled[:, :, z])
+        x, y = np.argwhere(piece[:, :, z] & filled[:, :, z])[0]
+        cx, cy = np.nonzero(lab == lab[x, y])
+        if len(cx) == 4 and cx.max() - cx.min() == 1 and cy.max() - cy.min() == 1:
+            corner = (int(cx.min()), int(cy.min()), z)
+            break
+    if corner is None:
+        return {}
+    x0, y0, z0 = corner
+    if x0 < 1 or y0 < 1 or x0 + 3 > nx_ or y0 + 3 > ny_:
+        return {}
+    box = np.s_[x0 - 1 : x0 + 3, y0 - 1 : y0 + 3]
+    ring = np.ones((4, 4), dtype=bool)
+    ring[1:3, 1:3] = False
+
+    def surrounded(z: int) -> bool:
+        return bool(
+            0 <= z < nz_
+            and filled[x0 : x0 + 2, y0 : y0 + 2, z].all()
+            and free[box][:, :, z][ring].all()
+        )
+
+    if not surrounded(z0):
+        return {}
+    lo = hi = z0
+    while surrounded(lo - 1):
+        lo -= 1
+    while surrounded(hi + 1):
+        hi += 1
+    sides = [(x0 - 1, y0), (x0 - 1, y0 + 1), (x0 + 2, y0), (x0 + 2, y0 + 1)]
+    sides += [(x0, y0 - 1), (x0 + 1, y0 - 1), (x0, y0 + 2), (x0 + 1, y0 + 2)]
+    cells = [(x, y, z) for z in range(lo, hi + 1) for x, y in sides]
+    if lo > 0 and filled[x0 : x0 + 2, y0 : y0 + 2, lo - 1].all():
+        # the level below, where the column widens into what it stands on: its sides that
+        # are partly covered too, so that the widened column stands on more than its core
+        cells += [(x, y, lo - 1) for x, y in sides if free[x, y, lo - 1]]
+    return {c: _skin_colour(colors, piece, c, skin, edited) for c in cells}
+
+
 def _sturdy_options(lk: _Link, colors, skin, claimed, hidden, original, edited):
-    """The changes that could give the link's group a second connection, smallest first:
+    """The changes that could give the link's group a second connection, smallest first
+    (but the sides of a column 2 x 2 across before all else, see ``_column_sides``):
     partly covered cells touching the link, then those touching the group's and the rest's
     cells beside it, then also those touching them; hidden cells of the rest beside the
     group near the link given the group's colour, 1 then 2 studs deep; ONE clamp cell where
     the group touches the rest only at its side. Yields (kind, change, on top)."""
+    yield "column", _column_sides(colors, skin, lk, claimed, edited), False
     beside = ndimage.binary_dilation(lk.at, _CUBE) & (lk.group | lk.rest) | lk.at
     near = ndimage.binary_dilation(lk.at, _CUBE, iterations=2)
     both = ndimage.binary_dilation(lk.group, _SIX) & ndimage.binary_dilation(lk.rest, _SIX)
@@ -2362,7 +2457,7 @@ def _sturdy_notes(catalog: Catalog, colors: np.ndarray, st: _Sturdy, limit: floa
         n = len(cure.change)
         where = _where(list(cure.change))
         values = list(cure.change.values())
-        if cure.kind == "skin":
+        if cure.kind in ("skin", "column"):
             colours = sorted({_colour_name(catalog, v) for v in values})
             in_colour = (
                 f"each in its own colour ({', '.join(colours[:-1])} and {colours[-1]})"

@@ -2507,12 +2507,12 @@ def _thin_there(name: str, studs: int, build: Build, link) -> bool:
     """The two places where a sample model really is too thin to tie, each as narrow as the
     one section it excuses:
 
-    - The bottle at 12 studs (at most 96 cells, all in x 3 to 4, y 3 to 4): from just above
-      its foot to its top the conversion makes it a column 2 x 2 studs, with only cells the
-      model covers less than half of around it. Filling one level of those beside the link
-      does not help (the make-buildable pass tries it), filling the whole ring would make it
-      4 x 4, and in a 2 x 2 column every brick carries everything above it. The mesh's neck
-      is 3.2 to 3.7 studs across, so this is the conversion's to fix, not the solver's.
+    - The bottle at 12 studs, its mouth (at most 48 cells, all at z 17 and up, x and y 2 to
+      5): the model is 0.7 to 2.5 studs across there, already filled 2 x 2 studs, and in a
+      2 x 2 column every brick carries everything above it. Its neck below (2.85 to 3.3
+      studs across), which hung 96 cells on one part as a 2 x 2 column too, is no longer
+      excused: the make-buildable pass fills it out to its sides (a thin column, in
+      bricksnap/buildable.py).
     - The pineapple at 24 studs, one leaf of its crown (at most 61 cells, in x 5 to 11, y 11
       and up, z 44 and up): a wall one cell thick joined to the crown along one row, with
       no cell of its colour beside it, so no part can give it a second hold (the
@@ -2523,7 +2523,9 @@ def _thin_there(name: str, studs: int, build: Build, link) -> bool:
     p = build.parts[link.part]
     group = [p, *(build.parts[i] for i in link.members)]
     if (name, studs) == ("bottle", 12):
-        return link.cells <= 96 and all(3 <= q.x <= 4 and 3 <= q.y <= 4 for q in group)
+        return link.cells <= 48 and all(
+            q.z >= 17 and 2 <= q.x <= 5 and 2 <= q.y <= 5 for q in group
+        )
     if (name, studs) == ("pineapple", 24):
         return link.cells <= 61 and all(5 <= q.x <= 11 and q.y >= 11 and q.z >= 44 for q in group)
     return False
