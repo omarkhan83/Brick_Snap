@@ -969,8 +969,8 @@ def test_a_turntable_without_a_joint_line_is_the_one_documented_change():
     assert "occupy the same space" in v["report"] and "2 problems" in v["report"]
     got = check(v["model"]).text()
     assert got.startswith(
-        "SUMMARY: 4 parts of 4 kinds, no problems: every part is held, nothing overlaps, and it "
-        "stands. (2 joints not checked)"
+        "SUMMARY: 4 parts of 4 kinds, no problems: every part is held (2 of them only by joints "
+        "the checker cannot confirm), nothing overlaps, and it stands. (2 joints not checked)"
     )
     assert "line 2 (3680.dat) and line 3 (3679.dat): a turntable joint" in got
     assert "MOVEMENT" not in got

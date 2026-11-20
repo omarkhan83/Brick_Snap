@@ -31,6 +31,23 @@ seen (``GUARANTEE`` = 1 LDU, 0.4 mm, at 0.5 LDU cells; 2.4 LDU against a large b
 doors swinging their far corner into a jamb (tests/test_moving.py), the change from free
 to blocked comes between 0.5 and 0.75 LDU. A cache file that cannot be read, or whose
 fields are not a proper grid, is built again.
+
+Whether two placed parts are in each other's way (``interference``, ``in_the_way``; used by
+the checker to confirm an overlap its rough filled bodies report): the voxel centres of the
+smaller grid that are inside both parts' solids are the SHARED piece, and its depth is how
+far its deepest voxel is from the nearest voxel that is not shared (half the thickness of
+the thickest shared piece). The two are in each other's way when that depth reaches
+``((ha + hb) / 2 + REAL_MARGIN) / 2``, where ``ha`` and ``hb`` are the two grids' cells: the
+shared piece is at least ``REAL_MARGIN`` (1 LDU) thicker than the film that two surfaces
+which only touch can share through the voxels alone (half a cell from each side). At
+ordinary 0.5 LDU cells that is a piece at least three voxels (1.5 LDU) thick in every
+direction (depth 0.75; the depths that occur are 0.5, 0.71, 0.87, 1.0 ...). Why this number:
+a stud seated in its socket shares nothing (measured: depth 0), parts that only touch
+along a face, at a bracket's flange or under a curved slope's stepped underside share a film
+(0.5 at most, on the 77 such pairs in the six official sets of experiment 3), and a part
+pushed 2 LDU or more into another shares a piece at least 2 LDU thick (depth 1.0; 4 LDU,
+half a plate, gives 2.0: an ordinary wall or top is 4 LDU thick, so a plate's thickness
+pushed in gives the same). Interference thinner than 1.5 LDU (0.6 mm) is not seen.
 """
 
 from __future__ import annotations
@@ -51,6 +68,7 @@ CELL = 0.5
 MAX_CELLS = 6_000_000
 STEP = 1.5
 GUARANTEE = 1.0
+REAL_MARGIN = 1.0  # LDU of shared material, beyond the voxels' own error, that is a clash
 VERSION = 2
 _JITTER = np.array([0.0137, 0.0071, 0.0113])
 _LOCK = threading.Lock()
@@ -108,6 +126,78 @@ class Solid:
 
     def box(self) -> tuple[np.ndarray, np.ndarray]:
         return self.lo, self.lo + np.array(self.full.shape) * self.h
+
+
+def interference(
+    a: tuple[str, np.ndarray, np.ndarray],
+    b: tuple[str, np.ndarray, np.ndarray],
+    lib: Library | None = None,
+    apart: tuple[np.ndarray, np.ndarray, float] | None = None,
+) -> tuple[float, float, float]:
+    """How far the real solids of two placed parts go into each other.
+
+    ``a`` and ``b`` are (key, position, rotation matrix) as on a part line. Returns
+    ``(depth, volume, needed)``: ``depth`` is how far the deepest shared voxel is from the
+    nearest voxel that is not shared (half the thickness of the thickest shared piece, in
+    LDU), ``volume`` the shared volume (LDU^3), and ``needed`` the depth at which the two
+    really are in each other's way (see the contract: ``in_the_way``). ``apart``, (p, q, r):
+    shared voxels inside the cylinder of radius r round the segment from p to q (world),
+    between its two ends, are left out."""
+    sa, sb = solid(a[0], lib), solid(b[0], lib)
+    if sa.full.size and sb.full.size and sb.full.size * sa.h**3 < sa.full.size * sb.h**3:
+        a, b, sa, sb = b, a, sb, sa  # sample the smaller grid
+    ha, hb = sa.h, sb.h
+    needed = ((ha + hb) / 2 + REAL_MARGIN) / 2
+    if not sa.full.size or not sb.full.size:
+        return 0.0, 0.0, needed
+    inv_a = np.linalg.inv(a[2])
+    blo, bhi = sb.box()
+    corners = np.array(
+        [[x, y, z] for x in (blo[0], bhi[0]) for y in (blo[1], bhi[1]) for z in (blo[2], bhi[2])]
+    )
+    world = corners @ b[2].T + b[1]
+    local = (world - a[1]) @ inv_a.T
+    shape = np.array(sa.full.shape)
+    i0 = np.clip(np.floor((local.min(0) - sa.lo) / ha).astype(np.int64) - 1, 0, shape)
+    i1 = np.clip(np.ceil((local.max(0) - sa.lo) / ha).astype(np.int64) + 1, 0, shape)
+    sub = sa.full[i0[0] : i1[0], i0[1] : i1[1], i0[2] : i1[2]]
+    if not sub.any():
+        return 0.0, 0.0, needed
+    idx = np.argwhere(sub)
+    pts = sa.lo + (idx + i0 + 0.5) * ha
+    w = pts @ a[2].T + a[1]
+    inb = sb.inside((w - b[1]) @ np.linalg.inv(b[2]).T, deep=False)
+    if not inb.any():
+        return 0.0, 0.0, needed
+    from scipy import ndimage
+
+    hit = idx[inb]
+    if apart is not None:
+        p0, p1, r = apart
+        seg = np.asarray(p1, dtype=float) - p0
+        ww = w[inb] - p0
+        t = ww @ seg / max(float(seg @ seg), 1e-12)
+        far = (t < 0) | (t > 1) | (np.linalg.norm(ww - np.outer(t, seg), axis=1) > r)
+        hit = hit[far]
+        if not len(hit):
+            return 0.0, 0.0, needed
+    lo, hi = hit.min(0), hit.max(0) + 1
+    mask = np.zeros(tuple(hi - lo + 2), dtype=bool)
+    mask[tuple((hit - lo + 1).T)] = True
+    depth = float(ndimage.distance_transform_edt(mask).max()) * ha
+    return depth, float(len(hit)) * ha**3, needed
+
+
+def in_the_way(
+    a: tuple[str, np.ndarray, np.ndarray],
+    b: tuple[str, np.ndarray, np.ndarray],
+    lib: Library | None = None,
+    apart: tuple[np.ndarray, np.ndarray, float] | None = None,
+) -> bool:
+    """True when two placed parts' real solids go into each other deeper than touching or
+    a seated stud does (see the contract)."""
+    depth, _, needed = interference(a, b, lib, apart)
+    return depth >= needed - 1e-9
 
 
 def triangles(key: str, lib: Library | None = None) -> np.ndarray:

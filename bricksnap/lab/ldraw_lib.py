@@ -31,8 +31,18 @@ Connectors, from the geometry only
   (``axle``), axle holes (``axlehole``, ``axlehol*``, ``axl?hole``...), clips (``clip*``),
   click hinges (``clh*``, ``h1``, ``h2``, ``arm*``), ball joints (``joint8ball``,
   ``joint8socket*``), wheel pins and holes (``wpin*``, ``wpinhol*``), bar handles
-  (``phandle*``). Their axis is the primitive's y axis. Bars have no primitive (they are
-  plain cylinders), so a bar is only known from the part's name.
+  (``phandle*``). Their axis is the primitive's y axis, and ``along`` is how far the
+  primitive's own triangles reach along it (from 0 to 1 when it has none, scaled with it):
+  ``Connector.points()`` gives points from end to end (a whole axle, a pin's whole length).
+  Bars have no primitive (they are plain cylinders), so a bar is only known from the part's
+  name (or, for a bar in a hollow, from its shape: ``validate``).
+- Axles drawn as holes: the library draws an axle with the axle-hole primitives (``axlehol8``
+  "Technic Axle Perimeter" in 44294 and 3704, ``axlehol2`` at the axle end of the axle pins
+  43093 and 11214), so in a part named as an axle (``AXLE_PART``: "Technic Axle ...", but not
+  a joiner, connector, hose or "... Hole") those connectors are kind "axle", not "axle
+  hole". Nothing else is renamed: a bush, a joiner, a wheel's hub keep their holes.
+- Open studs (``OPEN_STUD``: ``stud2``, ``stud2a``, ``stud6``, ``stud6a``, ``stud17``,
+  ``stud17a``, ``stud2-logo*``) are studs with a hollow a bar fits in.
 - A connector primitive found inside another connector primitive is not counted again, and
   connectors of the same kind at the same place are counted once.
 
@@ -68,13 +78,14 @@ from typing import Any
 
 import numpy as np
 
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 GRID = 2.0  # column spacing in LDU
 
 MALE_STUD = re.compile(
     r"^(stud|studa|stud2|stud2a|stud6|stud6a|stud9|stud10|stud13|stud15|stud17|stud17a|"
     r"stud26|studel|studh|studhl|studhr|studp01|studx|studxa|stud-logo\d?|stud2-logo\d?)$"
 )
+OPEN_STUD = re.compile(r"^(stud2|stud2a|stud6|stud6a|stud17|stud17a|stud2-logo\d?)$")
 OPEN_TUBE = re.compile(
     r"^(stud4[a-z0-9]*|stud16[a-z]*|stud18a|stud21a|stud22a|stud2s[a-z0-9]*|stud23d?)$"
 )
@@ -92,6 +103,12 @@ OTHER_CONNECTORS: list[tuple[str, re.Pattern[str]]] = [
     ("wheel hole", re.compile(r"^wpinhol[e2]$")),
     ("bar handle", re.compile(r"^phandle\d$")),
 ]
+
+# Parts the library draws with axle-hole primitives where the part IS the axle: "Technic
+# Axle 7", "Technic Axle Pin with Friction", "Technic Axle 3 with Stop", "Technic Axle
+# Towball"... but not the joiners and connectors named after the axles they take.
+AXLE_PART = re.compile(r"^~?Technic Axle\b", re.I)
+AXLE_PART_NOT = re.compile(r"\b(joiner|connector|hose|hole)\b", re.I)
 
 # Words in a part's description that say it joins by something other than studs (bars have
 # no primitive, so the name is all we have). Used to mark contacts as "not checked".
@@ -146,6 +163,7 @@ class Connector:
     axis: np.ndarray  # (3,) unit; for studs, the way the stud points out of the part
     end: np.ndarray | None = None  # tubes: the open end
     open: bool = False  # tubes: takes a stud inside
+    along: tuple[float, float] = (0.0, 1.0)  # where the primitive reaches along its axis
 
     def transformed(self, m: np.ndarray, t: np.ndarray) -> Connector:
         axis = m @ self.axis
@@ -157,7 +175,15 @@ class Connector:
             axis / n if n > 1e-12 else axis,
             None if self.end is None else m @ self.end + t,
             self.open,
+            (self.along[0] * n, self.along[1] * n),
         )
+
+    def points(self, step: float = 4.0) -> np.ndarray:
+        """Points along the connector, from end to end (its own position when it has no
+        length): a pin's or an axle's whole length, not only its end."""
+        a, b = self.along
+        n = max(1, int(np.ceil((b - a) / step)))
+        return self.pos + np.outer(np.linspace(a, b, n + 1), self.axis)
 
 
 @dataclass
@@ -601,7 +627,15 @@ class Library:
                             is_open,
                         )
                     else:
-                        local = Connector(kind, base, np.zeros(3), np.array([0.0, 1.0, 0.0]))
+                        prim_tris = self._raw(ckind, ckey, depth + 1).tris
+                        ys = prim_tris[:, :, 1] if len(prim_tris) else np.array([0.0, 1.0])
+                        local = Connector(
+                            kind,
+                            base,
+                            np.zeros(3),
+                            np.array([0.0, 1.0, 0.0]),
+                            along=(float(ys.min()), float(ys.max())),
+                        )
                     cons.append(local.transformed(m, t))
                     if kind == "stud":
                         # a male stud is not part of the body, but the surface under it is:
@@ -658,7 +692,7 @@ class Library:
         text = self.text(kind, key)
         header = parse_header(text)
         raw = self._expand(text, 0)
-        cons = _dedupe(raw.cons)
+        cons = _axles_as_axles(_dedupe(raw.cons), header.description)
         if len(raw.tris):
             pts = raw.tris.reshape(-1, 3)
             lo, hi = pts.min(0), pts.max(0)
@@ -723,6 +757,21 @@ class Library:
             if m:
                 out[int(m.group(2))] = m.group(1).replace("_", " ")
         return out
+
+
+def _axles_as_axles(cons: list[Connector], description: str) -> list[Connector]:
+    """The library draws axles with the axle-HOLE primitives (``axlehol8``, "Technic Axle
+    Perimeter", in 44294 and 3704; ``axlehol2`` at the axle end of the axle pins 43093 and
+    11214), so a part named as an axle (``AXLE_PART``) has axles where those primitives are,
+    not holes (see the contract)."""
+    if not AXLE_PART.match(description) or AXLE_PART_NOT.search(description):
+        return cons
+    return [
+        Connector("axle", c.prim, c.pos, c.axis, c.end, c.open, c.along)
+        if c.kind == "axle hole"
+        else c
+        for c in cons
+    ]
 
 
 def _dedupe(cons: list[Connector]) -> list[Connector]:

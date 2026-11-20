@@ -17,19 +17,66 @@ What it reports, each item naming the line number, the part and its position:
 - Overlaps: the filled bodies of two parts (``ldraw_lib``: hollow undersides count as solid,
   arch spans and overhangs stay open) share more than a small volume. Under ``SMALL_OVERLAP``
   LDU^3 (and under ``SMALL_SHARE`` of the smaller part) it is a warning; when either part
-  joins by pins, axles, bars or clips (they go into other parts) it is a warning that says so.
+  joins by pins, axles, bars or clips (they go into other parts) it is a joint "not checked"
+  (below). Otherwise it is a problem only when the parts' REAL shapes confirm it
+  (``solid.in_the_way``: they share a piece of material at least 1.5 LDU thick, which a
+  seated stud and parts that only touch never do, and a part pushed 2 LDU or more into
+  another always does); the filled body is a column too wide at a bracket's flange or under
+  a curved slope's stepped underside, and parts that only touch there are not an overlap.
+  Only the pairs the filled bodies flag are measured on the real shapes. The same part
+  twice in the same place is always an overlap problem, whatever joints it has.
 - Connections: part A holds part B when a stud of A reaches into B's filled body pointing
   into B's underside (B's own "up" against the stud), with the stud's base at B's bottom
   (within ``SEAT_TOL`` LDU) and on B's stud grid (the centres of its stud cells, within
-  ``GRID_TOL`` LDU), or when a stud of A sits in an open tube or ring of B (the stud in the
-  centre tube of a 2 x 2 brick, a plant leaf's ring). Any orientation works: studs on the
-  side of a part are checked the same way. A stud that reaches into B in any other way is a
-  problem, with the reason: off B's grid (by how much, and where to move B to), not pressed
-  home (the gap), pushed in too far, or into B's side or top.
+  ``GRID_TOL`` LDU; ``stud_grid``: ``Part.socket_phase``, except that a part with no top
+  studs whose box is not whole studs, such as a curved slope with a cutout, takes its grid
+  from the end of its box that is on the grid round its origin), or when a stud of A sits in
+  an open tube or ring of B (the stud in the centre tube of a 2 x 2 brick, a plant leaf's
+  ring). Any orientation works: studs on the side of a part are checked the same way. A stud
+  that reaches into B in any other way is a problem, with the reason: off B's grid (by how
+  much, and where to move B to), not pressed home (the gap), pushed in too far, or into B's
+  side or top.
 - Joints the geometry cannot confirm: when a part joins by clips, bars, pins, axles, hinges,
   ball joints or wheel pins (from its primitives or its name) and touches another part with
   no stud connection between them, the pair is listed as "not checked" and counts as joined
-  when deciding what is loose.
+  when deciding what is loose. An axle or a bar handle counts along its whole length
+  (``Connector.points``), other connectors at their own place. An axle the library draws
+  with axle-hole primitives (``ldraw_lib``) joins only when its line runs along a hole of
+  the other part (parallel within ``AXLE_DEG`` degrees, within ``AXLE_LDU`` LDU, the hole's
+  reach and the axle's length sharing ``AXLE_IN`` LDU): an axle through a wheel turned
+  across it is an overlap, and a bush beyond the axle's end is not on it. A "Bar
+  Tube" is a tube a bar goes into (a clip), not a bar. Also listed as "not checked" joints:
+  - a bar in a hollow (``_bar_in``): an open stud (``ldraw_lib.OPEN_STUD``; its hollow is the
+    stud, 4 LDU from base to tip), an open tube, an axle hole (a round brick's middle), a
+    pin hole or the hollow end of a pin. All of these must hold:
+    1. In: from 1 LDU outside one end of the hollow inwards the other part's real solid is
+       on the axis without a break, and nowhere inside the hollow reaches the ring
+       ``BAR_RING`` LDU round it (no thicker than a bar, 4 LDU in radius), for at least the
+       hollow's depth (an open stud's 4; ``BAR_DEPTH`` for a longer hollow) less
+       ``BAR_PLAY`` (1 LDU, as a stud may sit 1 LDU short of home). A bar in by 2 LDU or
+       floating above the hollow is not held.
+    2. Along the axis: from the bar's inner end outwards for ``BAR_LEAN`` LDU, while it is
+       still a bar (it fills fewer than 3 of 8 points of the ring), the middle of its
+       cross-section is within ``BAR_OFF`` of the axis and its line leans less than
+       ``BAR_DEG`` degrees (measured to about a degree on the 0.5 LDU voxels).
+    3. Nothing else: the real shapes share no more than touching outside the hollow's own
+       space (the cylinder of ``BAR_RING`` round the axis between the hollow's two ends). So a
+       bar comes in through an open end: one driven through a brick's top into the tube
+       below, or past the bottom of a jumper's 4 LDU stud, goes through material and is an
+       overlap or a stud problem, never a joint.
+    4. Not on into another part: a part held only as a bar in a hollow whose bar goes on
+       past the hollow and 1.5 LDU or more into a third part's real solid (a bar down a round
+       brick's middle and on into the plate below) makes that a problem, even when the
+       filled bodies' overlap was only slight (``_bar_goes_on``).
+    A claw, a lamp post's bar, a plant stem through round plates, the solid tube under a
+    1 x 2 plate in a jumper's open stud are such joints; a pin or a stud (6 in radius) is
+    not, nor a bar beside the hollow, leaning, or in too short. A bar in a Technic pin hole
+    (6 in radius) has 1.5 to 2 LDU of play all round: it is listed as a joint, called "a
+    loose fit".
+  - a stud in a Technic pin hole, pointing along the hole's axis (within ``AXLE_DEG``) with
+    its base within ``AXLE_LDU`` LDU of it and within 2 LDU of the hole's reach. A pin hole
+    takes one stud: a second stud in the same hole (from its other end) is a stud problem.
+  A bar or a stud on no such axis is checked as before (a stud problem, an overlap, loose).
 - What is loose: groups of parts with no path of connections to a part on the ground
   (y = 0 at its lowest point, within ``GROUND_TOL``), each with what is below it and how far;
   groups that stand on the ground but are not joined to the rest (a warning); parts below the
@@ -40,18 +87,25 @@ What it reports, each item naming the line number, the part and its position:
   moving thing can really move (tied shut, something in its way, wheels that rub, a model on
   wheels that does not rest on them), as problems of kind "movement", and one line per joint
   in a MOVEMENT section. A model without joint lines gets no movement findings; its report
-  is the one it got before joints existed except for one deliberate change: a turntable's
+  is the one it got before joints existed except for deliberate changes: a turntable's
   top and base (both named "Turntable") are a "not checked" joint, as a tyre on its wheel
-  is, instead of an overlap problem.
+  is, instead of an overlap problem; and since 2026-11-20 (experiment 3 of the study of real
+  sets) overlaps are confirmed on the real shapes, bars in hollows, axles and studs in pin
+  holes are joints, and cutout parts take their grid as above.
   ``check(text, movement=False)`` leaves this out (used to find what rides on a joint).
 - A summary line: "N parts of M kinds, K problems ...". With no problems it says so in one
-  line; with joints it also says how many move freely, and how many problems are about
-  movement.
+  line ("every part is held, nothing overlaps, and it stands"; when some parts are held
+  only through joints the checker cannot confirm, "every part is held (N of them only by
+  joints the checker cannot confirm)"); with joints it also says how many move freely, and
+  how many problems are about movement.
+- The NOT CHECKED section lists the joints (the first ``MAX_OTHERS``, then a count of the
+  rest by kind) and then, never cut, the line naming the parts held only through them.
 
 Rough by design (and the report says so once): the filled body misses walls thinner than
-about 2 LDU and treats side holes as solid; overlaps near arches, overhangs and parts that go
-into one another can be false alarms; joints other than studs are never confirmed; whether a
-connection is strong (one stud or eight) is listed but not judged.
+about 2 LDU and treats side holes as solid (an overlap it misses is not looked for on the
+real shapes); interference thinner than 1.5 LDU is not reported; joints other than studs
+are never confirmed (a bar's grip in its hollow is not judged); whether a connection is
+strong (one stud or eight) is listed but not judged.
 """
 
 from __future__ import annotations
@@ -63,6 +117,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from bricksnap.lab.ldraw_lib import (
+    OPEN_STUD,
     Connector,
     Library,
     Part,
@@ -175,7 +230,14 @@ class Report:
         if not n:
             return head + ": there is nothing to check (no part lines)."
         if not k:
+            held = next((i for i in self.unchecked if i.kind == "held by unchecked joints"), None)
             tail = "no problems: every part is held, nothing overlaps, and it stands."
+            if held is not None:
+                m = len(held.lines)
+                tail = (
+                    f"no problems: every part is held ({m} of them only by joints the checker "
+                    "cannot confirm), nothing overlaps, and it stands."
+                )
             extra = []
             if self.warnings:
                 extra.append(
@@ -227,12 +289,29 @@ class Report:
 
         section("PROBLEMS (fix these):", self.problems, MAX_PROBLEMS, True)
         section("WARNINGS:", self.warnings, MAX_OTHERS, False)
-        section(
-            "NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):",
-            self.unchecked,
-            MAX_OTHERS,
-            False,
-        )
+        # the joints, cut short when long; the line saying which parts hang on them only is
+        # never cut
+        joints = [i for i in self.unchecked if i.kind != "held by unchecked joints"]
+        held_only = [i for i in self.unchecked if i.kind == "held by unchecked joints"]
+        if joints or held_only:
+            out.append("")
+            out.append(
+                "NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):"
+            )
+            out.extend(f"- {x.text}" for x in joints[:MAX_OTHERS])
+            if len(joints) > MAX_OTHERS:
+                kinds: dict[str, int] = {}
+                for x in joints[MAX_OTHERS:]:
+                    m = re.search(r": a (.+?) joint, which|join by a (.+?), which", x.text)
+                    word = (m.group(1) or m.group(2)).split(" or ")[0] if m else "other"
+                    kinds[word] = kinds.get(word, 0) + 1
+                what = ", ".join(
+                    f"{n} {w}" for w, n in sorted(kinds.items(), key=lambda kv: -kv[1])
+                )
+                out.append(
+                    f"... and {len(joints) - MAX_OTHERS} more joints of the same sort ({what})."
+                )
+            out.extend(f"- {x.text}" for x in held_only)
         if self.movement:
             out.append("")
             out.append("MOVEMENT (each joint: what turns and whether it can):")
@@ -556,6 +635,259 @@ class _StudHit:
     how: str
     reason: str = ""
     move: np.ndarray | None = None  # world move of the held part that would fix it
+    # not a stud joint but one the checker cannot confirm: a bar of the held part in this
+    # open stud, or this stud in a pin hole of the held part (what to call it, and the two
+    # ends of the hollow's axis, world)
+    joint: tuple[str, np.ndarray] | None = None
+
+
+# ---- a bar in a hollow ------------------------------------------------------------------------
+
+# Where a bar can go in, by connector: (what the report calls it, how far along its axis the
+# hollow is looked at, in LDU from the connector's own reach). An open stud's hollow is the
+# stud itself (0.5 to 3.5 LDU out from its base); an open tube's is the tube (0.5 to 3.5 LDU
+# in from its end); a hole's or a pin's is the primitive's own reach, 1 LDU more at each end.
+_HOLLOW_WORDS = {
+    "open stud": "bar in an open stud",
+    "tube": "bar in a tube",
+    "axle hole": "bar in an axle hole",
+    "pin hole": "bar in a pin hole (a loose fit)",
+    "pin": "bar in a pin's end",
+}
+AXLE_DEG = 5.0
+AXLE_LDU = 1.5
+AXLE_IN = 0.5  # LDU the hole's own reach and the axle's length must share
+AXLE_HOLE_PRIM = re.compile(r"^axl")  # axle-hole primitives (an axle drawn as one)
+BAR_RING = 5.0  # LDU: a bar is 4 LDU in radius; nothing of the held part may be this far out
+BAR_OFF = 1.0  # LDU: the middle of the bar's cross-section may be this far from the axis
+BAR_DEG = 4.0  # degrees a bar may lean from the hollow's axis (measured to about 1)
+BAR_PLAY = 1.0  # LDU a bar may stop short of a hollow's full depth (as a stud's SEAT_TOL)
+BAR_DEPTH = 4.0  # LDU: the depth asked of a longer hollow (an open stud's own depth)
+BAR_LEAN = 16.0  # LDU of the bar, from the hollow's inner end outwards, that must be centred
+_RING = np.array([[math.cos(a), math.sin(a)] for a in np.linspace(0, 2 * math.pi, 8, False)])
+_DISC = np.array(  # a cross-section round the axis, on a 0.5 LDU grid out to 5.5 LDU
+    [
+        [x, y]
+        for x in np.arange(-5.25, 5.3, 0.5)
+        for y in np.arange(-5.25, 5.3, 0.5)
+        if x * x + y * y <= 5.5 * 5.5
+    ]
+)
+
+
+@dataclass
+class _Hollow:
+    kind: str  # "open stud", "tube", "axle hole", "pin hole", "pin"
+    p0: np.ndarray  # one end of its axis (world)
+    p1: np.ndarray  # the other end
+
+
+def _hollows(p: Placed, connectors: list[Connector]) -> list[_Hollow]:
+    """The hollows among ``connectors`` of ``p`` that a bar can go into, each with the two
+    ends of its axis: an open stud from its base to its tip (4 LDU), an open tube from its
+    open end to its closed one, a hole or a pin's bore along the primitive's own reach."""
+    out: list[_Hollow] = []
+    for c in connectors:
+        if c.kind == "stud" and OPEN_STUD.match(c.prim):
+            base = p.to_world(c.pos)
+            tip = p.to_world(c.pos + 4.0 * c.axis)
+            out.append(_Hollow("open stud", base, tip))
+        elif c.kind == "tube" and c.open and c.end is not None:
+            if float(np.linalg.norm(c.pos - c.end)) > 1e-9:
+                out.append(_Hollow("tube", p.to_world(c.end), p.to_world(c.pos)))
+        elif c.kind in ("axle hole", "pin hole", "pin"):
+            a, b = c.along
+            if b - a > 1e-9:
+                out.append(
+                    _Hollow(
+                        c.kind,
+                        p.to_world(c.pos + a * c.axis),
+                        p.to_world(c.pos + b * c.axis),
+                    )
+                )
+    order = ("open stud", "axle hole", "pin", "pin hole", "tube")
+    return sorted(out, key=lambda h: order.index(h.kind))
+
+
+def _bar_fits(h: _Hollow, held: Placed) -> bool:
+    """Is a bar of ``held`` in hollow ``h``, coming in at one of its ends (see ``_bar_in``)?"""
+    from bricksnap.lab import solid
+
+    sb = solid.solid(held.key)
+    axis = h.p1 - h.p0
+    length = float(np.linalg.norm(axis))
+    if length < 1e-9:
+        return False
+    d = axis / length
+    u, v = _perp(d)
+    ring = _RING[:, 0:1] * u + _RING[:, 1:2] * v
+    need = min(length, BAR_DEPTH) - BAR_PLAY
+    for start, sign in ((h.p1, -1.0), (h.p0, 1.0)):
+        # from 1 LDU outside this end (the bar comes in from outside) inwards to the far end;
+        # coming in through a closed end means going through the part's material, which the
+        # real shapes then show (``_bar_in``)
+        t_in = np.arange(-1.0, length + 0.01, 0.5)
+        pts = start + sign * np.outer(t_in, d)  # going in
+        local = held.to_local(pts)
+        on = sb.inside(local, deep=False)
+        thick = sb.inside(
+            held.to_local((pts[:, None, :] + BAR_RING * ring).reshape(-1, 3)), deep=False
+        )
+        wide = thick.reshape(len(pts), len(_RING)).any(1)
+        k = 0
+        while k < len(on) and on[k]:
+            k += 1
+        within = (t_in >= 0) & (np.arange(len(t_in)) < k)  # its stretch inside the hollow
+        # thicker than a bar anywhere inside, leaving half a voxel's play at the mouth (where
+        # what the bar belongs to may sit on the hollow's rim)
+        if wide[within & (t_in >= 0.75)].any():
+            continue  # thicker than a bar somewhere inside the hollow
+        if not within.any():
+            continue
+        depth = float(t_in[within].max())
+        if depth < need - 1e-9:
+            continue  # not in far enough (or floating above the hollow)
+        # along the hollow's axis: from its inner end outwards for BAR_LEAN LDU, as long as
+        # the held part is on the axis and still a bar (not its wider body, which fills most
+        # of the ring round the axis), the middle of its cross-section stays within
+        # BAR_OFF of the axis and its line leans no more than BAR_DEG from it
+        t_out = np.arange(0.0, BAR_LEAN + 0.01, 0.5)
+        line = start + sign * np.outer(depth - t_out, d)
+        on_out = sb.inside(held.to_local(line), deep=False)
+        ring_in = sb.inside(
+            held.to_local((line[:, None, :] + BAR_RING * ring).reshape(-1, 3)), deep=False
+        ).reshape(len(line), len(_RING))
+        n = 0
+        while n < len(line) and on_out[n] and int(ring_in[n].sum()) < 3:
+            n += 1
+        disc = _DISC[:, 0:1] * u + _DISC[:, 1:2] * v  # (m, 3)
+        cut = sb.inside(
+            held.to_local((line[:n, None, :] + disc[None]).reshape(-1, 3)), deep=False
+        ).reshape(n, len(_DISC))
+        # the bar's very end (the first half LDU) is left out: its face is cut obliquely
+        some = cut.sum(1) > 0
+        some[:1] = False
+        mids_all = np.array([_DISC[c].mean(0) for c in cut[some]]).reshape(-1, 2)
+        if len(mids_all) and float(np.linalg.norm(mids_all, axis=1).max()) > BAR_OFF:
+            continue  # off the axis
+        # the lean, from whole cross-sections only
+        full = some & (cut.sum(1) >= 0.8 * max(int(cut.sum(1).max()) if n else 0, 1))
+        mids = np.array([_DISC[c].mean(0) for c in cut[full]]).reshape(-1, 2)
+        if len(mids) >= 9:  # 4 LDU or more of bar to measure a lean on
+            tt = t_out[:n][full] - t_out[:n][full].mean()
+            slope = (tt @ (mids - mids.mean(0))) / float(tt @ tt)
+            if float(np.linalg.norm(slope)) > math.tan(math.radians(BAR_DEG)):
+                continue  # leaning
+        return True
+    return False
+
+
+def _bar_goes_on(bar: Placed, other: Placed, ends: np.ndarray) -> bool:
+    """Does the bar of ``bar``, held in a hollow whose axis runs between ``ends``, go on past
+    an end of that hollow into ``other``: 1.5 LDU or more of its line, where it is still
+    bar-thin, deep inside ``other``'s real solid?"""
+    from bricksnap.lab import solid
+
+    sb, so = solid.solid(bar.key), solid.solid(other.key)
+    d = ends[1] - ends[0]
+    n = float(np.linalg.norm(d))
+    if n < 1e-9:
+        return False
+    d = d / n
+    u, v = _perp(d)
+    ring = _RING[:, 0:1] * u + _RING[:, 1:2] * v
+    t = np.arange(0.5, 30.01, 0.5)
+    for end, sign in ((ends[1], 1.0), (ends[0], -1.0)):
+        line = end + sign * np.outer(t, d)
+        thin = sb.inside(bar.to_local(line), deep=True) & ~sb.inside(
+            bar.to_local((line[:, None, :] + BAR_RING * ring).reshape(-1, 3)), deep=False
+        ).reshape(len(line), len(_RING)).any(1)
+        into = thin & so.inside(other.to_local(line), deep=True)
+        run = 0
+        for k in range(len(line)):
+            if not thin[k] and not into[k]:
+                break  # the bar ends (or widens): stop looking
+            run = run + 1 if into[k] else 0
+            if run >= 4:
+                return True
+    return False
+
+
+def _held_bar(a: Placed, b: Placed, held: dict[int, np.ndarray]) -> tuple[str, np.ndarray] | None:
+    """A bar of b in a hollow of a, or of a in b (see ``_bar_in``); the bar's line and the
+    hollow's axis go into ``held``."""
+    for holder, bar in ((a, b), (b, a)):
+        got = _bar_in(holder, bar)
+        if got is not None:
+            held[bar.line] = got[1]
+            return got
+    return None
+
+
+def _bar_in(
+    holder: Placed, held: Placed, connectors: list[Connector] | None = None
+) -> tuple[str, np.ndarray] | None:
+    """Is a bar of ``held`` in a hollow of ``holder`` (an open stud, an open tube, an axle
+    hole, a pin hole, the hollow end of a pin)? See the contract. In short: from 1 LDU outside
+    one end of the hollow inwards the held part is on the axis without a break, nowhere inside
+    the hollow reaching the ring ``BAR_RING`` round the axis (no thicker than a bar), for at
+    least the hollow's depth (``BAR_DEPTH`` for a longer one) less ``BAR_PLAY``; from its
+    inner end outwards for ``BAR_LEAN`` LDU, while it is still a bar, the middle of its
+    cross-section stays within ``BAR_OFF`` of the axis and its line within ``BAR_DEG`` of it;
+    and the real shapes share nothing more than touching outside the hollow's own space (the
+    cylinder of ``BAR_RING`` round the axis between the hollow's two ends), so a bar that
+    comes in through a closed end, or goes on into the part's material, is no joint. Returns
+    what the report calls the joint and the two ends of the hollow's axis (world), or None."""
+    from bricksnap.lab import solid
+
+    hollows = _hollows(holder, holder.part.connectors if connectors is None else connectors)
+    if not hollows:
+        return None
+    blo, bhi = solid.solid(held.key).box()
+    for h in hollows:
+        local = held.to_local(np.array([h.p0, h.p1, (h.p0 + h.p1) / 2]))
+        if not np.any(np.all((local >= blo - 2) & (local <= bhi + 2), axis=1)):
+            continue
+        if not _bar_fits(h, held):
+            continue
+        ends = np.array([h.p0, h.p1])
+        if _really_overlap(holder, held, ends):
+            continue  # it fits the hollow but goes on into the part's material
+        return _HOLLOW_WORDS[h.kind], ends
+    return None
+
+
+_GRIDS: dict[str, tuple[float, float]] = {}
+
+
+def stud_grid(part: Part) -> tuple[float, float]:
+    """x and z (mod 20) of the centres of the stud cells a stud must sit on, in the part's
+    own frame. ``Part.socket_phase`` (by which ``place`` numbers sockets), except for a part
+    with no studs on top whose box is not whole studs along x or z (a curved slope with a
+    cutout, a slope with an overhang): the library draws parts on the stud grid round their
+    origin, so along that axis its cells line up with the end of its box that is on that
+    grid (a multiple of 10 LDU from the origin), not with the end the cutout or the overhang
+    moves; when both ends or neither are, ``socket_phase`` stands."""
+    got = _GRIDS.get(part.name)
+    if got is not None:
+        return got
+    phase = list(part.socket_phase())
+    if part.has_body() and not part.top_studs():
+        lo, hi = part.bbox_min, part.bbox_max
+        for k, axis in ((0, 0), (1, 2)):
+            span = float(hi[axis] - lo[axis])
+            if abs(span / 20 - round(span / 20)) < 0.05:
+                continue
+            ends = [
+                round(float(e + sign * 10) % 20 * 2) / 2 % 20
+                for e, sign in ((lo[axis], 1), (hi[axis], -1))
+                if abs(e / 10 - round(e / 10)) < 0.05
+            ]
+            if len(ends) == 1:
+                phase[k] = ends[0]
+    got = (phase[0], phase[1])
+    _GRIDS[part.name] = got
+    return got
 
 
 def _stud_hits(a: Placed, b: Placed) -> list[_StudHit]:
@@ -564,7 +896,7 @@ def _stud_hits(a: Placed, b: Placed) -> list[_StudHit]:
     studs = numbered_studs(a.part)
     if not studs or not b.part.has_body():
         return out
-    phase = b.part.socket_phase()
+    phase = stud_grid(b.part)
     for k, s in enumerate(studs, 1):
         base_w = a.to_world(s.pos)
         d_w = a.m @ s.axis
@@ -591,6 +923,13 @@ def _stud_hits(a: Placed, b: Placed) -> list[_StudHit]:
         probe = _stud_probe(base_b, d_b)
         inside = b.part.inside(probe, tol=0.25)
         if not inside.any():
+            continue
+        # a bar of b in this open stud, or in another hollow of a it goes on into
+        joint = _bar_in(a, b) if OPEN_STUD.match(s.prim) else None
+        if joint is None and float(np.dot(d_b, UP)) < 0.98:
+            joint = _stud_in_pin_hole(base_w, d_w, b)
+        if joint is not None:
+            out.append(_StudHit(k, False, how, joint=joint))
             continue
         if float(np.dot(d_b, UP)) >= 0.98 and not b.part.has_sockets():
             out.append(
@@ -673,6 +1012,37 @@ def _stud_hits(a: Placed, b: Placed) -> list[_StudHit]:
     return out
 
 
+def _stud_in_pin_hole(base: np.ndarray, d: np.ndarray, b: Placed) -> tuple[str, np.ndarray] | None:
+    """Is a stud (its base and direction, world) in a pin hole of b: pointing along the
+    hole's axis (within ``AXLE_DEG`` degrees), its base within ``AXLE_LDU`` LDU of the
+    axis and within 2 LDU of the hole's own reach? A stud fits a Technic pin hole."""
+    cos = math.cos(math.radians(AXLE_DEG))
+    for h in b.part.others:
+        if h.kind != "pin hole":
+            continue
+        ax = b.m @ h.axis
+        if abs(float(np.dot(d, ax))) < cos:
+            continue
+        w = base - b.to_world(h.pos)
+        t = float(np.dot(w, ax))
+        lo, hi = sorted(h.along)
+        if lo - 2 <= t <= hi + 2 and float(np.linalg.norm(w - t * ax)) <= AXLE_LDU:
+            return "stud in a pin hole", np.array([base, base + 4 * d])
+    return None
+
+
+def _pin_hole_key(b: Placed, base: np.ndarray, d: np.ndarray) -> tuple[float, ...]:
+    """Which hole of b a stud (base, direction, world) is in: the hole's line in b's frame
+    (a through hole is drawn as one primitive at each face; both are the same hole)."""
+    a = b.dir_local(d)
+    k = int(np.argmax(np.abs(a)))
+    if a[k] < 0:
+        a = -a
+    p = b.to_local(base)
+    p = p - float(np.dot(p, a)) * a
+    return (*np.round(p).tolist(), *np.round(a, 1).tolist())
+
+
 def _how(d_w: np.ndarray) -> str:
     if d_w[1] < -0.98:
         return "on top"
@@ -692,6 +1062,17 @@ def _world_bbox(p: Placed, grow: float) -> tuple[np.ndarray, np.ndarray]:
     )
     w = p.to_world(corners)
     return w.min(0) - grow, w.max(0) + grow
+
+
+def _really_overlap(a: Placed, b: Placed, bar_axis: np.ndarray | None = None) -> bool:
+    """The rough filled bodies of a and b overlap: do their real shapes (``solid``, with
+    studs) go into each other deeper than touching or a seated stud does? With ``bar_axis``
+    (the two ends of a hollow's axis that a bar of one is in), what they share within
+    ``BAR_RING`` LDU of that axis is the bar's fit in its hollow and does not count."""
+    from bricksnap.lab import solid
+
+    keep = None if bar_axis is None else (bar_axis[0], bar_axis[1], BAR_RING)
+    return solid.in_the_way((a.key, a.pos, a.m), (b.key, b.pos, b.m), apart=keep)
 
 
 def _overlap(a: Placed, b: Placed) -> tuple[float, np.ndarray | None]:
@@ -786,17 +1167,22 @@ def _ends(p: Placed, q: Placed, region: np.ndarray | None) -> set[str]:
         end = _GEO_END.get(c.kind)
         if end is None:
             continue
-        w = p.to_world(c.pos)
+        # an axle or a handle along its whole length; other connectors at their own place
+        w = p.to_world(c.points() if c.kind in ("axle", "bar handle") else c.pos[None, :])
         if region is not None:
             gap = np.maximum(np.maximum(region[0] - w, w - region[1]), 0)
-            if float(np.linalg.norm(gap)) <= 8:
+            if float(np.linalg.norm(gap, axis=1).min()) <= 8:
                 ends.add(end)
-        elif q.part.inside(q.to_local(w + _NEAR), tol=-0.5).any():
+        elif q.part.inside(
+            q.to_local((w[:, None, :] + _NEAR[None]).reshape(-1, 3)), tol=-0.5
+        ).any():
             ends.add(end)
     families = {_GEO_END[c.kind].rstrip("+-") for c in p.part.others if c.kind in _GEO_END}
     desc = p.part.description.lower()
     for word in p.part.name_joint_words():
         end = _NAME_END.get(word)
+        if word == "bar" and "bar tube" in desc:
+            end = "bar-"  # a "Bar Tube" is a tube a bar goes into, not a bar
         if end is None or end.rstrip("+-") in families:
             continue
         if end == "rim" and not desc.startswith("wheel"):
@@ -815,10 +1201,45 @@ def _joint_words(a: Placed, b: Placed, region: np.ndarray | None) -> list[str]:
     found = []
     for x, y in _FITS:
         if (x in ea and y in eb) or (y in ea and x in eb):
+            if x == "axle+" and not any(
+                _axle_in_hole(p, q) for p, q in ((a, b), (b, a)) if x in _ends(p, q, region)
+            ):
+                continue
             word = _END_WORDS[x.rstrip("+-")]
             if word not in found:
                 found.append(word)
     return found
+
+
+def _axle_in_hole(p: Placed, q: Placed) -> bool:
+    """Can an axle of p be in a hole of q? True unless p's axles are all ones the library
+    draws with axle-hole primitives (``ldraw_lib``: a part named "Technic Axle ..."): those
+    must run along an axle hole or pin hole of q, their lines parallel within
+    ``AXLE_DEG`` degrees and within ``AXLE_LDU`` LDU of each other, the hole's own reach
+    and the axle's length sharing ``AXLE_IN`` LDU or more (an axle that misses its hole, or
+    ends before it, is not a joint)."""
+    drawn = [c for c in p.part.others if c.kind == "axle"]
+    if not drawn or any(not AXLE_HOLE_PRIM.match(c.prim) for c in drawn):
+        return True
+    holes = [c for c in q.part.others if c.kind in ("axle hole", "pin hole")]
+    cos = math.cos(math.radians(AXLE_DEG))
+    for c in drawn:
+        d = p.m @ c.axis
+        o = p.to_world(c.pos)
+        lo, hi = sorted(c.along)
+        for h in holes:
+            hd = q.m @ h.axis
+            if abs(float(np.dot(d, hd))) < cos:
+                continue
+            w = q.to_world(h.pos) - o
+            t = float(np.dot(w, d))
+            if float(np.linalg.norm(w - t * d)) > AXLE_LDU:
+                continue
+            # the hole's own reach, along the axle, must overlap the axle's length
+            ha = sorted(t + float(np.dot(hd, d)) * np.array(h.along))
+            if min(hi, ha[1]) - max(lo, ha[0]) >= AXLE_IN:
+                return True
+    return False
 
 
 def _touches(a: Placed, b: Placed) -> bool:
@@ -960,12 +1381,35 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
     groups = _Groups([p.line for p in placed])
     checked_groups = _Groups([p.line for p in placed])
     stud_problem_pairs: set[tuple[int, int]] = set()
+    bar_held: dict[int, np.ndarray] = {}  # parts held as a bar in a hollow -> its axis
+    pin_holes: dict[tuple[float, ...], int] = {}  # (part, hole) -> the part whose stud is in it
+    slight: list[tuple[Placed, Placed, int, str]] = []  # slight overlaps: (a, b, issue, text)
     for a, b in pairs:
         linked = False
+        bar = None  # a bar-in-a-hollow joint between a and b: (its name, the hollow's axis)
         for holder, held in ((a, b), (b, a)):
             hits = _stud_hits(holder, held)
             good = [h for h in hits if h.ok]
-            bad = [h for h in hits if not h.ok]
+            bad = [h for h in hits if not h.ok and h.joint is None]
+            for h in hits:
+                if h.joint is not None and h.joint[0] == "stud in a pin hole":
+                    s = numbered_studs(holder.part)[h.stud - 1]
+                    d_w = holder.m @ s.axis
+                    key = (held.line, *_pin_hole_key(held, holder.to_world(s.pos), d_w))
+                    if pin_holes.setdefault(key, holder.line) != holder.line:
+                        # LEGO's rule: one stud in a pin hole
+                        h.joint = None
+                        h.reason = (
+                            f"go into a Technic pin hole of line {held.line} that already "
+                            f"takes a stud of line {pin_holes[key]} from its other end (a pin "
+                            "hole takes one stud)"
+                        )
+                        bad.append(h)
+                        continue
+                if h.joint is not None and bar is None:
+                    bar = h.joint
+                    if h.joint[0] != "stud in a pin hole":
+                        bar_held[held.line] = h.joint[1]
             if good:
                 linked = True
                 hows = {h.how for h in good}
@@ -1010,11 +1454,27 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                 f"{fmt(round(box[1][2]))}"
             )
             joint = _joint_words(a, b, box)
+            if not joint and bar is None:
+                bar = _held_bar(a, b, bar_held)
             base = (
                 f"{lab(a)} and {lab(b)} occupy the same space: about {int(round(vol, -1))} LDU^3, "
                 f"{share:.0%} of the smaller part, {where}."
             )
-            if joint:
+            twin = a.key == b.key and bool(
+                np.allclose(a.pos, b.pos, atol=0.5) and np.allclose(a.m, b.m, atol=0.01)
+            )
+            if twin:  # the same part twice in one place: never a joint
+                joint, bar = [], None
+                joint_pairs.add((a.line, b.line))  # nor anything else that joins them
+                report.issues.append(
+                    Issue(
+                        "problem",
+                        "overlap",
+                        [a.line, b.line],
+                        base + " They are the same part twice in the same place: remove one.",
+                    )
+                )
+            elif joint:
                 report.issues.append(
                     Issue(
                         "not checked",
@@ -1027,11 +1487,29 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                 )
                 groups.join(a.line, b.line)
                 joint_pairs.add((a.line, b.line))
+            elif bar is not None:
+                if (
+                    min(a.line, b.line),
+                    max(a.line, b.line),
+                ) not in stud_problem_pairs and _really_overlap(a, b, bar[1]):
+                    bar = None  # a bar in the hole, but the parts also collide
+                    report.issues.append(
+                        Issue(
+                            "problem",
+                            "overlap",
+                            [a.line, b.line],
+                            base + " Move one of them so they only touch.",
+                        )
+                    )
             elif vol < SMALL_OVERLAP and share < SMALL_SHARE:
                 report.issues.append(
                     Issue("warning", "overlap", [a.line, b.line], "Slight overlap: " + base)
                 )
-            elif (min(a.line, b.line), max(a.line, b.line)) not in stud_problem_pairs:
+                slight.append((a, b, len(report.issues) - 1, base))
+            elif (
+                min(a.line, b.line),
+                max(a.line, b.line),
+            ) not in stud_problem_pairs and _really_overlap(a, b):
                 report.issues.append(
                     Issue(
                         "problem",
@@ -1040,6 +1518,27 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                         base + " Move one of them so they only touch.",
                     )
                 )
+        if bar is None and not linked and (a.line, b.line) not in joint_pairs:
+            # a bar in a hollow where the rough bodies do not overlap (a thin bar)
+            bar = _held_bar(a, b, bar_held)
+        if bar is not None and (a.line, b.line) not in joint_pairs:
+            report.issues.append(
+                Issue(
+                    "not checked",
+                    "joint",
+                    [a.line, b.line],
+                    f"{short(a)} and {short(b)}: a {bar[0]} joint, which the checker cannot "
+                    + (
+                        "confirm (the stud points along the hole's axis). "
+                        if bar[0].startswith("stud")
+                        else "confirm (the bar is on the hollow's axis, in far enough and no "
+                        "thicker than a bar). "
+                    )
+                    + "Counted as joined.",
+                )
+            )
+            groups.join(a.line, b.line)
+            joint_pairs.add((a.line, b.line))
         # joints that cannot be checked
         words = [] if linked or (a.line, b.line) in joint_pairs else _joint_words(a, b, None)
         if words and (_touches(a, b) or _touches(b, a)):
@@ -1054,6 +1553,20 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                 )
             )
             groups.join(a.line, b.line)
+
+    # a part held only as a bar in a hollow must not go on along that bar into another
+    # part: a slight overlap on the line of its hollow (a bar pushed on through a plate's
+    # top below the hollow) is measured on the real shapes
+    for a, b, k, base in slight:
+        if any(
+            _bar_goes_on(p, q, bar_held[p.line]) for p, q in ((a, b), (b, a)) if p.line in bar_held
+        ):
+            report.issues[k] = Issue(
+                "problem",
+                "overlap",
+                [a.line, b.line],
+                base + " Move one of them so they only touch.",
+            )
 
     # the ground
     lowest: dict[int, float] = {}

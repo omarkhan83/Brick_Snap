@@ -10,7 +10,7 @@ section (``report.movement``), how far each joint really goes (``report.reach``:
 (``report.moving_ok``). A model with no joint lines gets nothing from it. (Its report
 differs from the one before joints existed in one way: ``validate`` learnt that a
 turntable's top and base go into one another by design, so a turntable is a "not checked"
-joint there rather than an overlap problem.)
+joint there rather than an overlap problem; ``validate``'s own later fixes are its own.)
 
 Geometry: every comparison uses the parts' real shapes WITH their studs (``solid``): a part
 is in the way of another when a point of one's real surface is DEEP inside the other's

@@ -250,6 +250,392 @@ def test_clip_and_bar_are_not_checked_but_joined():
     assert any(i.kind == "joint" and "bar in a clip" in i.text for i in r.unchecked)
 
 
+# ---- false alarms seen on official sets (experiment 3), each beside its wrong twin ----------
+
+
+def unchecked_words(report) -> list[str]:
+    return [i.text for i in report.unchecked if i.kind == "joint"]
+
+
+def test_real_shapes_tell_touching_from_overlapping():
+    from bricksnap.lab import solid
+
+    up = np.eye(3)
+
+    def placed(key, x, y, z):
+        return (key, np.array([x, y, z], dtype=float), up)
+
+    # a plate seated on a plate's studs shares nothing; side by side they only touch
+    d, _, need = solid.interference(placed("3020.dat", 0, -8, 0), placed("3020.dat", 0, -16, 0))
+    assert d == 0
+    d, _, _ = solid.interference(placed("3001.dat", 0, -24, 0), placed("3001.dat", 0, -24, 40))
+    assert d <= 0.5 < need
+    # pushed half a plate (4 LDU) into it, or sideways by 4: a 4 LDU wall is shared
+    for b in (placed("3020.dat", 0, -12, 0), placed("3020.dat", 0, -8, 36)):
+        d, v, need = solid.interference(placed("3020.dat", 0, -8, 0), b)
+        assert d >= 2.0 > need and v > 1000
+    assert solid.in_the_way(placed("3001.dat", 0, -24, 0), placed("3001.dat", 0, -24, 38))
+    assert not solid.in_the_way(placed("3001.dat", 0, -24, 0), placed("3001.dat", 0, -48, 0))
+
+
+SLOPE_OVER_PLATE_END = [
+    line(4, 0, -24, 0, "3001.dat"),
+    line(1, 20, -32, 10, "3023b.dat"),  # under the slope's higher half only
+    line(14, 20, -24, 0, "15068.dat"),  # its lower half on the brick's studs
+]
+
+
+def test_curved_slope_over_a_plate_end_only_touches():
+    r = check("\n".join(SLOPE_OVER_PLATE_END))
+    assert r.ok, r.text()
+
+
+def test_curved_slope_sunk_a_plate_into_the_plate_is_an_overlap():
+    sunk = SLOPE_OVER_PLATE_END[:2] + [line(14, 20, -16, 0, "15068.dat")]
+    r = check("\n".join(sunk))
+    assert any(i.kind == "overlap" and i.lines == [2, 3] for i in r.problems)
+
+
+BESIDE_A_FLANGE = [
+    line(4, 0, -8, 0, "3020.dat"),
+    line(1, 0, -16, 10, "3023b.dat"),
+    line(2, 0, -24, 10, "3023b.dat"),
+    line(14, 0, -32, 10, "99781.dat"),  # its flange hangs down in front of the two plates
+]
+
+
+def test_plates_against_a_brackets_flange_only_touch():
+    r = check("\n".join(BESIDE_A_FLANGE))
+    assert r.ok, r.text()
+
+
+def test_a_plate_pushed_into_a_brackets_flange_is_reported():
+    pushed = BESIDE_A_FLANGE[:3] + [line(14, 0, -32, 14, "99781.dat")]
+    r = check("\n".join(pushed))
+    assert not r.ok and any(4 in i.lines for i in r.problems if i.kind in ("overlap", "stud"))
+
+
+BAR_IN_OPEN_STUDS = [
+    line(4, 0, -24, 0, "3062b.dat"),  # round brick with an open stud
+    line(15, 0, -32, 0, "85861.dat"),  # round plate with an open stud
+    line(15, 0, -84, 0, "87994.dat"),  # Bar 3L through the plate, into the brick's stud
+]
+
+
+def test_a_bar_in_an_open_stud_is_a_joint_not_checked():
+    r = check("\n".join(BAR_IN_OPEN_STUDS))
+    assert r.ok, r.text()
+    words = unchecked_words(r)
+    assert any("line 2 (85861.dat) and line 3" in w and "bar in an open stud" in w for w in words)
+
+
+def test_a_bar_beside_the_stud_is_not_held():
+    beside = BAR_IN_OPEN_STUDS[:2] + [line(15, 10, -96, 0, "87994.dat")]
+    r = check("\n".join(beside))
+    assert any(i.kind == "loose" and i.lines == [3] for i in r.problems)
+    assert not any("bar in" in w for w in unchecked_words(r))
+
+
+def test_a_pin_is_too_thick_for_an_open_stud():
+    pin = BAR_IN_OPEN_STUDS[:2] + [line(15, 0, -36, 0, "3673.dat", "0 1 0 -1 0 0 0 0 1")]
+    r = check("\n".join(pin))
+    assert any(i.kind == "stud" and i.lines == [2, 3] for i in r.problems)
+    assert "loose" in kinds(r)
+
+
+def test_a_bar_through_a_round_bricks_middle():
+    r = check(
+        "\n".join(
+            [
+                line(4, 0, -8, 0, "3022.dat"),
+                line(15, 0, -32, 0, "3941.dat"),
+                line(15, 0, -76, 0, "87994.dat"),
+            ]
+        )
+    )
+    assert r.ok, r.text()
+    assert any("bar in an axle hole" in w for w in unchecked_words(r))
+
+
+def test_a_claw_standing_in_an_open_stud():
+    claw = [
+        line(4, 0, -24, 0, "3005.dat"),
+        line(15, 0, -32, 0, "85861.dat"),
+        line(0, 0, -38, 0, "10187.dat", "0 0 1 0 1 0 -1 0 0"),  # its bar-shaped end down
+    ]
+    r = check("\n".join(claw))
+    assert r.ok, r.text()
+    assert any("bar in an open stud" in w for w in unchecked_words(r))
+    # on a plain stud (no hollow) the same claw collides
+    solid_stud = [claw[0], line(15, 0, -32, 0, "6141.dat"), claw[2]]
+    on_solid = check("\n".join(solid_stud))
+    assert any(i.kind == "stud" and i.lines == [2, 3] for i in on_solid.problems)
+
+
+def test_a_bar_tube_takes_a_bar():
+    from bricksnap.lab.validate import Placed, _ends
+
+    lib = ldraw_lib.library()
+    p = lib.part("23443.dat")  # Bar Tube with Handle: a tube for a bar, and a handle
+    tube = Placed(1, 2, np.zeros(3), np.eye(3), "23443.dat", "23443.dat", p, 0)
+    assert {"bar-", "bar+"} <= _ends(tube, tube, np.zeros((2, 3)))
+
+
+TURN_X = "0 0 -1 0 1 0 1 0 0"
+AXLE_AND_WHEELS = [
+    line(72, 10, -40, 0, "3700.dat", TURN_X),  # holes along x, at y -30
+    line(72, -10, -40, 0, "3700.dat", TURN_X),
+    line(71, 0, -30, 0, "44294.dat"),  # Technic Axle 7, through both holes
+    line(15, 60, -30, 0, "55982.dat", TURN_X),
+    line(0, 60, -30, 0, "89201.dat", TURN_X),
+    line(15, -60, -30, 0, "55982.dat", "0 0 1 0 1 0 -1 0 0"),
+    line(0, -60, -30, 0, "89201.dat", "0 0 1 0 1 0 -1 0 0"),
+]
+
+
+def test_axles_are_read_as_axles(lib):
+    for key in ("44294.dat", "3704.dat"):
+        assert {c.kind for c in lib.part(key).others} == {"axle"}
+    assert {c.kind for c in lib.part("43093.dat").others} == {"axle", "pin"}  # axle pin
+    assert {c.kind for c in lib.part("3713.dat").others} == {"axle hole"}  # a bush
+    assert {c.kind for c in lib.part("6538b.dat").others} == {"axle hole"}  # a joiner
+
+
+def test_an_axle_through_a_brick_carrying_wheels():
+    r = check("\n".join(AXLE_AND_WHEELS))
+    assert r.ok, r.text()
+    axle = [w for w in unchecked_words(r) if "axle joint" in w]
+    assert len(axle) == 4  # two bricks, two wheels
+
+
+def test_an_axle_that_misses_the_hole_is_reported():
+    missed = list(AXLE_AND_WHEELS)
+    missed[2] = line(71, 0, -38, 0, "44294.dat")  # 8 LDU above the holes' line
+    r = check("\n".join(missed))
+    assert any(i.kind == "overlap" and i.lines == [1, 3] for i in r.problems)
+    assert any(i.kind == "loose" and 3 in i.lines for i in r.problems)
+    assert not any("axle joint" in w for w in unchecked_words(r))
+
+
+CUTOUT = "0 0 -1 0 1 0 1 0 0"  # 29120 turned: its cutout end towards +x
+
+
+def test_a_stud_under_a_slope_with_a_cutout(lib):
+    from bricksnap.lab.place import sockets
+    from bricksnap.lab.validate import stud_grid
+
+    part = lib.part("29120.dat")
+    assert stud_grid(part) == (0.0, 10.0)  # cells at z -10 and 10, from its flush end
+    assert part.socket_phase() == (0.0, 13.0)  # what place numbers sockets by: unchanged
+    # the same two sockets, in the same order, now on the checker's grid
+    assert [round(float(s.pos[2])) for s in sockets(part)] == [-10, 10]
+    r = check(line(72, 0, -8, 0, "3022.dat") + "\n" + line(72, 20, 0, 10, "29120.dat", CUTOUT))
+    assert r.ok, r.text()
+
+
+def test_a_slope_with_a_cutout_half_a_stud_off_is_reported():
+    r = check(line(72, 0, -8, 0, "3022.dat") + "\n" + line(72, 30, 0, 10, "29120.dat", CUTOUT))
+    stud = next(i for i in r.problems if i.kind == "stud")
+    assert "10 LDU off" in stud.text
+
+
+TOOTH_ON_SIDE = "1 0 0 0 0 1 0 -1 0"  # its stud points along +z
+
+
+def test_a_stud_in_a_technic_pin_hole():
+    brick = line(72, 0, -24, 0, "32000.dat")  # pin holes along z at x -10 and 10, y -14
+    r = check(brick + "\n" + line(15, -10, -14, -10, "49668.dat", TOOTH_ON_SIDE))
+    assert r.ok, r.text()
+    assert any("stud in a pin hole" in w for w in unchecked_words(r))
+    off = check(brick + "\n" + line(15, -6, -14, -10, "49668.dat", TOOTH_ON_SIDE))
+    assert any(i.kind == "stud" for i in off.problems) and "loose" in kinds(off)
+
+
+def test_the_same_part_twice_is_an_overlap_even_when_it_joins_by_hinges():
+    hinge = line(8, 0, -8, 0, "3937.dat")  # hinge brick base: joins by a hinge
+    r = check(hinge + "\n" + hinge)
+    over = next(i for i in r.problems if i.kind == "overlap")
+    assert over.lines == [1, 2] and "same part twice" in over.text
+    assert not r.unchecked
+
+
+# ---- the limits of a bar in a hollow (the review's cases): each fails if its limit loosens --
+
+
+def joined_by_bar(report, lines) -> bool:
+    return any(
+        i.kind == "joint" and i.lines == lines and "bar in" in i.text for i in report.unchecked
+    )
+
+
+OPEN_STUD_PLATE = [line(7, 0, -8, 0, "3036.dat"), line(14, 10, -16, 10, "85861.dat")]
+
+
+def bar_at(y: float, extra: str = "") -> str:
+    return line(1, 10, y, 10, "87994.dat") + extra
+
+
+def test_a_bar_must_be_in_the_open_stud_its_depth_less_one():
+    # the stud's base is at y -16, its tip at -20; Bar 3L is 60 long, its end at y + 60
+    for into, joined in ((4, True), (3, True), (2, False), (1, False)):
+        r = check("\n".join([*OPEN_STUD_PLATE, bar_at(-76 - (4 - into))]))
+        assert joined_by_bar(r, [2, 3]) == joined, into
+        assert (not r.problems) == joined, into
+
+
+def test_an_upper_half_hung_on_a_bar_entering_by_1_is_loose():
+    upper = [
+        line(1, 10, -79, 10, "87994.dat"),
+        line(2, 10, -80, 20, "4085c.dat"),
+        line(2, 0, -88, 30, "3020.dat"),
+        line(2, 0, -112, 30, "3001.dat"),
+    ]
+    r = check("\n".join([*OPEN_STUD_PLATE, *upper]))
+    assert any(i.kind == "loose" and 3 in i.lines for i in r.problems)
+
+
+def test_a_bar_leaning_5_degrees_in_an_open_stud_is_not_held():
+    m = "0.99619 -0.08716 0 0.08716 0.99619 0 0 0 1"
+    lean = line(1, 15.22934, -75.77168, 10, "87994.dat", m)  # its end on the stud's base
+    r = check("\n".join([*OPEN_STUD_PLATE, lean]))
+    assert not joined_by_bar(r, [2, 3]) and r.problems
+    # turned about a point 8 LDU above the stud's base: never 1 LDU off the axis there,
+    # but leaning 5 degrees
+    pivot = line(1, 14.5297, -75.7714, 10, "87994.dat", m)
+    r = check("\n".join([*OPEN_STUD_PLATE, pivot]))
+    assert not joined_by_bar(r, [2, 3]) and r.problems
+
+
+def test_a_plate_floating_2_above_a_jumper_is_not_held():
+    base = [line(7, 0, -8, 0, "3036.dat"), line(14, 0, -16, -30, "3794b.dat")]
+    seated = check("\n".join([*base, line(1, 0, -24, -30, "3023b.dat")]))
+    assert seated.ok and joined_by_bar(seated, [2, 3])
+    floating = check("\n".join([*base, line(1, 0, -26, -30, "3023b.dat")]))
+    assert any(i.kind == "loose" and i.lines == [3] for i in floating.problems)
+
+
+def test_a_bar_driven_through_a_bricks_top_is_an_overlap():
+    r = check(line(4, 0, -24, 0, "3003.dat") + "\n" + line(1, 0, -72, 0, "87994.dat"))
+    assert any(i.kind == "overlap" and i.lines == [1, 2] for i in r.problems)
+    assert not joined_by_bar(r, [1, 2])
+
+
+def test_a_bar_driven_past_a_jumpers_4_deep_stud_is_reported():
+    r = check(
+        "\n".join(
+            [
+                line(4, 0, -24, 0, "3003.dat"),
+                line(14, 0, -32, 10, "3794b.dat"),
+                line(1, 0, -88, 10, "87994.dat"),  # 8 into a stud whose hollow is 4 deep
+            ]
+        )
+    )
+    assert not r.ok and not joined_by_bar(r, [2, 3])
+
+
+def test_a_bar_down_a_round_bricks_middle_and_on_into_the_plate_is_reported():
+    text = [
+        line(7, 0, -8, 0, "3036.dat"),
+        line(14, 0, -32, 0, "3941.dat"),
+        line(1, 0, -82, 0, "30374.dat"),  # 80 long: 6 LDU on into the plate's top
+    ]
+    r = check("\n".join(text))
+    assert any(i.kind == "overlap" and i.lines == [1, 3] for i in r.problems)
+    text[2] = line(1, 0, -88, 0, "30374.dat")  # down to the plate's top: fine
+    assert check("\n".join(text)).ok
+
+
+CAT = (
+    Path(__file__).parent.parent
+    / "docs/research/2026-11-19-ai-as-the-builder/with-tools/our-cat.ldr"
+)
+
+
+def moved(text: str, n: int, dx: float = 0, dy: float = 0) -> str:
+    lines = text.splitlines()
+    t = lines[n - 1].split()
+    t[2], t[3] = str(float(t[2]) + dx), str(float(t[3]) + dy)
+    lines[n - 1] = " ".join(t)
+    return "\n".join(lines)
+
+
+def test_a_whisker_moved_into_a_side_stud_at_an_angle_is_not_a_bar_joint():
+    cat = CAT.read_text()
+    assert check(cat).ok
+    r = check(moved(cat, 127, dx=4))
+    assert any(127 in i.lines for i in r.problems)
+
+
+def test_a_surface_along_the_axis_is_not_a_bar():
+    # the hinge base moved up 8: an open side stud's axis runs along its round outside
+    r = check(moved(CAT.read_text(), 126, dy=-8))
+    assert any(i.kind == "stud" and i.lines == [77, 126] for i in r.problems)
+
+
+AXLE_IN_BRICK = [line(7, 0, -8, 0, "3036.dat"), line(14, 0, -32, 10, "3700.dat")]
+
+
+def test_an_axle_askew_3_degrees_joins_8_does_not():
+    m3 = "0 0 1 0.05234 0.99863 0 -0.99863 0.05234 0"
+    m15 = "0 0 1 0.13917 0.99027 0 -0.99027 0.13917 0"  # 8 degrees
+    ok = check("\n".join([*AXLE_IN_BRICK, line(1, 0, -22, 10, "3705.dat", m3)]))
+    assert ok.ok and any("axle joint" in w for w in unchecked_words(ok))
+    bad = check("\n".join([*AXLE_IN_BRICK, line(1, 0, -22, 10, "3705.dat", m15)]))
+    assert not bad.ok and not any("axle joint" in w for w in unchecked_words(bad))
+
+
+def test_a_bush_2_beyond_the_axles_end_is_not_on_it():
+    axle = line(1, 0, -22, 10, "3705.dat", "0 0 1 0 1 0 -1 0 0")
+    r = check("\n".join([*AXLE_IN_BRICK, axle, line(2, 0, -22, 61.5, "3713.dat")]))
+    assert any(i.kind == "loose" and i.lines == [4] for i in r.problems)
+    on = check("\n".join([*AXLE_IN_BRICK, axle, line(2, 0, -22, 40, "3713.dat")]))
+    assert on.ok
+
+
+def test_two_studs_in_one_pin_hole_the_second_is_reported():
+    text = [
+        *AXLE_IN_BRICK,
+        line(1, 0, -22, 0, "3024.dat", "1 0 0 0 0 1 0 -1 0"),  # stud in from the front
+        line(2, 0, -22, 20, "3024.dat", "1 0 0 0 0 -1 0 1 0"),  # and one from the back
+    ]
+    r = check("\n".join(text))
+    stud = next(i for i in r.problems if i.kind == "stud")
+    assert stud.lines == [4, 2] and "takes one stud" in stud.text
+    assert check("\n".join(text[:3])).ok
+
+
+def test_place_seats_parts_with_a_cutout_where_the_checker_wants_them(lib):
+    from bricksnap.lab.place import place, sockets
+    from bricksnap.lab.validate import numbered_studs
+
+    base = line(7, 0, -8, 0, "3031.dat")
+    for key in ("29120.dat", "29119.dat", "6044.dat", "3388.dat", "28920.dat", "39739.dat"):
+        p = lib.part(key)
+        # how many studs and sockets, and their order, are as before (positions of the
+        # sockets move onto the checker's grid)
+        assert len(sockets(p)) >= 1 and len(numbered_studs(p)) == len(p.studs)
+        for turn in range(4):
+            placed = place(base, key, 4, 1, stud=6, turn=turn)
+            r = check(base + "\n" + placed.line)
+            assert r.ok, (key, turn, r.text())
+
+
+def test_the_line_about_parts_held_only_by_unchecked_joints_is_never_cut():
+    from bricksnap.lab.validate import MAX_OTHERS
+
+    clip = "60897.dat"  # each plate carries a clip with a bar standing in it
+    text = []
+    for k in range(MAX_OTHERS + 5):
+        text.append(line(4, 40 * k, -24, 0, "3005.dat"))  # a 1 x 1 brick under each
+        text.append(line(72, 40 * k, -32, 0, clip))
+        text.append(line(0, 40 * k, -84, -20, "87994.dat"))
+    r = check("\n".join(text))
+    out = r.text()
+    assert "joined to what stands on the ground only through those joints" in out
+    assert "more joints of the same sort (5 bar in a clip)" in out
+    assert "only by joints the checker cannot confirm" in r.summary()
+
+
 def test_report_text_sections():
     r = check(line(4, 0, -24, 0, "3001.dat") + "\n" + line(1, 10, -48, 0, "3001.dat"))
     text = r.text()

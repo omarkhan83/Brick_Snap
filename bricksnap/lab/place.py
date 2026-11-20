@@ -10,7 +10,12 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   own frame: every centre of a stud cell (the part's stud grid) where the checker would
   accept a stud pointing up, in the same row order; then every open tube or ring that is not
   already one of those (the tube in the middle of a 2 x 2 brick, the rings of a plant leaf).
-  A socket is a point on the part's underside: where the base of the stud goes.
+  A socket is a point on the part's underside: where the base of the stud goes. Which
+  sockets there are, and their numbers, come from ``Part.socket_phase``'s grid; each grid
+  socket then sits on the nearest cell of the grid the checker seats studs on
+  (``validate.stud_grid``), which differs only for a part with no top studs whose box is
+  not whole studs (a curved slope with a cutout): placed with ``place``, such a part passes
+  the check.
 
 ``place(text, part, colour, line, ...)`` -> ``Placement`` (the finished LDraw line and a
 sentence saying what was done), or raises ``PlaceError`` in plain words. ``text`` is the
@@ -42,6 +47,7 @@ from bricksnap.lab.validate import (
     _perp,
     _stud_probe,
     numbered_studs,
+    stud_grid,
 )
 
 QUARTER = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
@@ -98,7 +104,7 @@ def sockets(part: Part) -> list[Socket]:
                 if part.inside(_stud_probe(base, up), tol=0.25).any() and part.is_socket(
                     float(x), float(z), float(base[1])
                 ):
-                    out.append(Socket(base, "grid"))
+                    out.append(Socket(_on_checker_grid(part, base, (px, pz)), "grid"))
     for t in part.tubes:
         if not t.open or t.end is None or t.axis[1] < 0.98:
             continue
@@ -106,6 +112,26 @@ def sockets(part: Part) -> list[Socket]:
             continue
         out.append(Socket(t.end.copy(), "tube"))
     return out
+
+
+def _on_checker_grid(part: Part, base: np.ndarray, phase: tuple[float, float]) -> np.ndarray:
+    """A socket found on ``socket_phase``'s grid, moved to the nearest cell of the grid the
+    checker seats studs on (``validate.stud_grid``; they differ only for a part with no top
+    studs and a cutout or overhang), at the underside there. The sockets keep their numbers."""
+    gx, gz = stud_grid(part)
+    dx = ((gx - phase[0] + 10) % 20) - 10
+    dz = ((gz - phase[1] + 10) % 20) - 10
+    if abs(dx) < 1e-9 and abs(dz) < 1e-9:
+        return base
+    x, z = float(base[0] + dx), float(base[2] + dz)
+    u, v = _perp(np.array([0.0, -1.0, 0.0]))
+    c = np.array([x, 0.0, z])
+    bottoms = [
+        b
+        for q in (c, c + 4 * u, c - 4 * u, c + 4 * v, c - 4 * v)
+        if (b := part.bottom_at(float(q[0]), float(q[2]))) is not None
+    ]
+    return np.array([x, max(bottoms) if bottoms else float(base[1]), z])
 
 
 def _rot_between(a: np.ndarray, b: np.ndarray) -> np.ndarray:

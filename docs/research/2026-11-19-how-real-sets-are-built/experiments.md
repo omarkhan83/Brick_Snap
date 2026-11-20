@@ -220,6 +220,160 @@ listed its two as "not checked".
    41596 passes outright; with A, B and D the other BrickHeadz would be left with 4 and 12 problems
    that were not looked at closely (jumpers again, and printed tiles 3 LDU off on jumper plates).
 
+### After the fixes (20 November 2026)
+
+The checker was changed (branch `wip/Alec-42-checker`; the rules are in the CONTRACT comments
+of `bricksnap/lab/validate.py`, `ldraw_lib.py` and `solid.py`): (A) an overlap of the filled
+bodies counts only when the real shapes share a piece at least 1.5 LDU thick; (B) a bar in an
+open stud, an open tube, an axle hole, a pin hole or a pin's end is a "not checked" joint when
+the other part comes in through an end, is bar-thin and in at least the hollow's depth less
+1 LDU (3 of an open stud's 4), centred and leaning less than 4 degrees, and shares nothing
+with the holder outside the hollow's own space (tightened after an independent review: a bar
+driven through a brick's top, entering a stud by 1 LDU or leaning was first let through);
+a "Bar Tube" is a tube; (C) a part named "Technic Axle ..." has axles where the library draws axle-hole
+primitives, and an axle joins only along a hole's line; (D) a part with no top studs and a box
+that is not whole studs takes its stud grid from the end of its box that is on the grid. Two
+small ones from the leftovers: (E) a stud in a Technic pin hole is a "not checked" joint; (H)
+an axle or a bar handle counts along its whole length. The model files were fetched again
+from the OMR (the earlier copies were lost with a temporary folder); flattened, all 18 have the
+part counts above, and the checker before the change gives exactly the numbers above.
+
+**The six sets, before and after** (before = `main` at e48ee30, after = the branch; the same
+files):
+
+| Set | Parts | Problems before | after | After, by cause | Not checked after | No complaint before | after |
+|---|---:|---:|---:|---|---|---:|---:|
+| 41596 BrickHeadz figure | 116 | 10 | **0** | | none | 87% | 100% |
+| 40441 BrickHeadz cats | 250 | 45 | 4 | 4 (i) irregular socket (F) | bar in an open stud 6, bar in a clip 2, hinge 2 | 53% | 97% |
+| 31072 racing car | 109 | 58 | 3 | 1 (i) irregular socket (F); 2 (iii) T-piece and steering wheel (G) | axle 12, bar in a clip 8, Technic pin 4, tyre 4 | 0% | 96% |
+| 21026 Venice | 210 | 21 | **0** | | bar in an open stud 6, stud in a pin hole 4, bar in a clip 1, bar in a tube 1 | 90% | 100% |
+| 10349 Happy Plants | 217 | 60 | 7 | 5 (iii) shields (G); 2 (iv) plants on a handle (below) | bar in a clip 33, Technic pin 9, bar in an open stud 9, bar in a pin hole 5, bar in an axle hole 3, axle 2, bar in a tube 2, bar in a pin's end 1 | 59% | 71% |
+| 75075 walker | 83 | 21 | 5 | 5 (iv) the round plate on the bracket and what follows | Technic pin 10, bar in an open stud 8, bar in a clip 4, hinge 1 | 0% | 92% |
+| **All six** | **985** | **215** | **19** | | | **56%** | **92%** |
+
+What went: all of (A) (77 by the sorting above), 58 of the 60 of (B), all of (C) (27; the car
+is no longer loose) and (D) (19), the 8 of (E), the turned clip (H), and the 3 kitten
+problems of kind (iv), which the change settles: the 1 x 2 part's solid middle tube goes into
+the jumper's open stud, a real technique, now a "bar in an open stud" joint. The walker's body
+(68 parts) and the car (92) are no longer "loose". The BrickHeadz figure 41596 passes with no
+problems, as predicted.
+
+What is left (19, against the 32 predicted): the irregular sockets (F, 5), the parts whose
+clips and bars the library does not record (G, 7: five shields, the T-piece and the steering
+wheel; their overlaps went with (A), the parts are still loose), the round plate on the
+walker's bracket (iv, 5), and, new, two plant groups of 10349 (38 and 20 parts) that the
+sorting had put under (B): each plant's 2 x 2 round plate with axle hole sits on the handle of
+a "Tile 1 x 2 with Handle", the handle across the plate's underside, touching it and nothing
+else. The checker knows no joint there and could not settle whether there is one (iv).
+
+**All 18 official models**: problems before 10 to 154, median 51 (1,000 in all); after 0 to 37,
+median **12** (243 in all): 0, 4, 3, 0, 7, 5 for the six, and 3, 7, 17, 13, 12, 31, 12, 27, 14,
+37, 22, 29 for 40379, 75966, 41498, 21036, 31045, 40433, 41092, 75892, 75895, 76897, 31066
+and 60067 (not sorted by cause). Seven of these the first version of the change had let
+through and the tightened bar rule reports again, as `main` did: two cones whose open stud
+holds only a short piece of another part, inside it, not coming in from outside (41498, two
+stud problems and the two parts loose); a stud of a rotor half a stud off a curved slope
+(75892); a jumper under a plane's front whose middle feature sits off the stud's axis
+(60067); and a domed cylinder whose bar in an axle pin's end goes on 4 LDU into the pin's
+solid axle end (40433; `main` gave it as a slight-overlap warning). None was looked at in the
+pictures; all are reported by `main` too, except the last, which `main` only warned about.
+
+**It is still a checker, about as strict as before** (`scripts/exp_mutate.py`, and the
+reviewer's finer run). Each of the six sets and the eight AI builds that pass (`with-tools/`,
+`hybrid/duck.ldr`) was mutated one change at a time, 12 parts by lot per model and class, and
+checked by both versions. A mutation is caught when a new problem names the changed part (any
+new problem for a removal). Two readings: (A) a "loose" problem counts only when it makes
+loose a part that was not loose before; (S, strict) any new problem counts. Reading A holds
+`main`'s count down, because `main` wrongly calls the car and the walker wholly loose and
+every change there only changes the loose group; reading S flatters `main` for the same
+reason. The honest reading of the two together is **level**, not "caught more often".
+
+The study's own run (2,352 mutations; after the review's fixes):
+
+| Mutation | Made | A: main | branch | no longer caught | newly caught | S: main | branch | no longer caught |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| copy in the same place | 168 | 167 | 168 | 0 | 1 | 167 | 168 | 0 |
+| move 4 / 8 / 20 along x | 504 | 451 | 463 | 0 | 12 | 461 | 466 | 1 |
+| move 4 / 8 / 20 up | 504 | 451 | 476 | 2 | 27 | 473 | 480 | 4 |
+| move 4 / 8 / 20 along z | 504 | 441 | 449 | 5 | 13 | 452 | 452 | 7 |
+| sink 4 / 8 | 336 | 307 | 317 | 0 | 10 | 315 | 318 | 3 |
+| quarter turn in place | 168 | 123 | 126 | 0 | 3 | 124 | 127 | 0 |
+| remove a part others stand on | 168 | 35 | 44 | 1 | 10 | 64 | 44 | 20 |
+| **All** | **2,352** | **1,975** | **2,043** | **8** | **76** | **2,056** | **2,055** | **35** |
+
+The reviewer's finer run (3,339 mutations: moves of 1, 2 and 10 LDU, tilts of 5 and 15
+degrees, the next size of part, a bar, axle or pin-hole joint pulled 8 and 20 LDU apart, one
+side of such a joint taken away):
+
+| Mutation | Made | A: main | branch | no longer caught | newly caught | S: main | branch | no longer caught |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| move 1 (x, z, up, down) | 672 | 103 | 28 | 82 | 7 | 103 | 28 | 82 |
+| move 2 (x, z, up, down) | 672 | 623 | 641 | 2 | 20 | 633 | 642 | 6 |
+| move 10 (x, z) | 336 | 319 | 323 | 1 | 5 | 321 | 324 | 2 |
+| tilt 5 (x, y, z) | 504 | 151 | 159 | 1 | 9 | 153 | 160 | 2 |
+| tilt 15 (x, y, z) | 504 | 437 | 447 | 0 | 10 | 440 | 448 | 0 |
+| next size | 164 | 164 | 160 | 4 | 0 | 164 | 160 | 4 |
+| joint pulled 8 apart | 195 | 129 | 172 | 5 | 48 | 133 | 172 | 8 |
+| joint pulled 20 apart | 195 | 135 | 176 | 2 | 43 | 150 | 185 | 3 |
+| one side of a joint taken away | 97 | 18 | 22 | 6 | 10 | 52 | 51 | 20 |
+| **All** | **3,339** | **2,079** | **2,128** | **103** | **152** | **2,149** | **2,170** | **127** |
+
+Every mutation caught before and not after (reading A), by cause (the reviewer's run first,
+103; then the study's own, 8):
+- **A part moved 1 LDU (82)**, sideways (74) or down or up (8), into its neighbour: `main` saw it
+  through the filled bodies, which flag the same one-column overlap at every part that only
+  touches (the 77 false problems of kind (A)). On the real shapes a 1 LDU overlap is a shared
+  film two voxels thick, the same as two faces that touch, so the change cannot tell them
+  apart: interference thinner than 1.5 LDU (0.6 mm) is not reported (stated in `solid.py`'s
+  contract). The ordinary stud check passes a stud 1 LDU off too (it allows 1.5). This is the
+  weakest point of the change; telling a 1 LDU overlap from touching needs finer voxels where
+  the filled bodies flag a pair, a follow-up.
+- **Something now held by a joint `main` did not know (11)**: the walker's dishes slid 2 LDU
+  up the leg's bar, pulled 8 along it, or left on the bar when the dish under them is taken
+  away (9; the bar through the dish's open stud holds it, as in the set, and `main` called
+  them loose because a bar in an open stud was no joint); two axle pins in 10349 left when the
+  brick their pin end was in is taken away (2): their axle ends are now axles, joined to the
+  part they go into, where `main` read them as holes.
+- **An overlap of the filled bodies whose real shapes share less than 1.5 LDU (4)**: a grille
+  brick tilted 5 degrees in `car` (its real shapes touch); an axle pin pulled 8 or 20 out of
+  its brick in 31072 and 10349, still a pin joint by an older rule (a pin near a hole).
+- **The next size (4)**: a 1 x 2 tile on two open side studs swapped for a 1 x 3 tile, whose
+  underside pins then stand in the two open studs, half a stud along: buildable (the jumper's
+  technique).
+- **The half pin with a bar** (75075 line 109; the library draws its pin's tip as an open stud)
+  pulled 2 or 10 LDU along its hole (2): the pin is still in the hole.
+- In the study's own run: the same dish slid 4 or 8 up its bar and dish 92 left on it (3); the
+  same half pin pulled 4, 8 or 20 (3; at 20 only its tip, 4 LDU, is in the hole, read as a
+  stud in a pin hole); the plate with a wheel pin in `our-car` moved 20 along the car (2):
+  caught before only by a false overlap with the mudguard, whose real shapes do not meet; the
+  real fault, the wheel pin out of its wheel, is missed by both versions by the older rule that
+  a wheel pin near a wheel is a "not checked" joint.
+
+A loss found on the way and fixed: a part copied in place that joins by a hinge or pin was a
+"not checked" joint with itself (in both versions); the same part twice in one place is now
+always an overlap.
+
+Each limit of the bar rule, the axle rule, the pin hole and the overlap depth has a test that
+fails when the limit is loosened (`scripts/` holds no such run; it was done by editing a copy
+of the code: `BAR_RING` 5 to 8 or 4, `BAR_PLAY` 1 to 3, `BAR_DEG` 4 to 45, `BAR_OFF` 1 to 4,
+the real-shape test outside the hollow dropped, the bar-goes-on test dropped, `AXLE_DEG` 5 to
+45, `AXLE_IN` 0.5 to -4, the one-stud-per-pin-hole rule dropped, the same-part-twice rule
+dropped, `REAL_MARGIN` 1 to 3: each fails at least one test in `tests/test_lab.py`).
+
+**Speed** (one full check, `check()` with movement; "cold" is an empty parts and shapes cache in
+a new process, "warm" the second check in the same process):
+
+| Model | Parts | main: cold, first check | warm | branch: cold, first check | warm | Added, warm |
+|---|---:|---:|---:|---:|---:|---:|
+| 31072 | 109 | 0.81 s | 0.30 s | 1.36 s | 0.45 s | +0.15 s |
+| 40379 | 149 | 0.90 s | 0.46 s | 1.35 s | 0.56 s | +0.10 s |
+| 40441 | 250 | 1.51 s | 0.94 s | 2.19 s | 1.09 s | +0.15 s |
+
+(First check in a new process with the disk cache filled: 0.35, 0.52, 1.00 s on main; 0.62,
+0.74, 1.27 s on the branch. The cold cost is the real shapes of the parts the filled bodies
+flag, built once and kept on disk; the cache's version was raised, so every part is read
+again once after the change.)
+
 ## Experiment 2: how far are the builds we have from the guide's rules?
 
 Run with `exp_measures.py`, tabled with `exp_tables.py`. Every measure is made the same way on
@@ -350,6 +504,8 @@ needs AI runs.
 - `scripts/exp_classify.py`: sorts problems by cause, and by the change to the checker that would
   remove them.
 - `scripts/exp_measures.py` and `scripts/exp_tables.py`: experiment 2.
+- `scripts/exp_mutate.py`: the mutation run of "After the fixes" (`--code DIR` runs it with
+  another copy of the code, to compare two versions of the checker).
 
 To run again (the model files must be fetched again from the LDraw Official Model Repository,
 one folder per set holding `model.mpd`): `uv run python -I scripts/exp_flatten.py <set>/model.mpd
