@@ -450,6 +450,13 @@ _SQUARE = 1e-3  # rays whose squareness to the surface differs by less meet it a
 _HALF = 1e-5  # coverage this close below 0.5 counts as half (the nudge takes up to 6e-6)
 _SIDE = 0.1  # cells; material this far off a cell's middle lies on that side of it
 
+# EXPERIMENT (wip/Alec-42-section-fill), internal switches, not user settings: fill each
+# level's sections so that their outline matches the model best (``_fill_sections``).
+SECTION_FILL = True
+SECTION_FLOOR = 0.3  # a cell covered less than this is never added
+SECTION_ONLY_BELOW: float | None = None  # only sections whose match at half is under this
+SECTION_STRETCH = True  # judge a straight stretch of a column as one, not level by level
+
 
 def voxelize(
     seed: Seed,
@@ -520,6 +527,8 @@ def voxelize(
     filled, went = _choose(
         coverage, sub, occupied, net, area, index, surface, stage1, crossed, rule1
     )
+    if SECTION_FILL:  # EXPERIMENT (wip/Alec-42-section-fill): see ``_fill_sections``
+        filled = _fill_sections(filled, coverage, sub, occupied, index, surface, stage1)
 
     # 3. colours, from the surface in each filled cell and in the emptied cells around it
     dropped = surface & ~filled
@@ -1069,6 +1078,193 @@ def _choose(
     filled |= resting
     filled = _join(filled, coverage, occupied, index, surface, stage1, crossed)
     return _stand(filled, stage1, coverage), went
+
+
+def _fill_sections(
+    filled: np.ndarray,
+    coverage: np.ndarray,
+    sub: np.ndarray,
+    occupied: np.ndarray,
+    index: np.ndarray,
+    surface: np.ndarray,
+    stage1: np.ndarray,
+) -> np.ndarray:
+    """EXPERIMENT: add partly covered cells to each level's sections where that makes the
+    section's outline match the model better; never take a cell away.
+
+    A *section* is a piece of the model's cross-section in one level: the sub-cells
+    (s x s per cell, seen from above, any of the level's s sub-layers) that hold some of the
+    model, joined side to side or corner to corner (8-connected). A cell belongs to the
+    sections whose sub-cells it holds. For a section with true area A (its coverage summed),
+    k filled cells and S of its coverage inside them, the match is IoU = S / (k + A - S).
+    Candidates: surface cells left empty, covered at least ``SECTION_FLOOR``, holding one
+    section only, sharing a face in the level with a filled cell of that section, and not
+    sharing a face with any cell (filled, or a candidate) holding another section, so no
+    gap between two sections is closed. They are taken in order of coverage, cells whose
+    coverages are equal within ``_EVEN`` together (a symmetric section stays symmetric),
+    while adding them raises the section's IoU. Each section is judged on its own, so the
+    same section comes out the same wherever it stands."""
+    nx, ny, nz = filled.shape
+    s = sub.shape[1]
+    # per sub-column of each level: the model's share (in cells) and whether it is there
+    share = np.zeros((nx, s, ny, s, nz))
+    there = np.zeros((nx, s, ny, s, nz), dtype=bool)
+    xs, ys, zs = np.nonzero(surface)
+    rows = index[xs, ys, zs]
+    sh = sub[rows].sum(axis=3) / s**3  # (n, s, s): summed over the sub-layers
+    oc = occupied[rows].any(axis=3)
+    share[xs, :, ys, :, zs] = sh
+    there[xs, :, ys, :, zs] = oc
+    inside = stage1 & ~surface
+    xi, yi, zi = np.nonzero(inside)
+    share[xi, :, yi, :, zi] = 1.0 / s**2
+    there[xi, :, yi, :, zi] = True
+    share = share.reshape(nx * s, ny * s, nz)
+    there = there.reshape(nx * s, ny * s, nz)
+    flat = np.zeros((3, 3, 3), dtype=bool)
+    flat[:, :, 1] = True  # 8-connected within a level, never across levels
+    lab, n_lab = ndimage.label(there, structure=flat)
+    if n_lab == 0:
+        return filled
+    # per cell: the lowest and highest section it holds (0: none)
+    cell_lab = lab.reshape(nx, s, ny, s, nz)
+    big = np.where(cell_lab > 0, cell_lab, n_lab + 1)
+    lo = big.min(axis=(1, 3))
+    hi = cell_lab.max(axis=(1, 3))
+    lo = np.where(hi > 0, lo, 0)
+    single = (hi > 0) & (lo == hi)
+    # true area per section; coverage of each filled cell per section
+    area = np.bincount(lab.ravel(), weights=share.ravel(), minlength=n_lab + 1)
+    in_filled = np.repeat(np.repeat(filled, s, axis=0), s, axis=1)
+    inside_share = np.where(in_filled, share, 0.0).ravel()
+    got = np.bincount(lab.ravel(), weights=inside_share, minlength=n_lab + 1)
+    # filled cells per section (a cell holding two sections counts for both)
+    ids = np.repeat(np.repeat(np.arange(nx * ny * nz).reshape(nx, ny, nz), s, 0), s, 1)
+    held = in_filled & (lab > 0)
+    pairs = np.unique(np.stack([ids[held], lab[held]], axis=1), axis=0)
+    k = np.bincount(pairs[:, 1], minlength=n_lab + 1).astype(float)
+
+    def beside(mask: np.ndarray) -> np.ndarray:
+        out = np.zeros_like(mask)
+        out[1:] |= mask[:-1]
+        out[:-1] |= mask[1:]
+        out[:, 1:] |= mask[:, :-1]
+        out[:, :-1] |= mask[:, 1:]
+        return out
+
+    own_lab = np.where(single, hi, 0)
+    cand = surface & ~filled & single & (coverage >= SECTION_FLOOR)
+    # beside a filled cell of its own section
+    near_own = np.zeros_like(cand)
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        sl_to = (slice(max(dx, 0), nx + min(dx, 0)), slice(max(dy, 0), ny + min(dy, 0)))
+        sl_from = (slice(max(-dx, 0), nx + min(-dx, 0)), slice(max(-dy, 0), ny + min(-dy, 0)))
+        fl, flo, fhi = filled[sl_from], lo[sl_from], hi[sl_from]
+        mine = own_lab[sl_to]
+        near_own[sl_to] |= fl & ((flo == mine) | (fhi == mine))
+    cand &= near_own
+    # not beside a cell (filled or a candidate) holding another section
+    holders = filled | cand
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        sl_to = (slice(max(dx, 0), nx + min(dx, 0)), slice(max(dy, 0), ny + min(dy, 0)))
+        sl_from = (slice(max(-dx, 0), nx + min(-dx, 0)), slice(max(-dy, 0), ny + min(-dy, 0)))
+        h, hlo, hhi = holders[sl_from], lo[sl_from], hi[sl_from]
+        mine = own_lab[sl_to]
+        other = h & (hhi > 0) & ((hlo != mine) | (hhi != mine))
+        cand[sl_to] &= ~other
+    out = filled.copy()
+    cx, cy, cz = np.nonzero(cand)
+    if not len(cx):
+        return out
+    cl = own_lab[cx, cy, cz]
+    cv = coverage[cx, cy, cz]
+    # units judged together: each section alone, or (SECTION_STRETCH) a run of sections one
+    # above the other, each joined to the next only, with the same filled cells and the
+    # same candidates seen from above (a straight stretch of a column)
+    unit = np.arange(n_lab + 1)
+    if SECTION_STRETCH:
+        unit = _stretches(lab, n_lab, filled, lo, hi, cx, cy, cz, cl)
+    cu = unit[cl]
+    # candidates by (unit, x, y): one position of a stretch, all its levels together
+    key = (cu * nx + cx) * ny + cy
+    pos, first, inv = np.unique(key, return_index=True, return_inverse=True)
+    p_sum = np.bincount(inv, weights=cv)
+    p_n = np.bincount(inv).astype(float)
+    p_unit = cu[first]
+    p_mean = p_sum / p_n
+    u_area = np.bincount(unit, weights=area, minlength=n_lab + 1)
+    u_got = np.bincount(unit, weights=got, minlength=n_lab + 1)
+    u_k = np.bincount(unit, weights=k, minlength=n_lab + 1)
+    order = np.lexsort((-p_mean, p_unit))
+    starts = np.flatnonzero(np.r_[True, p_unit[order][1:] != p_unit[order][:-1], True])
+    chosen = np.zeros(len(pos), dtype=bool)
+    for a, b in zip(starts[:-1], starts[1:], strict=True):
+        U = int(p_unit[order[a]])
+        A, S, kk = float(u_area[U]), float(u_got[U]), float(u_k[U])
+        if kk == 0 or A <= 0:
+            continue
+        if SECTION_ONLY_BELOW is not None and S / (kk + A - S) >= SECTION_ONLY_BELOW:
+            continue
+        i = a
+        while i < b:
+            j = i + 1
+            while j < b and p_mean[order[i]] - p_mean[order[j]] <= _EVEN:  # together
+                j += 1
+            grp = order[i:j]
+            if p_mean[grp].min() < SECTION_FLOOR:
+                break
+            m, add = float(p_n[grp].sum()), float(p_sum[grp].sum())
+            if (S + add) / (kk + m + A - S - add) <= S / (kk + A - S):
+                break
+            S, kk = S + add, kk + m
+            chosen[grp] = True
+            i = j
+    take = chosen[inv]
+    out[cx[take], cy[take], cz[take]] = True
+    return out
+
+
+def _stretches(lab, n_lab, filled, lo, hi, cx, cy, cz, cl) -> np.ndarray:
+    """EXPERIMENT: for each section label, the label of the stretch it belongs to (its
+    lowest section's label). Sections in levels z and z + 1 are joined when they overlap
+    seen from above, neither overlaps another section of the other level, and both have
+    the same filled cells and the same candidate cells seen from above."""
+    nx, ny = filled.shape[:2]
+    unit = np.arange(n_lab + 1)
+    labs_with = np.unique(cl)
+    if not len(labs_with):
+        return unit
+    cand_xy: dict[int, frozenset] = {}
+    for L in labs_with.tolist():
+        sel = cl == L
+        cand_xy[L] = frozenset(zip(cx[sel].tolist(), cy[sel].tolist(), strict=True))
+    zs_of = {}
+    fill_xy: dict[int, frozenset] = {}
+    for L in labs_with.tolist():
+        z = int(cz[cl == L][0])
+        zs_of[L] = z
+        mask = filled[:, :, z] & ((lo[:, :, z] == L) | (hi[:, :, z] == L))
+        xs, ys = np.nonzero(mask)
+        fill_xy[L] = frozenset(zip(xs.tolist(), ys.tolist(), strict=True))
+    # overlaps between levels
+    a, b = lab[:, :, :-1], lab[:, :, 1:]
+    both = (a > 0) & (b > 0)
+    pairs = np.unique(np.stack([a[both], b[both]], axis=1), axis=0)
+    ups: dict[int, list[int]] = {}
+    downs: dict[int, list[int]] = {}
+    for lo_l, up_l in pairs.tolist():
+        ups.setdefault(lo_l, []).append(up_l)
+        downs.setdefault(up_l, []).append(lo_l)
+    for L in sorted(labs_with.tolist(), key=lambda L: zs_of[L]):
+        up = ups.get(L, [])
+        if len(up) != 1:
+            continue
+        U = up[0]
+        if U not in cand_xy or len(downs.get(U, [])) != 1:
+            continue
+        if fill_xy[U] == fill_xy[L] and cand_xy[U] == cand_xy[L]:
+            unit[U] = unit[L]
+    return unit
 
 
 def _stands(filled: np.ndarray) -> bool:
