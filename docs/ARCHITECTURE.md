@@ -295,7 +295,9 @@ bricksnap/
   project.py      read and write a project folder
   versions.py     keep, list and bring back versions of a project
   lab/            experimental: the AI builds from the whole parts library (parts search, placing by
-                  connection, a checker, pictures by LeoCAD) and the free-build project made of it
+                  connection, a checker, pictures by LeoCAD) and the free-build project made of it;
+                  proven moving modules (wheels, hinges, turntables) and a check that what should
+                  move can
   cli.py          the `bricksnap` command
   viewserver.py   the small local server behind `bricksnap view`
   webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads

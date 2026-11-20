@@ -492,7 +492,7 @@ ACTIONS = ("build", "design", "export", "instructions", "delete", "restore", "ch
 FREE_JOBS = ("free", "change")
 FREE_FILES = frozenset({"model.ldr", "parts.csv", "report.txt"})
 """The files of a free-build project the pages may fetch, besides its pictures."""
-_FREE_PICTURE = re.compile(r"pictures/(?:card|sheet|turn-[0-9]{2})\.png")
+_FREE_PICTURE = re.compile(r"pictures/(?:card|sheet|opened|turn-[0-9]{2})\.png")
 _FREE_RUN_CARD = re.compile(r"runs/([0-9]{4,})/pictures/card\.png")
 NOT_FOR_FREE = (
     "This model was built by the AI from parts (an experimental kind of model), so {what} "
@@ -1113,6 +1113,8 @@ class App:
             runs=runs,
             turntable=[u for u in (url(rel) for rel in about.get("turntable", [])) if u],
             sheet=url(str(about.get("sheet") or "")),
+            moves=list(about.get("moves") or []),
+            opened=url(str(about.get("opened") or "")),
             picture_problem=about.get("picture_problem"),
             files={rel: url(rel) for rel in about.get("files", [])},
             bin=str(self.shown_root / TRASH_DIR),

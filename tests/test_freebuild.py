@@ -899,3 +899,58 @@ def test_browser_the_project_page_turns_the_model(
         phone.assert_clean()
     finally:
         phone.close()
+
+
+@pytest.mark.browser
+def test_browser_the_project_page_says_what_moves(
+    browser: Any, running: Running, projects: Path, tmp_path: Path
+) -> None:
+    """A free build with joints (a rolling chassis from the moving modules): the page lists
+    what moves under the checker's verdict, in plain words, and the run records it."""
+    from bricksnap.lab import ldraw_lib
+    from bricksnap.lab.modules import place_module
+
+    if not ldraw_lib.zip_path().is_file():
+        pytest.skip("the LDraw library is not on this machine")
+    text = ""
+    for z, name in ((-40, "front"), (40, "back")):
+        got = place_module(text, "wheels-small", 72, 0, x=0, z=z, joint_name=name)
+        text += "\n".join(got.lines) + "\n"
+    text += "1 4 0 -31 0 0 0 1 0 1 0 -1 0 0 3034.dat\n"
+    ldr = tmp_path / "cart.ldr"
+    ldr.write_text(text, "utf-8")
+    folder = freebuild.import_run(projects, ldr, words="A cart that rolls", name="Cart")
+    about = freebuild.describe(folder)
+    assert about["moves"] == [
+        "'front' (wheels-small, lines 1 to 5): the wheels turn freely all the way round, and "
+        "the model rests on its wheels.",
+        "'back' (wheels-small, lines 7 to 11): the wheels turn freely all the way round, and "
+        "the model rests on its wheels.",
+    ]
+    tab = Tab(browser, running.url, width=1280, height=900).open(f"p/{folder.name}")
+    try:
+        page = tab.page
+        page.wait_for_selector("#moves li")
+        assert page.locator("#moves li").count() == 2
+        assert tab.text("#movesTitle") == "What moves"
+        assert "'front' (wheels-small, lines 1 to 5): the wheels turn freely" in tab.text("#moves")
+        shot(tab, "project-moves")
+        tab.assert_clean()
+    finally:
+        tab.close()
+    phone = Tab(browser, running.url, width=390, height=844).open(f"p/{folder.name}")
+    try:
+        phone.page.wait_for_selector("#moves li")
+        phone.no_sideways_scroll()
+        phone.page.locator("#movesBox").scroll_into_view_if_needed()
+        shot(phone, "project-moves-phone", full=False)
+        phone.assert_clean()
+    finally:
+        phone.close()
+    # a model with nothing that moves shows no such list
+    car = Tab(browser, running.url, width=1280, height=900).open("p/car")
+    try:
+        car.page.wait_for_function("() => document.querySelector('#turn').complete")
+        assert car.page.locator("#movesBox").is_hidden()
+    finally:
+        car.close()

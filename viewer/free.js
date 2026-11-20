@@ -124,6 +124,12 @@ function showChecker() {
       : 'There is no model to check yet.';
   $('report').textContent = info.report || '';
   $('reportBox').hidden = !info.report;
+  const moves = Array.isArray(info.moves) ? info.moves.map(String) : [];
+  $('moves').replaceChildren(...moves.map((text) => el('li', { text })));
+  $('movesBox').hidden = !moves.length;
+  const opened = typeof info.opened === 'string' ? info.opened : '';
+  $('openedLink').hidden = !opened;
+  if (opened) $('openedLink').href = opened;
 }
 
 // ---- the AI's notes: paragraphs, "- " lists and **bold**, all as text ----

@@ -185,7 +185,9 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   made is lost by trying something.
 - **Free builds** (experimental) are a second kind of model: `uv run bricksnap make "a sitting cat"`, or
   "Describe it and let the AI build it" in the web app. The AI builds from the whole parts library with
-  the tools in `bricksnap/lab/`, and a checker stands in for the solver. It is an AI run like the design
+  the tools in `bricksnap/lab/`, and a checker stands in for the solver. Things that should move
+  (wheels, doors, lids, a turning head) go in as proven moving modules, and the checker says in words
+  whether each can really move. It is an AI run like the design
   step: never start one unless your user asks. It needs LeoCAD in `~/.cache/bricksnap/leocad/`; without it
   the feature says so and the rest works.
 - **Research** is in `docs/research/`, one folder per question, with the experiments' own files. Read

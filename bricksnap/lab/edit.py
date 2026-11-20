@@ -31,7 +31,8 @@ Coordinates are the model's LDraw coordinates (LDU; y points down, the ground is
 ``centre_x(text) -> (text, shift)``
 - The model moved along x so the middle of its parts' bodies is at x = 0 (the plane
   ``mirror`` uses), by a multiple of 10 LDU so that every stud grid stays a stud grid;
-  only the x of part lines changes. Returns the moved text and the shift.
+  only the x of part lines changes, and the x of each joint line's axis point
+  (``joints.shifted``). Returns the moved text and the shift.
 
 ``mirror(text, lines, plane_x=0.0) -> list[Mirrored]``
 - For each line, a copy on the other side of the plane x = ``plane_x``. A part is its own
@@ -360,4 +361,6 @@ def centre_x(text: str, lib: Library | None = None) -> tuple[str, float]:
             except ValueError:
                 pass
         out.append(raw)
-    return "\n".join(out) + "\n", shift
+    from bricksnap.lab.joints import shifted
+
+    return shifted("\n".join(out) + "\n", shift), shift

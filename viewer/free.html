@@ -70,7 +70,12 @@
         <h2 id="checkTitle">What the checker says</h2>
         <div id="chips" class="badges"></div>
         <p id="checkSummary" class="lead"></p>
-        <p class="hint-line">The checker makes sure every part is held by studs, nothing overlaps and the model stands. It counts parts joined by clips, bars, pins and axles as joined without proof, and does not judge how strong a joint is.</p>
+        <div id="movesBox" class="moves" hidden>
+          <h3 id="movesTitle">What moves</h3>
+          <ul id="moves" aria-labelledby="movesTitle"></ul>
+          <a id="openedLink" href="#" target="_blank" rel="noopener" hidden>See it with everything opened</a>
+        </div>
+        <p class="hint-line">The checker makes sure every part is held by studs, nothing overlaps and the model stands. It counts parts joined by clips, bars, pins and axles as joined without proof, and does not judge how strong a joint is. When the model says what moves, it also checks that each moving part is free to move.</p>
         <details id="reportBox" class="more report-box">
           <summary>The checker's full report</summary>
           <pre id="report"></pre>

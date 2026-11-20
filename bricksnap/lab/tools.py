@@ -8,14 +8,27 @@ A work folder holds one session's model and everything the tools save:
   replaces it. Its line numbers are the ones every tool and report uses. A removed part
   becomes a comment line ("0 removed: ..."), so the other lines keep their numbers.
 - ``attempts/attempt-NNN.ldr``, ``-report.txt`` and ``.png``: each ``check`` or ``submit``.
-- ``looks/``, ``parts/``: the pictures of ``look`` and ``part_info``.
+- ``looks/``, ``parts/``, ``modules/``: the pictures of ``look``, ``part_info`` and
+  ``modules``.
 - ``reference/*.png``: pictures of what to build (shown by ``reference``).
 - ``calls.jsonl``: one line per call (tool, short arguments, whether it failed, seconds).
 
-``TOOLS`` (mode "tools"): search_parts, part_info, place, add, remove, model, check, look,
-submit, and reference when the folder has reference pictures. ``BLIND_TOOLS`` (mode
-"blind"): submit only (accepted once; it says only that the model was saved), and reference
-when there are reference pictures.
+``TOOLS`` (mode "tools"): search_parts, part_info, place, add, fill, mirror, remove,
+remove_box, model, check, look, submit, modules, place_module, joint, and reference when the
+folder has reference pictures.
+
+What moves (``joints``, ``modules``, ``movement``): ``modules`` lists the proven moving modules
+(with one name: the module's card and a picture of it at rest and opened); ``place_module``
+puts one in by connection in the same three ways as ``place`` and appends its parts and its
+joint line; ``joint`` declares a joint for two parts the builder placed itself, accepted only
+when ``movement.confirm`` confirms its line (a Technic pin or a wheel pin, about the axis
+the library records for it; anything else is refused: use a module); ``look`` with
+``"open"`` (``{"joint name": degrees}`` or ``"all"``: each as far as the check says it goes)
+draws the model with those joints opened, carrying what rides on them. Every check's report
+has the movement verdict (``validate``).
+
+``BLIND_TOOLS`` (mode "blind"): submit only (accepted once; it says only that the model was
+saved), and reference when there are reference pictures.
 
 ``call_tool(folder, name, args)`` returns content blocks (``{"type": "text"}``,
 ``{"type": "image", "media_type": "image/png", "data": base64}``). It never raises: a bad
@@ -29,6 +42,7 @@ import base64
 import contextlib
 import io
 import json
+import math
 import re
 import time
 import traceback
@@ -207,14 +221,21 @@ _LOOK = {
     "description": (
         'Another view of the model as it is now. Input: {"latitude": degrees above the '
         'horizon (-90 to 90; negative looks from below), "longitude": degrees around (0 from '
-        "the front, 90 from the right, 180 from the back, 270 from the left)}. Returns one "
-        "picture."
+        "the front, 90 from the right, 180 from the back, 270 from the left)}; optionally "
+        '"open": {"joint name": degrees} or "all" (each as far as the check says it goes) to '
+        "see joints opened. Returns one picture; the model is not changed."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
             "latitude": {"type": "number", "minimum": -90, "maximum": 90},
             "longitude": {"type": "number"},
+            "open": {
+                "anyOf": [
+                    {"type": "object", "additionalProperties": {"type": "number"}},
+                    {"type": "string", "enum": ["all"]},
+                ]
+            },
         },
         "required": ["latitude", "longitude"],
         "additionalProperties": False,
@@ -345,6 +366,78 @@ _MIRROR = {
     },
 }
 
+_MODULES = {
+    "name": "modules",
+    "description": (
+        "The proven moving modules (wheels, door and lid hinges, turntables). {} lists them; "
+        '{"name": n} gives one\'s card and a picture at rest and opened.'
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "additionalProperties": False,
+    },
+}
+
+_PLACE_MODULE = {
+    "name": "place_module",
+    "description": (
+        "Put a module in by connection, as place does: its anchor (the side that stays) goes "
+        "on a stud, under a socket, or on the ground (then the whole module's lowest point, the "
+        "tyres for wheels, is at y = 0); turn as for place. Appends its parts and a joint line "
+        '(\'0 !BRICKSNAP JOINT ...\'). Extra: "name" (one word), "moving_colour". Returns the '
+        "lines, which way it opens, and the movement verdict."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "module": {"type": "string"},
+            "colour": {"type": "integer"},
+            "line": {"type": "integer", "minimum": 0},
+            "stud": {"type": "integer", "minimum": 1},
+            "socket": {"type": "integer", "minimum": 1},
+            "under_socket": {"type": "integer", "minimum": 1},
+            "own_stud": {"type": "integer", "minimum": 1},
+            "turn": {"type": "integer", "minimum": 0, "maximum": 3},
+            "x": {"type": "number"},
+            "z": {"type": "number"},
+            "name": {"type": "string"},
+            "moving_colour": {"type": "integer"},
+        },
+        "required": ["module", "colour", "line"],
+        "additionalProperties": False,
+    },
+}
+
+_JOINT = {
+    "name": "joint",
+    "description": (
+        "Declare a joint for two parts you placed (a wheel on a wheel pin, a part turning on a "
+        'Technic pin): {"name", "kind": "swing"|"spin"|"wheel", "fixed": [the one part that '
+        "stays], "
+        '"moving": [the one part that turns, and a wheel\'s tyre], "at": [x, y, z] and "axis": '
+        '[dx, dy, dz] (its turning line), "min"/"max" degrees for a swing (as placed is 0; '
+        "positive turns by the right-hand rule about axis, y down)}. Accepted only when that "
+        "line is the pin's own; clips, bars, hinges and balls cannot be confirmed yet (use a "
+        "module). What is built on the moving part rides with it."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "kind": {"type": "string", "enum": ["swing", "spin", "wheel"]},
+            "fixed": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "moving": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "at": _BOX,
+            "axis": _BOX,
+            "min": {"type": "number"},
+            "max": {"type": "number"},
+        },
+        "required": ["name", "kind", "fixed", "moving", "at", "axis"],
+        "additionalProperties": False,
+    },
+}
+
 TOOLS = [
     _SEARCH,
     _PART_INFO,
@@ -358,6 +451,9 @@ TOOLS = [
     _CHECK,
     _LOOK,
     _SUBMIT,
+    _MODULES,
+    _PLACE_MODULE,
+    _JOINT,
 ]
 BLIND_TOOLS = [_SUBMIT_BLIND]
 
@@ -625,12 +721,59 @@ def _placed_info(folder: Path, line: Any) -> list[dict[str, Any]]:
     return [_text("\n".join(out))]
 
 
-def _quick(folder: Path, text: str, lines: list[int], brief: bool = False) -> str:
-    """What the checker says about these lines in this model (``brief``: problems in full,
-    connections as a count, for a group of many new lines)."""
+def _near_a_joint(text: str, report: Any, lines: list[int]) -> bool:
+    """Whether any of these lines belongs to a joint, rides on one, or stands where what turns
+    could reach it (inside the ball round the joint's line that its moving parts sweep)."""
+    from bricksnap.lab.movement import _sides, plan
+    from bricksnap.lab.validate import _world_bbox
+
+    try:
+        groups, _ = plan(text, report)
+    except Exception:  # an unreadable joint: let the full check say so
+        return True
+    by_line = {p.line: p for p in report.placed}
+    wanted = [by_line[n] for n in lines if n in by_line]
+    for g in groups:
+        ride = set(_sides(report, g.fixed, g.moving).riders) | g.fixed | g.moving
+        if ride & set(lines):
+            return True
+        radius = 0.0
+        for n in ride:
+            if n in by_line:
+                lo, hi = _world_bbox(by_line[n], 2.0)
+                for c in (lo, hi):
+                    radius = max(radius, float(np.linalg.norm(c - g.at)))
+        for p in wanted:
+            lo, hi = _world_bbox(p, 2.0)
+            centre, half = (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2
+            if float(np.linalg.norm(centre - g.at)) - half <= radius:
+                return True
+    return False
+
+
+def _report_for(text: str, lines: list[int] | None) -> Any:
+    """The checker's report. With ``lines`` (the parts a call just added), the movement check
+    runs only when they belong to, ride on or stand near a joint; else always."""
+    from bricksnap.lab import movement
+    from bricksnap.lab.joints import parse
+    from bricksnap.lab.ldraw_lib import library
     from bricksnap.lab.validate import check
 
-    report = check(text)
+    if lines is None:
+        return check(text)
+    joints, errors = parse(text)
+    report = check(text, movement=False)
+    if (joints or errors) and (errors or _near_a_joint(text, report, lines)):
+        movement.apply(text, report, library())
+    return report
+
+
+def _quick(
+    folder: Path, text: str, lines: list[int], brief: bool = False, report: Any = None
+) -> str:
+    """What the checker says about these lines in this model (``brief``: problems in full,
+    connections as a count, for a group of many new lines)."""
+    report = report if report is not None else _report_for(text, lines)
     wanted = set(lines)
     out = []
     held = [x for x in report.links if x.held in wanted or x.holder in wanted]
@@ -680,37 +823,36 @@ def _append(folder: Path, new_lines: list[str]) -> tuple[str, list[int]]:
     return text, list(range(first, first + len(new_lines)))
 
 
+def _where_args(args: dict[str, Any]) -> dict[str, Any]:
+    """The arguments place and place_module share, checked: whole numbers stay whole (1.5
+    quarter turns is refused, not cut down), coordinates are ordinary numbers."""
+    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+    line = _whole(args, "line", None, 0)
+    if colour is None or line is None:
+        raise ValueError("colour and line are needed.")
+    return {
+        "colour": colour,
+        "line": line,
+        "stud": _whole(args, "stud", None, 1),
+        "socket": _whole(args, "socket", 1, 1),
+        "under_socket": _whole(args, "under_socket", None, 1),
+        "own_stud": _whole(args, "own_stud", 1, 1),
+        "turn": _whole(args, "turn", 0, 0, 3),
+        "x": _coord(args, "x"),
+        "z": _coord(args, "z"),
+    }
+
+
 def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab.place import PlaceError, place
-
-    def num(key: str, default: Any = None) -> Any:
-        v = args.get(key, default)
-        if v is not None and (isinstance(v, bool) or not isinstance(v, int | float)):
-            raise PlaceError(f"{key} must be a number.")
-        return v
 
     part = args.get("part")
     if not isinstance(part, str) or not part.strip():
         return _error("part must be a file name such as 3001.dat.")
     try:
-        colour = num("colour")
-        line = num("line")
-        if colour is None or line is None:
-            raise PlaceError("colour and line are needed.")
-        result = place(
-            _model(folder),
-            part.strip(),
-            int(colour),
-            int(line),
-            stud=None if args.get("stud") is None else int(num("stud")),
-            socket=int(num("socket", 1)),
-            under_socket=None if args.get("under_socket") is None else int(num("under_socket")),
-            own_stud=int(num("own_stud", 1)),
-            turn=int(num("turn", 0)),
-            x=float(num("x", 0.0)),
-            z=float(num("z", 0.0)),
-        )
-    except PlaceError as e:
+        where = _where_args(args)
+        result = place(_model(folder), part.strip(), **where)
+    except (PlaceError, ValueError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [result.line])
     return [
@@ -846,6 +988,11 @@ def _look(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     text = _model(folder)
     if not any(ln.startswith("1 ") for ln in text.splitlines()):
         return _error("the model has no parts yet.")
+    if args.get("open") is not None:
+        try:
+            text = _opened_for_look(text, args["open"])
+        except ValueError as e:
+            return _error(str(e))
     ldir = folder / "looks"
     ldir.mkdir(parents=True, exist_ok=True)
     out = ldir / f"look-{len(list(ldir.glob('look-*.png'))) + 1:03d}.png"
@@ -854,6 +1001,181 @@ def _look(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     except picture.PictureError as e:
         return _error(str(e))
     return [_image_block(out)]
+
+
+def _opened_for_look(text: str, want: Any) -> str:
+    from bricksnap.lab.joints import opened, parse
+    from bricksnap.lab.movement import open_angles
+
+    joints, _ = parse(text)
+    if not joints:
+        raise ValueError("the model has no joints to open (put one in with place_module).")
+    names = ", ".join(j.name for j in joints)
+    if want == "all":
+        angles = open_angles(text)  # each only as far as the check says it goes
+    elif isinstance(want, dict) and want:
+        by = {j.name.lower(): j for j in joints}
+        angles = {}
+        for k, v in want.items():
+            j = by.get(str(k).lower())
+            if j is None:
+                raise ValueError(f"there is no joint '{str(k)[:40]}'. The joints are: {names}.")
+            if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+                raise ValueError(f"the angle for '{j.name}' must be a number of degrees.")
+            if not j.turns_freely and not j.low - 1e-6 <= v <= j.high + 1e-6:
+                raise ValueError(f"'{j.name}' {j.words()}; give an angle in that range.")
+            angles[j.name] = float(v)
+    else:
+        raise ValueError(f'open is {{"joint name": degrees}} or "all". The joints are: {names}.')
+    return opened(text, angles)
+
+
+def _modules(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import modules, picture
+
+    name = args.get("name")
+    if name is None:
+        out = [
+            "The proven moving modules (put one in with place_module; ask for one by name "
+            "for its parts and a picture):"
+        ]
+        for m in modules.MODULES.values():
+            out.append(
+                f"- {m.name}: {m.title}. It {m.range_words()}. Attaches: {m.attach}. "
+                f"Moves: {m.moves}. Size: {modules.size_words(m)}."
+            )
+        return [_text("\n".join(out))]
+    if not isinstance(name, str) or name.strip().lower() not in modules.MODULES:
+        return _error(
+            f"there is no module '{str(name)[:40]}'. The modules are: {', '.join(modules.MODULES)}."
+        )
+    m = modules.MODULES[name.strip().lower()]
+    blocks = [_text(modules.card(m))]
+    out = folder / "modules" / f"{m.name}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if not out.exists():
+            modules.module_sheet(m.name, out)
+        blocks.append(_image_block(out))
+    except picture.PictureError as e:
+        blocks.append(_text(f"(No picture: {e})"))
+    return blocks
+
+
+def _place_module(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab.modules import place_module
+    from bricksnap.lab.place import PlaceError
+
+    module = args.get("module")
+    if not isinstance(module, str) or not module.strip():
+        return _error("module must be a module's name; modules lists them.")
+    name = args.get("name")
+    if name is not None and not isinstance(name, str):
+        return _error("name must be one word, such as left-door.")
+    try:
+        where = _where_args(args)
+        mc = _whole(args, "moving_colour", None, 0, 0x2FFFFFF)
+        result = place_module(_model(folder), module, **where, joint_name=name, moving_colour=mc)
+    except (PlaceError, ValueError) as e:
+        return _error(str(e))
+    text, numbers = _append(folder, result.lines)
+    report = _report_for(text, None)
+    j = result.joint
+    parts = numbers[:-1]
+    shown = "\n".join(f"  line {n}: {ln}" for n, ln in zip(numbers, result.lines, strict=True))
+    return [
+        _text(
+            f"Added the module as lines {numbers[0]} to {numbers[-1]}: its parts, then its joint "
+            f"'{j.name}' on line {numbers[-1]} (FIXED {', '.join(map(str, j.fixed))}; MOVING "
+            f"{', '.join(map(str, j.moving))}; it {j.words()}).\n{shown}\n{result.note}\n"
+            f"What the checker says about it:\n{_quick(folder, text, parts, report=report)}"
+            + _movement_lines(report)
+        )
+    ]
+
+
+def _movement_lines(report: Any) -> str:
+    if not report.movement:
+        return ""
+    return "\nMOVEMENT:\n" + "\n".join("- " + x for x in report.movement)
+
+
+def _joint(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab.joints import NAME, Joint, joint_line, parse
+    from bricksnap.lab.validate import check
+
+    name = args.get("name")
+    if not isinstance(name, str) or not NAME.match(name.strip().replace(" ", "-")):
+        return _error("name must be one word of letters, digits, - and _, such as tail-flap.")
+    name = name.strip().replace(" ", "-")
+    kind = str(args.get("kind", "")).lower()
+    if kind not in ("swing", "spin", "wheel"):
+        return _error('kind is "swing", "spin" or "wheel".')
+    lists = {}
+    for key in ("fixed", "moving"):
+        v = args.get(key)
+        if (
+            not isinstance(v, list)
+            or not v
+            or not all(isinstance(n, int) and not isinstance(n, bool) for n in v)
+        ):
+            return _error(f"{key} must be a list of line numbers, such as [12].")
+        lists[key] = sorted(set(v))
+    if set(lists["fixed"]) & set(lists["moving"]):
+        return _error("a line cannot be both fixed and moving.")
+    try:
+        at = np.array(_numbers(args.get("at"), 3, "at"))
+        axis = np.array(_numbers(args.get("axis"), 3, "axis"))
+    except ValueError as e:
+        return _error(str(e))
+    if float(np.linalg.norm(axis)) < 1e-6:
+        return _error("axis must not be [0, 0, 0].")
+    low = high = 0.0
+    if kind == "swing":
+        lo, hi = args.get("min"), args.get("max")
+        if not all(isinstance(v, int | float) and not isinstance(v, bool) for v in (lo, hi)):
+            return _error("a swing needs min and max, in degrees (the parts as placed are at 0).")
+        assert isinstance(lo, int | float) and isinstance(hi, int | float)
+        low, high = float(lo), float(hi)
+        if not -360 <= low <= 0 <= high <= 360 or high - low <= 0:
+            return _error(
+                "min must be from -360 to 0 and max from 0 to 360, not both 0 (the parts as "
+                "placed are at 0)."
+            )
+    text = _model(folder)
+    if name.lower() in {j.name.lower() for j in parse(text)[0]}:
+        return _error(f"there is already a joint called '{name}'.")
+    report = check(text, movement=False)
+    by_line = {p.line: p for p in report.placed}
+    for n in lists["fixed"] + lists["moving"]:
+        if n not in by_line:
+            return _error(f"line {n} is not a part of the model.")
+    j = Joint(
+        name,
+        kind.upper(),
+        at,
+        axis / np.linalg.norm(axis),
+        lists["fixed"],
+        lists["moving"],
+        low,
+        high,
+    )
+    from bricksnap.lab.ldraw_lib import library
+    from bricksnap.lab.movement import confirm
+
+    why = confirm(j, report, library())
+    if why:
+        return _error(
+            f"the joint is not accepted: {why}. A module (modules) is proven and "
+            "needs no confirming."
+        )
+    text, numbers = _append(folder, [joint_line(j)])
+    return [
+        _text(
+            f"Added the joint '{name}' as line {numbers[0]}: {joint_line(j)}"
+            + (_movement_lines(_report_for(text, None)) or "\n(The checker could not read it.)")
+        )
+    ]
 
 
 def _submit(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -886,6 +1208,9 @@ def _reference(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     return blocks
 
 
+MAX_COORD = 100_000
+
+
 def _numbers(v: Any, n: int, what: str) -> list[float]:
     if (
         not isinstance(v, list)
@@ -893,7 +1218,35 @@ def _numbers(v: Any, n: int, what: str) -> list[float]:
         or not all(isinstance(x, int | float) and not isinstance(x, bool) for x in v)
     ):
         raise ValueError(f"{what} must be a list of {n} numbers.")
+    if not all(math.isfinite(x) and abs(x) <= MAX_COORD for x in v):
+        raise ValueError(f"{what} must be ordinary numbers between -{MAX_COORD} and {MAX_COORD}.")
     return [float(x) for x in v]
+
+
+def _whole(
+    args: dict[str, Any], key: str, default: Any = None, lo: int = 0, hi: int = 1_000_000
+) -> Any:
+    """A whole-number argument (or its default): refused when it is not one, is not finite,
+    or is out of range, rather than cut down."""
+    v = args.get(key, default)
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+        raise ValueError(f"{key} must be a whole number.")
+    if float(v) != int(v):
+        raise ValueError(f"{key} must be a whole number, not {v:g}.")
+    if not lo <= int(v) <= hi:
+        raise ValueError(f"{key} must be from {lo} to {hi}.")
+    return int(v)
+
+
+def _coord(args: dict[str, Any], key: str) -> float:
+    v = args.get(key, 0.0)
+    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+        raise ValueError(f"{key} must be a number.")
+    if abs(v) > MAX_COORD:
+        raise ValueError(f"{key} must be between -{MAX_COORD} and {MAX_COORD}.")
+    return float(v)
 
 
 def _loose_after(text: str) -> str:
@@ -1021,10 +1374,26 @@ def _mirror(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     ):
         return _error("lines must be a list of line numbers, such as [12, 13].")
     plane = args.get("plane_x", 0)
-    if not isinstance(plane, int | float) or isinstance(plane, bool):
+    if not isinstance(plane, int | float) or isinstance(plane, bool) or not math.isfinite(plane):
         return _error("plane_x must be a number.")
     if len(lines) > 400:
         return _error("mirror at most 400 lines at a time.")
+    from bricksnap.lab.joints import parse
+
+    for j in parse(_model(folder))[0]:
+        mine = sorted(set(lines) & set(j.fixed + j.moving))
+        if mine:
+            other = {"door-hinge-left": "door-hinge-right", "door-hinge-right": "door-hinge-left"}
+            hint = (
+                f" (the other hand of {j.module} is {other[j.module]})" if j.module in other else ""
+            )
+            return _error(
+                f"line {mine[0]} is part of the joint '{j.name}'"
+                + (f" (the module {j.module})" if j.module else "")
+                + ": mirror copies parts, not joints, and would leave the copy unable to turn. "
+                "Put the other side in with place_module" + hint + " (or joint, for parts you "
+                "joined yourself), and mirror the rest."
+            )
     results = mirror(_model(folder), lines, float(plane))
     new = [r.new_line for r in results if r.new_line]
     notes = [r.note for r in results]
@@ -1058,6 +1427,9 @@ _HANDLERS = {
     "remove_box": _remove_box,
     "fill": _fill,
     "mirror": _mirror,
+    "modules": _modules,
+    "place_module": _place_module,
+    "joint": _joint,
 }
 
 

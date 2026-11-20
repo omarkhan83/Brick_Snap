@@ -26,7 +26,11 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
                    per part in one colour; the description and colour name come from the
                    LDraw library and are left empty when it is not on this computer)
     pictures/      card.png (the home page's card, 4:3), sheet.png (three views), turn-00.png to
-                   turn-11.png (twelve views round the model, from the front-left on)
+                   turn-11.png (twelve views round the model, from the front-left on), and for
+                   a model with joints (``joints``) opened.png: three views with every joint
+                   opened as far as the check says it goes (``movement.open_angles``: a swing
+                   to the end of what it really reaches, a spin an eighth of a turn, a joint
+                   that cannot move left shut), when it could be drawn
     runs/NNNN/     each run (the first build, each change, an imported model): the same
                    files, record.json (what the run entry says), and for a run made here
                    work/, the lab's work folder (attempts, calls.jsonl, the redacted
@@ -34,10 +38,13 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
 
 A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" | "change" |
 "imported", "words", "created", "ok", "error", "has_model", "parts", "kinds", "summary",
-"clean", "problems", "unchecked", "seconds", "turns", "cost_usd_reported", "pictures"
-(whether they were drawn), "picture_problem"}``. ``summary`` is the checker's one-line
-summary; ``clean`` is true when it found no problems; ``unchecked`` counts the joints it
-could not confirm (clips, bars, pins, axles: counted as joined without proof).
+"clean", "problems", "unchecked", "moves", "seconds", "turns", "cost_usd_reported",
+"pictures" (whether they were drawn), "picture_problem"}``. ``summary`` is the checker's
+one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
+joints it could not confirm (clips, bars, pins, axles: counted as joined without proof);
+``moves`` is the report's MOVEMENT section, one sentence per joint ("'lid' (lid-hinge, lines
+9, 10): swings from 0 to 90 degrees with nothing in the way"), empty when nothing moves
+(``read_movement``).
 
 Functions
 - ``is_free(folder)``: whether a project folder is a free-build project (never raises).
@@ -60,7 +67,8 @@ Functions
   transcript or calls.jsonl.
 - ``restore(folder, n)``: make run ``n`` the current one again (its files copied back to the
   top of the folder); the other runs stay.
-- ``describe(folder)``: everything a page or the command line shows about the project.
+- ``describe(folder)``: everything a page or the command line shows about the project
+  (with ``moves`` and ``opened``, the path of pictures/opened.png or None).
 - ``missing()``: None when a run can start, else what is missing (the LDraw library zip,
   LeoCAD, xvfb-run) and exactly where to put it, in plain words.
 - ``reference_sheet(project_folder, out_png)``: pictures of an ordinary project's 3D model
@@ -206,6 +214,21 @@ def read_summary(report: str) -> dict[str, Any]:
         "problems": problems,
         "unchecked": int(u.group(1)) if u else 0,
     }
+
+
+def read_movement(report: str) -> list[str]:
+    """The report's MOVEMENT section: one sentence per joint, without the leading "- "."""
+    out: list[str] = []
+    inside = False
+    for ln in report.splitlines():
+        if ln.startswith("MOVEMENT"):
+            inside = True
+            continue
+        if inside:
+            if not ln.startswith("- "):
+                break
+            out.append(ln[2:].strip())
+    return out
 
 
 def parts_csv(text: str) -> str:
@@ -355,6 +378,13 @@ def draw_pictures(text: str, dest: Path, title: str = "") -> str | None:
         return f"No pictures were drawn: {e}"
     except Exception as e:  # pictures are extras: never lose a model for them
         return f"No pictures were drawn ({type(e).__name__}: {e})."
+    with contextlib.suppress(Exception):  # an extra: the model and its other pictures stay
+        from bricksnap.lab.joints import opened
+        from bricksnap.lab.movement import open_angles
+
+        angles = open_angles(text)  # each only as far as the check says it goes
+        if angles:
+            picture.model_sheet(opened(text, angles), dest / "opened.png", title="Opened")
     if frames:
         with Image.open(frames[0]) as im:
             shot = im.convert("RGB")
@@ -474,6 +504,7 @@ def keep_model(
         "parts": parts,
         "kinds": kinds,
         **verdict,
+        "moves": read_movement(report),
         "seconds": rec.get("seconds"),
         "turns": rec.get("turns"),
         "cost_usd_reported": rec.get("cost_usd_reported"),
@@ -713,6 +744,7 @@ def describe(folder: Path) -> dict[str, Any]:
         "clean": now.get("clean"),
         "problems": now.get("problems"),
         "unchecked": now.get("unchecked"),
+        "moves": list(now.get("moves") or []),
         "current_run": current,
         "runs": runs,
         "notes": _read(folder / "notes.txt").strip(),
@@ -720,6 +752,7 @@ def describe(folder: Path) -> dict[str, Any]:
         "turntable": turn_frames(folder),
         "card": f"{PICTURES_DIR}/card.png" if (pics / "card.png").is_file() else None,
         "sheet": f"{PICTURES_DIR}/sheet.png" if (pics / "sheet.png").is_file() else None,
+        "opened": f"{PICTURES_DIR}/opened.png" if (pics / "opened.png").is_file() else None,
         "picture_problem": now.get("picture_problem"),
         "files": [f for f in ("model.ldr", "parts.csv", "report.txt") if (folder / f).is_file()],
         "created": meta.get("created"),

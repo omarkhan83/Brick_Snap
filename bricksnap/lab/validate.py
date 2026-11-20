@@ -36,8 +36,17 @@ What it reports, each item naming the line number, the part and its position:
   ground; no part on the ground at all.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
+- What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
+  moving thing can really move (tied shut, something in its way, wheels that rub, a model on
+  wheels that does not rest on them), as problems of kind "movement", and one line per joint
+  in a MOVEMENT section. A model without joint lines gets no movement findings; its report
+  is the one it got before joints existed except for one deliberate change: a turntable's
+  top and base (both named "Turntable") are a "not checked" joint, as a tyre on its wheel
+  is, instead of an overlap problem.
+  ``check(text, movement=False)`` leaves this out (used to find what rides on a joint).
 - A summary line: "N parts of M kinds, K problems ...". With no problems it says so in one
-  line.
+  line; with joints it also says how many move freely, and how many problems are about
+  movement.
 
 Rough by design (and the report says so once): the filled body misses walls thinner than
 about 2 LDU and treats side holes as solid; overlaps near arches, overhangs and parts that go
@@ -138,6 +147,9 @@ class Report:
     stand_text: str = ""
     lines_total: int = 0
     colours: dict[int, str] = field(default_factory=dict)
+    movement: list[str] = field(default_factory=list)  # one line per joint
+    moving_ok: int = 0  # joints that move freely
+    reach: dict = field(default_factory=dict)  # joint name -> (low, high) degrees, or None
 
     @property
     def problems(self) -> list[Issue]:
@@ -174,8 +186,13 @@ class Report:
                     f"{len(self.unchecked)} joint{'s' if len(self.unchecked) != 1 else ''} "
                     "not checked"
                 )
+            if self.movement:
+                tail = tail[:-1] + f"; {_moves(self.moving_ok, len(self.movement))}."
             return f"{head}, {tail}" + (f" ({', '.join(extra)})" if extra else "")
         parts = [f"{k} problem{'s' if k != 1 else ''}"]
+        moving = sum(1 for i in self.problems if i.kind == "movement")
+        if moving:
+            parts[0] += f" ({moving} about what moves)"
         if self.warnings:
             parts.append(f"{len(self.warnings)} warning{'s' if len(self.warnings) != 1 else ''}")
         if self.unchecked:
@@ -216,6 +233,10 @@ class Report:
             MAX_OTHERS,
             False,
         )
+        if self.movement:
+            out.append("")
+            out.append("MOVEMENT (each joint: what turns and whether it can):")
+            out.extend("- " + x for x in self.movement)
         if self.placed and connections:
             out.append("")
             out.append("HOW IT HOLDS TOGETHER:")
@@ -725,6 +746,7 @@ _NAME_END = {
     "ball": "ball+",
     "towball": "ball+",
     "socket": "ball-",
+    "turntable": "turntable",
 }
 _FITS = [
     ("pin+", "pin-"),
@@ -739,6 +761,7 @@ _FITS = [
     ("bar+", "bar-"),
     ("hinge", "hinge"),
     ("ball+", "ball-"),
+    ("turntable", "turntable"),
 ]
 _END_WORDS = {
     "pin": "Technic pin",
@@ -748,6 +771,7 @@ _END_WORDS = {
     "bar": "bar in a clip",
     "hinge": "hinge",
     "ball": "ball joint",
+    "turntable": "turntable",
 }
 _NEAR = np.array(
     [[0, 0, 0], [8, 0, 0], [-8, 0, 0], [0, 8, 0], [0, -8, 0], [0, 0, 8], [0, 0, -8]], dtype=float
@@ -901,7 +925,13 @@ def _vec(v: np.ndarray) -> str:
 # ---- the check ------------------------------------------------------------------------------
 
 
-def check(text: str, lib: Library | None = None) -> Report:
+def _moves(ok: int, n: int) -> str:
+    if ok == n:
+        return f"{'the joint moves' if n == 1 else f'all {n} joints move'} freely"
+    return f"{ok} of {n} joints move freely"
+
+
+def check(text: str, lib: Library | None = None, movement: bool = True) -> Report:
     lib = lib or library()
     report = Report(colours=lib.colours())
     placed = parse(text, lib, report)
@@ -1150,6 +1180,10 @@ def check(text: str, lib: Library | None = None) -> Report:
                     "the base on that side or move weight back over it.",
                 )
             )
+    if movement:
+        from bricksnap.lab import movement as moves
+
+        moves.apply(text, report, lib)
     return report
 
 
