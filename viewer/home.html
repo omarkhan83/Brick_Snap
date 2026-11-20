@@ -85,6 +85,10 @@
           </div>
           <p class="hint" id="freePartsHint">A small model. More parts take the AI longer.</p>
         </div>
+        <div class="field">
+          <label class="check"><input id="freeGuide" name="guide" type="checkbox" value="1"> <span>Build it the way set designers do (experimental): a core first, sides built flat and pressed on</span></label>
+          <p class="hint">The AI is given a short guide to how official sets are built. Later changes to the model keep this choice. Leave it off to build the usual way.</p>
+        </div>
         <details class="more" id="freeMore">
           <summary>More choices</summary>
           <div class="field">
@@ -97,10 +101,6 @@
           <div class="field">
             <label for="freeName">Name (you can leave this empty)</label>
             <input id="freeName" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The first few words are used">
-          </div>
-          <div class="field">
-            <label class="check"><input id="freeGuide" name="guide" type="checkbox" value="1"> <span>Build it the way set designers do (experimental): a core first, sides built flat and pressed on</span></label>
-            <p class="hint">The AI is given a short guide to how official sets are built. Later changes to the model keep this choice. Leave it off to build the usual way.</p>
           </div>
         </details>
         <button id="freeGo" type="submit" class="primary">Let the AI build it…</button>

@@ -64,11 +64,11 @@ Done when:
   panels, which is the AI builder's kind of work, not the converter's.
 - Alec decided on 19 November that statistics worked out from Rebrickable's catalogue may be used in
   the guide, with credit (see the decision of that date).
-- 20 November (branch `wip/Alec-42-guide`, not merged): the guide can now be given to the AI
+- 20 November: the guide can now be given to the AI
   builder, behind a switch, for point 3. The builder's copy is `bricksnap/lab/guide.md`, held
   byte-equal to the study's `guide.md` by a test (change both together); `bricksnap/lab/guide.py`
   reads it by its headings. `run.build(..., guide=True)`, `python -m bricksnap.lab.run --guide`,
-  `bricksnap make "..." --guide`, and a tick box under "More choices" in the web app's
+  `bricksnap make "..." --guide`, and a tick box (in plain view since 20 November) in the web app's
   free-build form (off by default; the model remembers it, so its changes keep it). With the
   guide on, the builder's instructions get the twelve rules (without their bracketed sources),
   a working order rewritten as one method, a paragraph on panels, and a `playbook` tool that
@@ -80,5 +80,22 @@ Done when:
   is the last test in `tests/test_guide.py`). In guide mode only, `place` lists a sideways
   part's studs in its reply. A side stud of a side-stud brick is 10 LDU below its top, so a
   two-stud panel's edges sit half a plate off the core's plate lines; a bracket's (99780) do not.
-- Left: point 3 itself (eight AI runs, four subjects with and without, judged blind: needs
-  Alec's yes), and the study's experiments that need no AI run.
+- 20 November, the first build with the guide (a sitting cat, 96 parts, playbook "Creature, character
+  or sculpture, 100 parts"; Alec asked to see one): clean, but not better than the 78-part cat built
+  without the guide the day before. The builder's own notes say why: the checker called the curved
+  slopes it tried (93273, 11477) overlapping, so it fell back to plain slopes; it put the tail on
+  studs to avoid a joint the checker could not confirm; and it chose not to build the core of
+  side-stud bricks. So that run tested the old checker more than the guide.
+- 20 November, the checker's false problems are fixed (experiment 3's four causes; the numbers are in
+  `experiments.md`, "After the fixes"): 215 false problems on the six official sets fall to 19, and
+  1,000 to 243 over all 18 models. Parts that only touch are not an overlap; a bar in an open stud or
+  another hollow is a joint listed as not checked; axles are axles; parts with a cutout underneath
+  take their stud grid from their sockets, and `place` seats them there. The curved slopes above now
+  place and check clean at all four turns. What it costs: a part moved 1 LDU into its neighbour is no
+  longer caught (the real shapes cannot tell that from touching). The older lenient rules (wheel pins,
+  clips and bar tubes by name) are untouched: see `the-checkers-older-joint-rules.md`.
+- Left: point 3 itself. First the same cat and a car again with the guide on, now that the checker
+  no longer argues with the guide (Alec said on 20 November to keep going); then the full comparison
+  (eight AI runs, four subjects with and without, judged blind), and the study's experiments that
+  need no AI run. If the builder still skips the core of side-stud bricks, the guide's wording about
+  the core has to become firmer before the comparison means anything.
