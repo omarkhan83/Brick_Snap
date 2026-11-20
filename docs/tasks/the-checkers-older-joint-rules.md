@@ -1,6 +1,6 @@
 # The free-build checker still takes some joints on trust that it could test
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-20)
 - stage: 4
 
 On 20 November the checker stopped calling official techniques wrong (215 false problems on six
