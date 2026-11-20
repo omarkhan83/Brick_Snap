@@ -94,8 +94,27 @@ Done when:
   place and check clean at all four turns. What it costs: a part moved 1 LDU into its neighbour is no
   longer caught (the real shapes cannot tell that from touching). The older lenient rules (wheel pins,
   clips and bar tubes by name) are untouched: see `the-checkers-older-joint-rules.md`.
-- Left: point 3 itself. First the same cat and a car again with the guide on, now that the checker
-  no longer argues with the guide (Alec said on 20 November to keep going); then the full comparison
-  (eight AI runs, four subjects with and without, judged blind), and the study's experiments that
-  need no AI run. If the builder still skips the core of side-stud bricks, the guide's wording about
-  the core has to become firmer before the comparison means anything.
+- 20 November, the same two subjects again with the guide on and the fixed checker (two AI runs,
+  asked for by Alec; pictures on his machine, the models in his local `projects/`):
+  - **Sitting cat** (95 parts, 38 kinds, clean, 17 minutes). The first build to use the guide's main
+    technique: the face is a 4 x 6 plate standing on its side, pressed onto a 1 x 4 side-stud brick,
+    carrying the eyes, a round muzzle, the nose and the whiskers; curved slopes round the head. 20% of
+    its studded parts face sideways (12% in the cat of 19 November without the guide, 15% in the first
+    guided cat, 27% in official sets) and its largest section hanging on one part is 16 parts (33
+    before). By the lead agent's eye it is the best cat so far, though not by a wide margin. It still
+    did not build the ring of 1 x 1 side-stud bricks for the head ("a 6-wide head needed fewer, bigger
+    parts, and only the face is built sideways") and put the tail on studs, not on a clip.
+  - **Sports car** (84 parts, 30 kinds, clean, 14 minutes; all four wheels on proven modules and
+    found free to turn). It used what the old checker refused: curved slopes on mudguards for the
+    wheel arches, and brackets at nose and tail for lights and grille. Looks about level with the
+    102-part roadster of 19 November, with 18 fewer parts; 9% of studded parts sideways (6% and 13%
+    in that day's two cars). It put the wheels on first, not last ("they set the scale").
+  - Reading: with the checker out of the way the guide does change how the builder builds, more for
+    a creature than for a car, and the result is somewhat better, not transformed. Two builds are
+    not a comparison. The study's measuring script cannot count hanging sections in a model that
+    uses moving modules (their joints are folded into one line it does not read): fix before
+    measuring cars with it.
+- Left: point 3 itself, the full comparison (eight AI runs, four subjects with and without, judged
+  blind; it needs Alec's yes), and the study's experiments that need no AI run. Before it: decide
+  whether the playbook's head core should be asked for more firmly or dropped at 100 parts, since
+  two builders out of two chose not to build it and gave a reason.
