@@ -215,3 +215,24 @@ Left:
   thick U-clip 4085c it cannot place. `strut` uses 11090 and a Bar 3L or 4L only (23443 has
   a handle, not a clip: a strut on 23443 needs clip plates, placed with `clip`).
 - Hinge halves, finger hinges, ball joints and turntables stay known by name only.
+
+## The review of thin members (20 November): fixed, and logged for later
+Fixed on the branch: a clip's grip is closed (7 of 12 points) with one direction, found per
+clip in its shape (`grip_lines`, shared by the checker and the `clip` tool); a load hung on
+clips is told (`clip_loads`: the parts reach the ground only through N clips, and the checker
+cannot judge whether clips will carry this much; three official models trip it, 75075, 31066
+and 40379, and it was kept on purpose as a warning for every model: not a false alarm to fix); `strut` refuses what would not close and its advice closes it;
+`clip` reports what the checker finds; the sentences say "most clips on bars".
+Every limit is pinned or gone: each was loosened in turn and the tests run. Pinned now:
+`GRIP_R` both ways (98460's clip opening below), the bar tube's wall ring (24122: at 6 its pin
+hole counts, at 6.5 its tubes do not). Removed, changing no set, fit, free build or mutation:
+the clip-part and bar-tube exclusions in `_bar_lines`, the bar-tube line in `_joint_clash`,
+the bore's "wall within 2 LDU of the end".
+Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review-work/thin/`):
+- Two C-clips from opposite sides on the same 8 LDU of bar pass, though their real shapes share
+  2 LDU.
+- "Joined by name" where nothing is measured: a clip up to 7.5 LDU past a bar's end; an
+  11090's clip end resting on a bar's top; a bar 8 above or 6 beside a tile clip.
+- A measurable clip whose fit fails falls back to "known by name" within `CLIP_REACH` (a clip
+  moved 4 LDU off its bar passes 19 times in 99 in the targeted run).
+- 20612's two oblique tubes are not found (its third, along its own x, is).

@@ -142,20 +142,17 @@ What it reports, each item naming the line number, the part and its position:
     the library draws with no primitive for its bore, gets one from its real shape:
     ``_tube_hollows``) and a stud in a Technic pin hole;
   - a clip on a bar or a handle (``_clip_fit``): the bar (a handle's, ``_handle_bars``, or a
-    bar part's long axis, ``_bar_lines``) through the clip's grip: at the bar's point nearest
-    the clip primitive's point, running along the primitive's axis or square to it, as
-    ``CLIP_GRIP`` says per primitive (within ``CLIP_DEG`` degrees); for an "along" clip on a
-    bar the library does
-    not draw (23443's handle) the primitive's own axis; for a clip with no primitive (15712)
-    the first place along the bar inside the clip's box where the grip holds. There the bar
-    must be bar-thick and the clip round it (``_grip_holds``) at the grip's middle and
-    ``GRIP_HALF`` either side, which also keeps the grip off the bar's end. Any angle about
-    the bar's line is a fit;
+    bar part's long axis, ``_bar_lines``) along the clip's grip (``grip_lines``, found per
+    clip in the part's real shape, with or without a clip primitive) within ``CLIP_DEG``
+    degrees, and at the bar's point nearest the grip the grip holds (``_grip_holds``): the
+    bar bar-thick, the clip closed round it (``GRIP_RING`` of 12 points on a circle of
+    ``GRIP_R``, more than half; none at 3 LDU) there and ``GRIP_HALF`` either side, which
+    also keeps the grip off the bar's end. On a bar the library does not draw (23443's
+    handle) the grip's own line is measured. Any angle about the bar's line is a fit;
   each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
-  KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip whose
-  primitive is not in ``CLIP_GRIP`` (clip2, the thick U-clip of 4085c; clip9, clip10, clip14)
-  or whose bar has no line it can find, hinge halves (see below), finger hinges, ball and
-  socket, a turntable outside a
+  KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip with no closed
+  grip (the thick U-clip 4085c) or not round its bar, hinge halves (see below), finger
+  hinges, ball and socket, a turntable outside a
   proven module, a wheel or tyre whose line comes from its shape or that has none, an axle
   or pin the library does not draw as one (or that misses the measure), a tyre touching a
   wheel pin, and anything judged by nearness.
@@ -186,7 +183,13 @@ What it reports, each item naming the line number, the part and its position:
   stud problem between them and no pin, axle or hole in either (those go into one another
   by design: the library may only lack the joint), for the first ``SUNK_LOOKS`` such parts
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
-  real move onto studs are kept.
+  real move onto studs are kept. Parts that reach the ground only through clip grips tested
+  for fit and carry more than a strut, a rail, an aerial or a mirror (``clip_loads``: more
+  than ``LOAD_PER_GRIP`` per clip, or held out on one clip beyond ``LOAD_ONE_GRIP``) get a
+  warning naming them and a word in the summary: a clip holds a strut or a rail, and the
+  checker cannot judge whether clips will carry more. Three official models trip it (75075,
+  31066, 40379: their designers carry weight on several clips); it was kept on purpose, for
+  every model, as a warning that never becomes a problem: it is not a false alarm to fix.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -359,13 +362,19 @@ class Report:
             return head + ": there is nothing to check (no part lines)."
         if not k:
             held = next((i for i in self.unchecked if i.kind == "held by unchecked joints"), None)
-            tail = "no problems: every part is held, nothing overlaps, and it stands."
+            loads = [i for i in self.warnings if i.kind == "held by clips"]
+            notes = []
             if held is not None:
-                m = len(held.lines)
-                tail = (
-                    f"no problems: every part is held ({m} of them only by joints the checker "
-                    "cannot confirm), nothing overlaps, and it stands."
-                )
+                notes.append(f"{len(held.lines)} of them only by joints the checker cannot confirm")
+            if loads:
+                c = sum(len(i.lines) for i in loads)
+                notes.append(f"{c} only by clips, carrying more than a strut")
+            tail = (
+                f"no problems: every part is held ({'; '.join(notes)}), nothing overlaps, and "
+                "it stands."
+                if notes
+                else "no problems: every part is held, nothing overlaps, and it stands."
+            )
             extra = []
             if self.warnings:
                 extra.append(
@@ -893,8 +902,8 @@ def _tube_hollows(p: Placed) -> list[_Hollow]:
     """The bore of a part its name calls a "Bar Tube" (23443 with a handle, 11090 with a clip:
     the library draws no primitive for it), found in its real shape: along each of its own
     axes, through the middle of its box, from an end inwards while the axis is empty and a
-    wall stands round it (6 of 8 points 5 LDU out solid), from within 2 LDU of the end to the
-    first solid on the axis; at least ``BAR_DEPTH`` deep. A bar in it is judged as in any
+    wall stands round it (6 of 8 points ``BAR_RING`` out solid), from where the wall starts to
+    the first solid on the axis; at least ``BAR_DEPTH`` deep. A bar in it is judged as in any
     hollow (``_bar_fits``)."""
     if "bar tube" not in p.part.description.lower():
         return []
@@ -913,15 +922,13 @@ def _tube_hollows(p: Placed) -> list[_Hollow]:
                 while (step < 0 and t > lo[k]) or (step > 0 and t < hi[k]):
                     x = mid.copy()
                     x[k] = t
-                    ring = x + 5.0 * (_RING[:, 0:1] * u + _RING[:, 1:2] * v)
+                    ring = x + BAR_RING * (_RING[:, 0:1] * u + _RING[:, 1:2] * v)
                     empty = not sol.inside(x[None, :], deep=False).any()
                     wall = int(sol.inside(ring, deep=False).sum()) >= 6
                     if not empty or (not wall and inside):
                         break
                     if wall:
                         inside.append(t)
-                    elif abs(t - start) > 2:
-                        break
                     t += step
                 if inside and abs(inside[-1] - inside[0]) >= BAR_DEPTH:
                     a, b = mid.copy(), mid.copy()
@@ -1755,29 +1762,11 @@ JOINT_ROOM = {  # LDU round a receptacle's line (the hole, the clip) where its j
     "bar handle": 6.0,  # round the handle's bar (``_handle_bars``), when the clip has no primitive
 }
 CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
-# a clip tested for fit: per clip primitive, whether the bar it grips runs along the
-# primitive's axis or square to it (measured on the clip-on-bar and clip-on-handle pairs of
-# the official sets, and for the rest found in the library's clip parts' own shapes: where a
-# bar's ring is clip all round)
-CLIP_GRIP = {
-    "clip1": "along",
-    "clip4": "along",
-    "clip5": "along",
-    "clip7": "along",
-    "clip12": "along",
-    "clip13": "along",
-    "clip15": "along",
-    "clip16": "along",
-    "clip3": "across",
-    "clip6": "across",
-    "clip8": "across",
-    "clip11": "across",
-}  # clip2 (a thick U-clip, 4085c), clip9, clip10 and clip14 grip too loosely to say: by name
 CLIP_DEG = 5.0  # degrees the bar may lean from the grip's direction
 GRIP_HALF = 2.0  # LDU either side of the grip's middle where bar and clip must both be
 GRIP_R = 5.5  # LDU: the circle round the bar's line where the clip is and the bar is not
-GRIP_RING = 6  # of 12 points on that circle the clip must fill
-BAR_CORE = 4  # of 12 points 2 LDU round the line the bar must fill (a bar end may be hollow)
+GRIP_VERSION = 1  # the grips found (``grip_lines``) are kept on disk under this version
+GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
 JOINT_SNUG_VOL = 1000.0  # LDU^3: and less than this much in all
@@ -2010,16 +1999,13 @@ def _handle_bars(p: Placed) -> list[tuple[np.ndarray, np.ndarray]]:
 def _bar_lines(q: Placed) -> list[tuple[np.ndarray, np.ndarray]]:
     """The bars of q a clip can hold, as segments (world): its handles' bars
     (``_handle_bars``), else, for a part its name calls a bar (a bar, an antenna, a lever)
-    with no clip of its own and a box no more than ``BAR_BOX`` LDU across, its box's long
-    axis from end to end."""
+    with a box no more than ``BAR_BOX`` LDU across, its box's long axis from end to end. A
+    clip or a bar tube on such a part is no reason to leave its bar out: the grip is still
+    tested on its real shape (``_grip_holds``)."""
     bars = _handle_bars(q)
     if bars:
         return bars
-    if any(c.kind == "clip" for c in q.part.others):
-        return []
     if not any(_NAME_END.get(w) == "bar+" for w in q.part.name_joint_words()):
-        return []
-    if "bar tube" in q.part.description.lower():
         return []
     lo, hi = q.part.bbox_min, q.part.bbox_max
     span = hi - lo
@@ -2054,14 +2040,14 @@ def _could_grip(p: Placed, q: Placed) -> bool:
 
 def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
     """Does a clip of p grip a bar of q whose centre line runs through x along u (world)? At x
-    and ``GRIP_HALF`` to either side, q is bar-thick (its real shape fills ``BAR_CORE`` of 12
-    points 2 LDU round the line and none of 12 at ``GRIP_R``) and p is round it (``GRIP_RING``
-    of 12 points at ``GRIP_R``, none at 3 LDU: a bar pushed into the clip's body is not in its
-    grip)."""
+    and ``GRIP_HALF`` to either side, q is bar-thick (its real shape is there, at some of 12
+    points 2 LDU round the line, a bar end may be hollow, and at none of 12 at ``GRIP_R``)
+    and p is round it (``GRIP_RING`` of 12 points at ``GRIP_R``, none at 3 LDU: a bar pushed
+    into the clip's body is not in its grip)."""
     for dt in (-GRIP_HALF, 0.0, GRIP_HALF):
         c = x + dt * u
         if (
-            _ring_count(q, c, u, 2.0) < BAR_CORE
+            _ring_count(q, c, u, 2.0) == 0
             or _ring_count(q, c, u, GRIP_R) > 0
             or _ring_count(p, c, u, GRIP_R) < GRIP_RING
             or _ring_count(p, c, u, 3.0) > 0
@@ -2070,55 +2056,128 @@ def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
     return True
 
 
+_GRIPS: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {}
+
+
+def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ignore[no-untyped-def]
+    """``_ring_count`` on a part's own solid, in its own frame."""
+    u, v = _perp(d)
+    ang = np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    pts = x + r * (np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * v)
+    return int(sol.inside(pts, deep=False).sum())
+
+
+def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Where a clip part grips a bar, in its own frame: one (point on the bar's centre line,
+    its direction) per clip, found in its real shape. A grip is closed: at the point and
+    ``GRIP_HALF`` to either side along the direction, the clip fills ``GRIP_RING`` of 12
+    points on a circle of ``GRIP_R`` round the line (more than half of it) and none of 12 at
+    3 LDU (room for a bar 4 LDU in radius). For each clip primitive, the closed grip nearest
+    its point, on the part's own axes or square to the primitive's axis every 15 degrees
+    (most clip round it first, then square with the part's axes); a part its name calls a
+    clip with no clip primitive (15712), the best closed grip anywhere in its box along its
+    own axes. A clip with no closed grip (the thick U-clip 4085c) has none: it is known by
+    name only. The checker (``_clip_fit``) and the builder's ``clip`` tool both use this. What
+    the search finds is kept on disk (``cache_dir()/grips``), keyed by the part and by what
+    makes a grip: ``GRIP_VERSION``, ``GRIP_R``, ``GRIP_RING`` and ``GRIP_HALF``."""
+    if key in _GRIPS:
+        return _GRIPS[key]
+    import json
+
+    from bricksnap.lab import solid
+    from bricksnap.lab.ldraw_lib import cache_dir
+
+    name = re.sub(r"[^a-z0-9._-]", "_", key)  # keyed by what makes a grip, too
+    stored = cache_dir() / "grips" / f"{name}.v{GRIP_VERSION}-{GRIP_R}-{GRIP_RING}-{GRIP_HALF}.json"
+    try:
+        got = json.loads(stored.read_text())
+        _GRIPS[key] = [(np.array(x, float), np.array(d, float)) for x, d in got]
+        return _GRIPS[key]
+    except (OSError, ValueError, TypeError):
+        pass
+    part = library().part(key)
+    sol = solid.solid(key)
+    seeds = [(c.pos, c.axis) for c in part.others if c.kind == "clip"]
+    if not seeds and "clip" in part.name_joint_words():
+        seeds = [((part.bbox_min + part.bbox_max) / 2, None)]
+    found = []
+    for pos, axis in seeds:
+        dirs = [np.eye(3)[k] for k in range(3)]
+        if axis is not None:
+            a = axis / np.linalg.norm(axis)
+            u, v = _perp(a)
+            dirs += [math.cos(t) * u + math.sin(t) * v for t in np.radians(np.arange(0, 180, 15))]
+            reach = 8.0
+        else:
+            reach = float(np.max(part.bbox_max - part.bbox_min)) / 2
+        best = None
+        for d in dirs:
+            s1, s2 = _perp(d)
+            for p_ in np.arange(-reach, reach + 0.01, 1.0):
+                for q_ in np.arange(-reach, reach + 0.01, 1.0):
+                    x = pos + p_ * s1 + q_ * s2
+                    if _clip_ring(sol, x, d, GRIP_R) < GRIP_RING:
+                        continue
+                    rings = [
+                        _clip_ring(sol, x + t * d, d, GRIP_R) for t in (-GRIP_HALF, 0.0, GRIP_HALF)
+                    ]
+                    if min(rings) < GRIP_RING:
+                        continue
+                    if any(
+                        _clip_ring(sol, x + t * d, d, 3.0) for t in (-GRIP_HALF, 0.0, GRIP_HALF)
+                    ):
+                        continue
+                    score = (
+                        sum(rings),
+                        round(float(np.abs(d).max()), 3),
+                        -float(np.linalg.norm(x - pos)),
+                    )
+                    if best is None or score > best[0]:
+                        best = (score, x, d / np.linalg.norm(d))
+        if best is not None:
+            found.append((best[1], best[2]))
+    _GRIPS[key] = found
+    try:  # the search takes a second or two per part: keep what it found
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_text(json.dumps([[x.tolist(), d.tolist()] for x, d in found]))
+    except OSError:
+        pass
+    return found
+
+
 def _clip_fit(p: Placed, q: Placed) -> float | None:
-    """A clip of p measured on a bar of q: how far the clip primitive's point is from the
-    bar's centre line (0 for a clip the library draws without a primitive); None when it is
-    not a fit. Where the grip is:
-    - a clip primitive in ``CLIP_GRIP`` and a bar of q (``_bar_lines``): the point of the
-      bar's line nearest the primitive's point, at least ``GRIP_HALF`` LDU inside the bar's
-      ends, the line along the primitive's axis (an "along" clip) or square to it (an
-      "across" one) within ``CLIP_DEG`` degrees;
-    - an "along" clip primitive alone (q's bar drawn with no primitive, as 23443's handle):
-      its own axis through its point;
-    - a part its name calls a clip, drawn with no clip primitive (15712), on a bar of q: the
-      first place along the bar, inside the clip's box, where the grip holds;
-    and there the grip must hold (``_grip_holds``). A clip primitive not in ``CLIP_GRIP`` is
-    not measured. Any angle about the bar's line is a fit: that is what a clip is for."""
-    clips = [c for c in p.part.others if c.kind == "clip"]
+    """A clip of p measured on a bar of q: how far the clip's grip (``grip_lines``) is from
+    the bar's centre line, at the bar's point nearest it; None when it is not a fit. For each
+    grip of p: on each bar of q (``_bar_lines``) that runs along the grip's direction within
+    ``CLIP_DEG`` degrees, the bar's point nearest the grip's point; when q has no bar the
+    checker can find (23443's handle), the grip's own line. There the grip must hold
+    (``_grip_holds``: the bar bar-thick, the clip closed round it). Any angle about the bar's
+    line is a fit: that is what a clip is for."""
+    grips = grip_lines(p.key)
+    if not grips:
+        return None
     bars = _bar_lines(q)
-    for c in clips:
-        if c.prim not in CLIP_GRIP:
+    cos = math.cos(math.radians(CLIP_DEG))
+    best = None
+    for gx, gd in grips:
+        o = p.to_world(gx)
+        d = p.m @ gd
+        if not bars:
+            if _grip_holds(p, q, o, d):
+                best = 0.0
             continue
-        how = CLIP_GRIP[c.prim]
-        o = p.to_world(c.pos)
-        a = p.m @ c.axis
         for e0, e1 in bars:
             length = float(np.linalg.norm(e1 - e0))
-            if length < 2 * GRIP_HALF:
+            if length < 1e-6:
                 continue
             u = (e1 - e0) / length
-            t = float(np.dot(o - e0, u))
-            dist = float(np.linalg.norm(o - (e0 + t * u)))
-            if not GRIP_HALF <= t <= length - GRIP_HALF:
+            if abs(float(np.dot(u, d))) < cos:
                 continue
-            cos = min(1.0, abs(float(np.dot(u, a))))
-            off = math.degrees(math.acos(cos) if how == "along" else math.asin(cos))
-            if off <= CLIP_DEG and _grip_holds(p, q, e0 + t * u, u):
-                return dist
-        if how == "along" and not bars and _grip_holds(p, q, o, a):
-            return 0.0
-    if clips or "clip" not in p.part.name_joint_words():
-        return None
-    lo, hi = p.part.bbox_min - 1, p.part.bbox_max + 1
-    for e0, e1 in bars:
-        length = float(np.linalg.norm(e1 - e0))
-        u = (e1 - e0) / max(length, 1e-9)
-        for t in np.arange(GRIP_HALF, length - GRIP_HALF + 0.01, 1.0):
-            x = e0 + t * u
-            local = p.to_local(x[None, :])[0]
-            if np.all(local >= lo) and np.all(local <= hi) and _grip_holds(p, q, x, u):
-                return 0.0
-    return None
+            x = e0 + float(np.dot(o - e0, u)) * u
+            if _grip_holds(p, q, x, u):
+                dist = float(np.linalg.norm(o - x))
+                best = dist if best is None else min(best, dist)
+    return best
 
 
 def _clip_at_bar(a: Placed, b: Placed) -> bool:
@@ -2205,8 +2264,6 @@ def _joint_clash(a: Placed, b: Placed, words: list[str]) -> bool:
     shapes of parts made to go together share that much (an arm's shoulder on its torso)."""
     from bricksnap.lab import solid
 
-    if "bar in a clip" in words and any(_bar_in(p, q, []) for p, q in ((a, b), (b, a))):
-        return False  # a bar in a bar tube's bore: ``_bar_in`` has measured what else they share
     if words == ["tyre on a wheel"] and _tyre_room_is_all(a, b):
         return False  # whatever they share is in the tyre, so in its room
     room = _joint_room(a, b, words)
@@ -2816,7 +2873,82 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
         from bricksnap.lab import movement as moves
 
         moves.apply(text, report, lib)
+    clip_loads(report)
     return report
+
+
+LOAD_PER_GRIP = 76800.0  # LDU^3 (filled bodies) a clip may carry: a 2 x 4 brick's
+LOAD_ONE_GRIP = 1_000_000.0  # LDU^4: held out on one clip, volume times its reach from it
+
+
+def clip_loads(report: Report) -> None:
+    """Parts that reach the ground only through clip grips tested for fit, when they are more
+    than a strut, a rail, an aerial or a mirror: a warning of kind "held by clips" naming them,
+    and the summary says so. Group the parts joined by anything but clip grips; a group that
+    is not on the ground that way but is with them hangs on the clips that cross its edge.
+    Its load is the filled volume of its parts that are not thin members (a bar, a bar tube,
+    a clip with a grip: ``_bar_lines``, ``_tube_hollows``, ``grip_lines``). It is too much
+    when each clip carries more than ``LOAD_PER_GRIP`` (a table on clip-held legs), or when
+    one clip holds it and its load times its reach from the clip (to the middle of the load,
+    across) is more than ``LOAD_ONE_GRIP`` (a wing held out on one clip)."""
+    report.issues = [i for i in report.issues if i.kind != "held by clips"]
+    by_line = {p.line: p for p in report.placed}
+    clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
+    if not clip_fits:
+        return
+    joints = [i for i in report.issues if i.kind == "joint" and len(i.lines) == 2]
+
+    def grouped(with_clips: bool) -> _Groups:
+        g = _Groups(list(by_line))
+        for link in report.links:
+            g.join(link.holder, link.held)
+        for i in joints:
+            if with_clips or i not in clip_fits:
+                g.join(i.lines[0], i.lines[1])
+        return g
+
+    ground = set(report.grounded)
+    held = [c for c in grouped(True).groups() if ground & set(c)]
+    for comp in grouped(False).groups():
+        if ground & set(comp) or not any(set(comp) <= set(c) for c in held):
+            continue
+        cross = [i for i in clip_fits if (i.lines[0] in comp) != (i.lines[1] in comp)]
+        load = [
+            by_line[n]
+            for n in comp
+            if not (
+                _bar_lines(by_line[n]) or _tube_hollows(by_line[n]) or grip_lines(by_line[n].key)
+            )
+        ]
+        vol = sum(p.part.volume() for p in load)
+        if not cross or vol <= 0:
+            continue
+        too_much = vol / len(cross) > LOAD_PER_GRIP
+        if len(cross) == 1:
+            i = cross[0]
+            clip = by_line[i.lines[0] if i.lines[0] not in comp else i.lines[1]]
+            mid = (
+                sum(
+                    p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume()
+                    for p in load
+                )
+                / vol
+            )
+            reach = float(np.linalg.norm((mid - clip.pos)[[0, 2]]))
+            too_much = too_much or vol * reach > LOAD_ONE_GRIP
+        if too_much:
+            lines = sorted(comp)
+            report.issues.append(
+                Issue(
+                    "warning",
+                    "held by clips",
+                    lines,
+                    f"{_lines(lines).capitalize()} reach the ground only through "
+                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. A clip holds a "
+                    "strut or a rail; the checker cannot judge whether clips will carry this "
+                    "much. If it has to bear weight, hold it with studs or a pin.",
+                )
+            )
 
 
 def held_only_item(

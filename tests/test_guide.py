@@ -22,14 +22,14 @@ STUDY_GUIDE = ROOT / "docs" / "research" / "2026-11-19-how-real-sets-are-built" 
 # What the builder is given with the guide off, as it was before the switch existed: the
 # baseline of the with-and-without comparison. If you change prompt.md or a tool on purpose,
 # update these, knowing that guide-off runs before and after the change are no longer alike.
-BASELINE_PROMPT_SHA256 = "94dc1c85fdc343ecbf4e2a2f3bbf6729dad9ae1f0b106f4e5ba05cea807eb6af"
+BASELINE_PROMPT_SHA256 = "2b02938cd0fef5504319c883eece158bc27007fafa1d6d28baf48b58b91353d1"
 BASELINE_TOOLS_SHA256 = "2d3fc284e8048eddf66d45aac47390758487adaa707209360cb0d98053a3f990"
 # On 20 November the colour line was changed on purpose (the style study: a fuller list, true
 # names, trans black for glass). Before it, the prompt's pin was this, with this colour line:
 # putting the old line back must give the old pin, so the change is that one line and no other.
 # (Since then the check tool's sentence on joints changed once more, for clips on bars: this
 # pin is the old colour line with today's sentence.)
-PROMPT_SHA256_BEFORE_COLOURS = "a36fcd7a6b0ed38c32f0cf3b82535cfd2320a6e8d30cb82cb6e93b9db507bbe2"
+PROMPT_SHA256_BEFORE_COLOURS = "5e5dbc8df68125a531d1a399fdfd9ddec76ddf82614c254c0966024c5ced47d1"
 OLD_COLOUR_LINE = (
     "- Colours are LDraw codes: 0 black, 1 blue, 2 green, 4 red, 14 yellow, 15 white, 19 tan, "
     "25 orange, 27 lime, 28 dark tan, 70 reddish brown, 71 light bluish grey, 72 dark bluish "
@@ -154,7 +154,7 @@ def test_the_guide_mode_instructions():
     assert "Build from the ground up" not in text and "a sturdy core" not in text
     assert "call playbook once" in text and "which playbook you followed" in text
     assert "Write the art direction and give it with brief" in text
-    assert "not of a ball joint or a hinge" in text
+    assert "not of a ball joint, a hinge or a clip it cannot measure" in text
     assert "lifts off" in text and "hinged doors" in text
     # one method: the rules and Panels come after the working order, before what moves
     assert text.index("7. Stop when") < text.index("# How set designers build")
