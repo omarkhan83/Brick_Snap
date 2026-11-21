@@ -2139,9 +2139,6 @@ def _joint_room(a: Placed, b: Placed, words: list[str]) -> list:
             room.append(
                 (p.to_world(c.pos + (lo - 2) * c.axis), p.to_world(c.pos + (hi + 2) * c.axis), r)
             )
-    for p in (a, b):  # a bar tube's bore (``_tube_hollows``), as a hollow's own space
-        for h in _tube_hollows(p):
-            room.append((h.p0, h.p1, BAR_RING))
     if "turntable" in words:  # the two halves turn about one axis: room is their round box
         for p in (a, b):
             ax = _round_axis(p)
@@ -2184,6 +2181,8 @@ def _joint_clash(a: Placed, b: Placed, words: list[str]) -> bool:
     shapes of parts made to go together share that much (an arm's shoulder on its torso)."""
     from bricksnap.lab import solid
 
+    if "bar in a clip" in words and any(_bar_in(p, q, []) for p, q in ((a, b), (b, a))):
+        return False  # a bar in a bar tube's bore: ``_bar_in`` has measured what else they share
     if words == ["tyre on a wheel"] and _tyre_room_is_all(a, b):
         return False  # whatever they share is in the tyre, so in its room
     room = _joint_room(a, b, words)
