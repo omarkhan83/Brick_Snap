@@ -19,6 +19,10 @@ module gives each part its real shape:
   the six axis directions: a point is DEEP inside when it and the points ``CELL`` LDU from it
   along each axis are solid. Grids are cached on disk under the lab cache.
 - ``Solid.inside(points, deep=True)``: which points (in the part's frame) are inside.
+- ``stud_core_inside(key, base, d)``: does a stud with its base at ``base`` pointing along
+  ``d`` (the part's frame) go into the part's solid plastic: any point of its core
+  (``STUD_CORE_R`` round its axis, or a smaller ``radius``, ``STUD_CORE_H`` up it) DEEP
+  inside. A stud that only grazes the part (less than about 1 LDU) does not.
 
 What it guarantees, for a part whose cells are ``h`` LDU (``CELL``, 0.5, for every ordinary
 part; coarser only for parts so big the grid would pass ``MAX_CELLS``: about 1 to 1.2 LDU
@@ -224,6 +228,36 @@ def in_the_way(
     a seated stud does (see the contract)."""
     depth, _, needed = interference(a, b, lib, apart)
     return depth >= needed - 1e-9
+
+
+STUD_CORE_R = 5.0  # LDU: a stud is 6 in radius; its core this far out is what must be free
+STUD_CORE_H = (0.75, 3.5)  # LDU up the stud (it is 4 tall) that must be free
+
+
+def stud_core_inside(
+    key: str,
+    base: np.ndarray,
+    d: np.ndarray,
+    lib: Library | None = None,
+    radius: float = STUD_CORE_R,
+) -> bool:
+    """Does a stud (its base and unit direction in the part's own frame) go into the part's
+    real solid plastic? (See the contract.) ``radius``: how far out from its axis the core
+    is tested (rings at 2.5 LDU and at ``radius``)."""
+    d = np.asarray(d, dtype=float)
+    a = np.array([1.0, 0, 0]) if abs(d[0]) < 0.9 else np.array([0, 0, 1.0])
+    u = np.cross(d, a)
+    u /= np.linalg.norm(u)
+    v = np.cross(d, u)
+    ang = np.linspace(0, 2 * np.pi, 12, endpoint=False)
+    ring = np.outer(np.cos(ang), u) + np.outer(np.sin(ang), v)
+    pts = []
+    for h in np.linspace(STUD_CORE_H[0], STUD_CORE_H[1], 4):
+        c = np.asarray(base, dtype=float) + h * d
+        pts.append(c[None, :])
+        for r in sorted({2.5, radius}):
+            pts.append(c + r * ring)
+    return bool(solid(key, lib).inside(np.concatenate(pts), deep=True).any())
 
 
 def triangles(key: str, lib: Library | None = None) -> np.ndarray:

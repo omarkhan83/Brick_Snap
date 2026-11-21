@@ -282,11 +282,13 @@ class Part:
         return (round(phase[0] * 2) / 2 % 20, round(phase[1] * 2) / 2 % 20)
 
     def has_sockets(self) -> bool:
-        """True when a stud can go in anywhere underneath (see ``place.sockets``)."""
+        """True when a stud can go in anywhere underneath by its filled body (``place.sockets``
+        with ``real=False``: the checker asks this of nearly every part it checks, so it does
+        not wait on real shapes)."""
         if self._n_sockets is None:
             from bricksnap.lab.place import sockets
 
-            self._n_sockets = len(sockets(self))
+            self._n_sockets = len(sockets(self, real=False))
         return self._n_sockets > 0
 
     # ---- filled body ----

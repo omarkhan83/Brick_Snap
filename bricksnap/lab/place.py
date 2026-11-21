@@ -15,7 +15,14 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   socket then sits on the nearest cell of the grid the checker seats studs on
   (``validate.stud_grid``), which differs only for a part with no top studs whose box is
   not whole studs (a curved slope with a cutout): placed with ``place``, such a part passes
-  the check.
+  the check. Last, a socket must be one the part's REAL shape takes a stud in: the middle of
+  a stud pointing up from it (``solid.stud_core_inside`` within ``SOCKET_CORE_R`` of its
+  axis) is not in plastic. The filled body calls the corners of a radar dish's (4740) domed
+  underside sockets, and they are not; a rib or wall that only touches a stud's side (most
+  undersides grip a stud so) leaves a socket a socket.
+  ``sockets(part, real=False)`` leaves that last test out (``Part.has_sockets`` uses it).
+  The answer is kept in memory per part; the real test costs one solid per part, built once
+  and kept on disk by ``solid`` (0.03 to 0.4 s for ordinary parts).
 
 ``place(text, part, colour, line, ...)`` -> ``Placement`` (the finished LDraw line and a
 sentence saying what was done), or raises ``PlaceError`` in plain words. ``text`` is the
@@ -72,8 +79,27 @@ class Placement:
     m: np.ndarray
 
 
-def sockets(part: Part) -> list[Socket]:
+_REAL_SOCKETS: dict[str, list[Socket]] = {}
+SOCKET_CORE_R = 2.5  # LDU: a socket is false only when a stud's middle would be in plastic
+
+
+def sockets(part: Part, real: bool = True) -> list[Socket]:
     """The part's sockets, numbered from 1 in this order (see the contract)."""
+    if not real:
+        return _sockets(part)
+    if part.name not in _REAL_SOCKETS:
+        from bricksnap.lab import solid
+
+        up = np.array([0.0, -1.0, 0.0])
+        _REAL_SOCKETS[part.name] = [
+            s
+            for s in _sockets(part)
+            if not solid.stud_core_inside(part.name, s.pos, up, radius=SOCKET_CORE_R)
+        ]
+    return [Socket(s.pos.copy(), s.kind) for s in _REAL_SOCKETS[part.name]]
+
+
+def _sockets(part: Part) -> list[Socket]:
     out: list[Socket] = []
     if part.has_body():
         px, pz = part.socket_phase()

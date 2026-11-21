@@ -36,9 +36,9 @@ What it reports, each item naming the line number, the part and its position:
   that reaches into B in any other way is a problem, with the reason: off B's grid (by how
   much, and where to move B to), not pressed home (the gap), pushed in too far, or into B's
   side or top, or against B's underside where it has no socket. That last is said only when
-  the stud's core (``STUD_SOLID_R`` round its axis, ``STUD_SOLID_H`` up it) goes deep into
-  B's real solid (``_stud_in_solid``): a stud beside a wedge plate's cut corner or under a
-  windscreen's glass, which the filled body fills in, neither holds B nor hits it.
+  the stud's core goes deep into B's real solid (``solid.stud_core_inside``): a stud beside
+  a wedge plate's cut corner or under a windscreen's glass, which the filled body fills in,
+  neither holds B nor hits it.
 - Joints other than studs: when a part joins by clips, bars, pins, axles, hinges, ball
   joints or wheel pins (from its primitives or its name) and touches another part with no
   stud connection between them, the pair counts as joined when deciding what is loose, and
@@ -769,26 +769,13 @@ def _stud_probe(base: np.ndarray, d: np.ndarray) -> np.ndarray:
     return np.array([c, c + 4 * u, c - 4 * u, c + 4 * v, c - 4 * v])
 
 
-STUD_SOLID_R = 5.0  # LDU: a stud is 6 in radius; its core this far out is what must be free
-STUD_SOLID_H = (0.75, 3.5)  # LDU up the stud (it is 4 tall) that must be free
-
-
 def _stud_in_solid(base_b: np.ndarray, d_b: np.ndarray, b: Placed) -> bool:
-    """Does a stud (its base and direction in b's frame) go into b's real solid plastic? Its
-    core (``STUD_SOLID_R`` round its axis, ``STUD_SOLID_H`` up it) is tested against b's
-    real shape, deep inside only (``solid.Solid.inside``): a stud that only grazes b, or
-    stands beside a cut edge or under open space that b's filled body fills in, does not."""
+    """Does a stud (its base and direction in b's frame) go into b's real solid plastic
+    (``solid.stud_core_inside``)? One that only grazes b, or stands beside a cut edge or
+    under open space that b's filled body fills in, does not."""
     from bricksnap.lab import solid
 
-    u, v = _perp(d_b)
-    pts = []
-    for h in np.linspace(STUD_SOLID_H[0], STUD_SOLID_H[1], 4):
-        c = base_b + h * d_b
-        pts.append(c)
-        for r in (2.5, STUD_SOLID_R):
-            for a in np.linspace(0, 2 * np.pi, 12, endpoint=False):
-                pts.append(c + r * (math.cos(a) * u + math.sin(a) * v))
-    return bool(solid.solid(b.key).inside(np.array(pts), deep=True).any())
+    return solid.stud_core_inside(b.key, base_b, d_b)
 
 
 @dataclass

@@ -317,17 +317,22 @@ DETAILS = ["98138", "6141", "85861", "54200", "2412b", "4589", "4740", "25269", 
 
 
 # a radar dish takes one stud, in the tube at its centre: its real shape stands on studs at the
-# corners of its cell (1.2 LDU deep) and its rim on the studs round a single one, although
-# ``place.sockets`` lists three corners as sockets. An official set (21036) puts it on the
-# centre stud of a 2 x 2 jumper plate, as here.
-CENTRE_ONLY = {"4740": 4}
+# corners of its cell (1.2 LDU deep) and its rim on the studs round a single one, so the tube
+# is its only socket. An official set (21036) puts it on the centre stud of a 2 x 2 jumper
+# plate, as here.
+CENTRE_ONLY = {"4740"}
 
 
 def detail_on_top(part: str) -> Case:
     if part in CENTRE_ONLY:
         t = on(base(), "87580.dat", 72, 1, stud=b(-10, -10))
-        t = on(t, part + ".dat", 25, 2, stud=1, socket=CENTRE_ONLY[part])
-        four = on(base(), part + ".dat", 25, 1, stud=b(-10, -10))  # socket 1, as place offers
+        t = on(t, part + ".dat", 25, 2, stud=1)
+        # by hand on four studs: the corner the filled body once called socket 1 on a stud
+        corner = sockets(_part(part + ".dat"), real=False)[0].pos
+        four = raw(
+            base(),
+            ldraw_line(25, stud_world(base(), 1, b(-10, -10)) - corner, np.eye(3), part + ".dat"),
+        )
         return Case(t, {"half a stud off": moved(t, 3, dx=10), "on four studs": four})
     t = on(base(), part + ".dat", 25, 1, stud=b(-10, -10))
     return Case(t, {"half a stud off": moved(t, 2, dx=10)})
@@ -341,7 +346,7 @@ def detail_on_side(part: str) -> Case:
     n = 1 if len(grid) == 1 or part in CENTRE_ONLY else 2 if len(grid) == 2 else 4
     carrier, stud = SIDE_CARRIER[n]
     t = on(base(), carrier, 4, 1, stud=b(-10, -50))
-    t = on(t, part + ".dat", 25, 2, stud=stud, socket=CENTRE_ONLY.get(part, 1))
+    t = on(t, part + ".dat", 25, 2, stud=stud)
     return Case(t, {"pushed into the carrier": moved(t, 3, dz=4)})
 
 
@@ -567,6 +572,13 @@ def test_a_wedge_plate_on_a_full_plate_with_studs_beside_its_cut(part, turn):
     # nothing there and hits nothing (once "no socket": 41770b, on the real shapes nothing)
     r = check(on(base(), part + ".dat", 4, 1, stud=b(-10, -10), turn=turn))
     assert held(r), said(r)
+
+
+def test_place_offers_only_sockets_the_real_shape_takes_a_stud_in():
+    dish = _part("4740.dat")
+    assert len(sockets(dish, real=False)) == 4  # three corners and the tube, by filled body
+    assert [s.kind for s in sockets(dish)] == ["tube"]
+    assert len(sockets(_part("3001.dat"))) == 11 and len(sockets(_part("41770b.dat"))) == 7
 
 
 def test_a_stud_into_solid_plastic_where_there_is_no_socket_is_still_caught():
