@@ -41,6 +41,9 @@ attaches to: on a stud pointing up, turn 0 gives the new part the unturned rotat
 new part tipped over the shortest way so that its top faces along the stud. The socket used
 turns with the part. The rotation matrix comes out exact (whole numbers for quarter turns and
 axis-aligned studs).
+When another quarter turn would join more studs between the new part and that line (counted
+by the checker's own stud test, both ways), the note ends with one sentence saying so ("Turn 2
+would catch 4 side studs; this catches 1."); what is placed does not change.
 """
 
 from __future__ import annotations
@@ -276,8 +279,12 @@ def place(
         base_w = t_m @ s.pos + t_pos
         d_w = t_m @ s.axis
         d_w = d_w / np.linalg.norm(d_w)
-        m = _rot_between(np.array([0.0, -1.0, 0.0]), d_w) @ q
-        pos = base_w - m @ sock.pos
+        at = sock.pos
+
+        def pose(qq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            mm = _rot_between(np.array([0.0, -1.0, 0.0]), d_w) @ qq
+            return mm, base_w - mm @ at
+
         note = f"{new_name} socket {socket} is on stud {stud} of line {line}{turned}."
     elif under_socket is not None:
         sock = _pick(sockets(target), under_socket, "socket", owner)
@@ -285,20 +292,59 @@ def place(
         s = _pick(numbered_studs(new), own_stud, "stud", f"{new_name} ({new.description})")
         assert isinstance(s, Connector)
         d_w = t_m @ np.array([0.0, -1.0, 0.0])
-        m = (
-            _rot_between(np.array([0.0, -1.0, 0.0]), d_w)
-            @ q
-            @ _rot_between(s.axis, np.array([0.0, -1.0, 0.0]))
-        )
-        pos = (t_m @ sock.pos + t_pos) - m @ s.pos
+        hole, own, own_axis = t_m @ sock.pos + t_pos, s.pos, s.axis
+
+        def pose(qq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            mm = (
+                _rot_between(np.array([0.0, -1.0, 0.0]), d_w)
+                @ qq
+                @ _rot_between(own_axis, np.array([0.0, -1.0, 0.0]))
+            )
+            return mm, hole - mm @ own
+
         note = f"{new_name} stud {own_stud} is in socket {under_socket} of line {line}{turned}."
     else:
         raise PlaceError(
             "Say where: stud (a stud of that line), under_socket (a socket of that line), or "
             "line 0 with x and z for the ground."
         )
+    m, pos = pose(q)
     m = _clean(m)
-    return Placement(ldraw_line(colour, pos, m, new_name), note + " " + _where(new, pos, m), pos, m)
+    note += " " + _where(new, pos, m)
+    better = _better_turn(
+        (t_name, target, t_pos, t_m),
+        (new_name, new),
+        [(k, *pose(np.linalg.matrix_power(QUARTER, k))) for k in range(4)],
+        turn,
+        sideways=stud is not None and abs(float(d_w[1])) < 0.99,
+    )
+    if better:
+        note += " " + better
+    return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
+
+
+def _caught(target: tuple, new: tuple, pos: np.ndarray, m: np.ndarray) -> int:  # type: ignore[type-arg]
+    """How many studs join the new part, placed at ``pos`` with ``m``, and the target (either
+    way), by the checker's own stud test."""
+    from bricksnap.lab.validate import Placed, _stud_hits
+
+    t_name, t_part, t_pos, t_m = target
+    n_name, n_part = new
+    m = _clean(m)
+    a = Placed(1, 16, t_pos, t_m, t_name, t_name, t_part, 0, np.linalg.inv(t_m))
+    b = Placed(2, 16, pos, m, n_name, n_name, n_part, 0, np.linalg.inv(m))
+    return sum(h.ok for h in _stud_hits(a, b)) + sum(h.ok for h in _stud_hits(b, a))
+
+
+def _better_turn(target: tuple, new: tuple, poses: list, turn: int, sideways: bool) -> str:  # type: ignore[type-arg]
+    """A sentence when another quarter turn would catch more studs than the one asked for,
+    else ""."""
+    counts = {k: _caught(target, new, p, mm) for k, mm, p in poses}
+    best = max(counts, key=lambda k: (counts[k], -abs(k - turn)))
+    if counts[best] <= counts[turn]:
+        return ""
+    word = "side studs" if sideways else "studs"
+    return f"Turn {best} would catch {counts[best]} {word}; this catches {counts[turn]}."
 
 
 def _where(part: Part, pos: np.ndarray, m: np.ndarray) -> str:

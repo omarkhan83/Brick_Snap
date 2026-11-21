@@ -685,3 +685,19 @@ def test_every_part_the_builders_guide_names_is_in_the_library():
     assert {"87087", "4600", "3794b", "3937", "64179", "99780", "44728"} <= named
     lib = ldraw_lib.library()
     assert [p for p in sorted(named) if lib.resolve(p + ".dat") is None] == []
+
+
+def test_place_says_when_another_turn_would_catch_more_studs():
+    # the back of the aircraft core: a 1 x 4 brick turned 2, a 1 x 4 plate on its side studs
+    t = on(base(), "30414.dat", 72, 1, stud=b(-50, -10))
+    t = on(t, "30414.dat", 72, 1, stud=b(10, 10), turn=2)
+    assert "Turn 2 would catch 4 side studs; this catches 1." in (
+        place(t, "3710.dat", 15, 3, stud=5).note
+    )
+    assert "would catch" not in place(t, "3710.dat", 15, 3, stud=5, turn=2).note
+    # on top: a 2 x 4 brick on the last stud of another catches 2 studs; turned 2, 4
+    t = on(base(), "3001.dat", 4, 1, stud=b(-50, -50))
+    assert place(t, "3001.dat", 1, 2, stud=4).note.endswith(
+        "Turn 2 would catch 4 studs; this catches 2."
+    )
+    assert "would catch" not in place(t, "3001.dat", 1, 2, stud=1).note
