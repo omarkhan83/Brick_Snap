@@ -195,7 +195,8 @@ def _numbers_in_rules() -> tuple[set[int], set[str]]:
     for m in re.finditer(colour_words + r" (\d+)(?: (\d+))?", text):
         colours.update(int(g) for g in m.groups() if g)
     stripped = re.sub(colour_words + r" \d+(?: \d+)?", "", text)
-    for m in re.finditer(r"(?<![\w.%-])(\d{3,6}[a-z]?)(?![\w%-])", stripped):
+    # "about 300 parts" is a count, not a part number
+    for m in re.finditer(r"(?<![\w.%-])(?<!about )(\d{3,6}[a-z]?)(?![\w%-])", stripped):
         if not re.fullmatch(r"(19|20)\d\ds", m.group(1)):  # "the 1980s" is a decade
             parts.add(m.group(1))
     return colours, parts
@@ -210,6 +211,9 @@ def test_every_colour_and_part_the_style_guide_names_is_in_the_library():
     names = lib.colours()
     assert [c for c in sorted(colours) if c not in names] == []
     assert [p for p in sorted(parts) if lib.resolve(p + ".dat") is None] == []
+    assert not parts & {"150", "300", "600"}  # counts of parts
+    moved = [p for p in sorted(parts) if lib.header(p + ".dat").description.startswith("~")]
+    assert moved == []
 
 
 # ---- the guide-mode instructions ---------------------------------------------------------------

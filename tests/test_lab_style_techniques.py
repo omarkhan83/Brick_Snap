@@ -194,6 +194,25 @@ def aircraft_body() -> Case:
     return Case(t, {"skin pushed into the core": moved(t, 4, dz=4)})
 
 
+def aircraft_body_on_brackets() -> Case:
+    """The guide's 2-stud core with 1-stud skins: a 2 x 4 brick, four down brackets on it (two
+    turned round), a 1 x 4 plate and tile on each side's side studs (wall 4 + plate 8 + tile
+    8 = 20 LDU, one stud), and two curved slopes 2 x 4 across the top, flush with the skins'
+    top edges: 4 studs wide in all."""
+    t = on(base(), "3001.dat", 72, 1, stud=b(-30, -10))  # x -40..40, z -20..20
+    t = on(t, "99781.dat", 72, 2, stud=1)  # front, flange to -z
+    t = on(t, "99781.dat", 72, 2, stud=3)
+    t = on(t, "99781.dat", 72, 2, stud=6, turn=2)  # back, flange to +z
+    t = on(t, "99781.dat", 72, 2, stud=8, turn=2)
+    t = on(t, "3710.dat", 15, 3, stud=3)  # front skin, z -24..-32
+    t = on(t, "3710.dat", 15, 5, stud=4)  # back skin, z 24..32
+    t = on(t, "2431.dat", 15, 7, stud=1)  # z -32..-40
+    t = on(t, "2431.dat", 15, 8, stud=1)  # z 32..40
+    t = on(t, "88930.dat", 15, 3, stud=1, socket=3, turn=1)  # x -40..0, z -40..40
+    t = on(t, "88930.dat", 15, 4, stud=1, socket=3, turn=1)  # x 0..40
+    return Case(t, {"skin pushed into the bracket": moved(t, 7, dz=4)})
+
+
 # ---- (b) 4: rounded underside --------------------------------------------------------------------
 
 
@@ -468,7 +487,8 @@ CASES["skin 36841 pair"] = lambda: bracket_skin(
     "36841.dat", "3005.dat", "3023b.dat", "3069b.dat", pair=True
 )
 CASES["skin across two carriers"] = two_carriers
-CASES["aircraft body 4 wide"] = aircraft_body
+CASES["aircraft body on side-stud bricks, 3.6 wide"] = aircraft_body
+CASES["aircraft body on brackets, 4 wide"] = aircraft_body_on_brackets
 CASES["inverted 24201"] = lambda: inverted("24201", 5)
 CASES["inverted 32803"] = lambda: inverted("32803", 5)
 CASES["inverted 13547"] = lambda: inverted("13547", 3, turn=1)  # x -40..40, studs 1 and 2 in
@@ -614,6 +634,22 @@ def test_the_glass_hinge_is_a_joint_known_by_name_only():
     hinge = [i for i in r.unchecked if i.kind == "joint" and i.lines == [2, 3]]
     assert len(hinge) == 1 and "a hinge joint, known by name only" in hinge[0].text, said(r)
     assert any(i.kind == "held by unchecked joints" and i.lines == [3, 4] for i in r.unchecked)
+
+
+@pytest.mark.parametrize("make, width", [(aircraft_body, 72), (aircraft_body_on_brackets, 80)])
+def test_the_aircraft_body_widths_the_guide_states(make, width):
+    # side-stud bricks: core 40 + (plate 8 + tile 8) a side = 72 LDU, 3.6 studs; brackets:
+    # core 40 + (wall 4 + plate 8 + tile 8) a side = 80 LDU, 4 studs
+    r = check(make().right)
+    assert held(r), said(r)
+    zs = []
+    for p in r.placed[1:]:  # all but the base plate
+        lo, hi = p.part.bbox_min, p.part.bbox_max
+        box = np.array(
+            [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+        )
+        zs.extend(p.to_world(box)[:, 2])
+    assert max(zs) - min(zs) == pytest.approx(width, abs=0.01)
 
 
 @pytest.mark.parametrize("arch", ["18974", "98282", "50745"])

@@ -24,12 +24,12 @@ Write these eight lines first. Build to them. Change them only on purpose.
 3. **Skin the sides.** Build each flank flat on a plate, turn it, press it on side studs: no stack of plate edges on show. Side-stud bricks 87087 11211 30414 22885 4070; brackets 99780 99781 99207 44728 36840 36841. [D S B]
 4. **Round the underside too.** Inverted curved slopes (24201 32803 13547) make the body tuck under; a 45-degree staircase does not. [S B]
 5. **Taper in plan.** Make nose and tail narrower than the middle with wedge plates: 24299/24307, 43722b/43723b, 41769b/41770b, 65426/65429. [S]
-6. **One livery.** Each colour has one job. Carry a division unbroken across parts: a plate course, a sideways band, or pairs of wedge plates and triangular tiles (35787, 22385) for a sweep. Put a band off-centre. [B S]
+6. **One livery.** Each colour has one job. Carry a division unbroken across parts: a plate course, a sideways band, or pairs of wedge plates and a triangular tile (35787) or a tile with an angled end (22385) for a sweep. Put a band off-centre. [B S]
 7. **Prefer deep and muted colours** to bright red, blue and yellow on white, which is the 1980s palette: dark blue 272, dark red 320, dark green 288, sand blue 379, sand green 378, dark azure 321, dark orange 484, medium nougat 84, dark tan 28, greys 71 72. Use a primary as the accent, or when the subject is that colour. [S; writers' opinion]
 8. **Thin things thin.** Struts, legs, rails and aerials are bars (87994, 30374, 4095), a tile or plate on edge, or a lever (4592 with 4593). If the scale cannot show it thin, leave it out: small official planes do. [S I] A clip on a handle holds at any angle (60897, 61252 on 2540, 48336, 60478), but only what carries nothing (struts, rails, aerials, mirrors, blades); a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow. A bar in a bar tube (23443, 11090) or a clip holds at any angle about its line, and the checker tests both for fit; a thick U-clip (4085c) is only counted as joined, so prefer C-clips (60897, 15712, 61252). The tool clip puts a clip on a bar or handle at any angle and says where the part points; strut puts a bar between two handles, an 11090 on each. [T]
 9. **No bare Technic holes, pin ends or undersides on show.** Turn the plain side out or cover it. [I]
-10. **Glass is one tint, set into the body**, narrower than it, with pillars in the body colour or a dark one. Take the rake from a moulded screen (57783, 30841, 18973) or a clear panel on a hinge (60581, 87552 on 3937 with 3938). Use clear 47 over an interior, or trans-black 10375 with none. Never trans-brown 40, never a stack of tinted bricks. [S]
-11. **Gather detail, leave calm between.** One or two detail colours; every detail says what it is. Small parts: 98138 6141 85861 54200 2412b 4589 4740 60849 25269 24246. [B S]
+10. **Glass is one tint, set into the body**, narrower than it, with pillars in the body colour or a dark one. Take the rake from a moulded screen (57783, 30841, 18973) or a clear panel on a hinge (60581, 87552 on 3937 with 3938: the lid-hinge module, put in with place_module). Use clear 47 over an interior, or trans-black 10375 with none. Never trans-brown 40, never a stack of tinted bricks. [S]
+11. **Gather detail, leave calm between.** One or two detail colours; every detail says what it is. Small parts: 98138 6141 85861 54200 2412b 4589 4740 25269 24246. [B S]
 12. **Hide a gap or make it a line.** Back an opening with black; line seams up where the real thing has a panel line. [S B]
 13. **Make angles with parts made for them:** wedge plates, hinge halves, a clip on a handle, a part turned on one stud. Lengths that close exactly: 3 studs by 10 plates, 8 studs by 5 bricks. [B T]
 
@@ -42,7 +42,7 @@ Write these eight lines first. Build to them. Change them only on purpose.
 4. A light-blue or brown box of glass under a roof plate: a small dark canopy faired in, or clear glass in frames over an interior.
 5. Thick struts and bare wheels: bars or blades, fairings of curved slopes, or neither.
 
-Smallest: sides and belly can be rounded from 4 studs wide (2-stud core, 1-stud skins). An interior needs 6. Under 4, shape the top only. [S, few sets] For a light aircraft, about 300 parts pay for 4 wide and about 600 for 6 wide with an interior behind clear glass. [I, the Cessna critique]
+Smallest: sides and belly can be rounded from 4 studs wide (2-stud core, 1-stud skins: on brackets, wall 4 + plate 8 + tile 8 = 20 LDU a side; on side-stud bricks plate and tile make 16, 3.6 studs wide). An interior needs 6. Under 4, shape the top only. [S, few sets] For a light aircraft, about 300 parts pay for 4 wide and about 600 for 6 wide with an interior behind clear glass. [I, the Cessna critique]
 
 **Car.**
 1. Terraced bonnet and roof: curved slopes and tiles.
@@ -58,7 +58,7 @@ Smallest: 8 studs wide for true proportions; 6 is a caricature; 4 is a toy. [D]
 2. A stepped body: curved caps; studs only as fur or scales.
 3. A thin box: rounded masses (cheeks, hips) and a larger head.
 4. Structure colour showing: coat, its dark shade, a pale belly, one accent.
-5. Blunt ends: claws (15070 49668 53451), nose, tongue, ears.
+5. Blunt ends: claws (15070 49668), a horn on a bar or peg (53451), nose, tongue, ears.
 
 Smallest: 4 studs wide, about 150 parts. [S]
 
