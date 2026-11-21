@@ -15,6 +15,7 @@ import pytest
 from PIL import Image
 
 from bricksnap import design as design_module
+from bricksnap import pipeline
 from bricksnap.design import OP_SCHEMA
 from bricksnap.designer import tools
 from bricksnap.designer.tools import TOOLS, call_tool
@@ -276,8 +277,16 @@ def test_the_middle_is_stated_in_cell_indices(nx: int, words: str):
     assert tools._middle_words(nx) == words
 
 
-def test_a_shape_centred_on_the_stated_middle_is_its_own_mirror_image(project_path: Path):
+def test_a_shape_centred_on_the_stated_middle_is_its_own_mirror_image(
+    tmp_path: Path, pawn_path: Path, catalog, monkeypatch
+):
     needs_op("set_finish")  # "mirror" arrives together with the stage 2 operations
+    # the even case is the one that was half a cell off: the pawn at 8 studs is even where it
+    # has always sat (half a stud over in x and y, where it now sits, it is odd)
+    monkeypatch.setattr(pipeline, "SEAT_STUDS", 0)
+    project = create_project(pawn_path, studs=8, directory=tmp_path, catalog=catalog)
+    rebuild(project, catalog=catalog)
+    project_path = with_brief(project.path)
     text = text_of(call_tool(project_path, "describe", {}))
     nx, ny, nz = Project(project_path).load_design().shape
     assert nx % 2 == 0  # the even case is the one that was half a cell off

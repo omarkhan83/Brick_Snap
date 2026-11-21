@@ -2,7 +2,7 @@
 
 CONTRACT (see tests/test_seed.py)
 
-``load_seed(path, studs=N, up=None, piece=None, piece_box=None) -> Seed``
+``load_seed(path, studs=N, up=None, piece=None, piece_box=None, seat=(0, 0)) -> Seed``
 
 - Reads .stl, .obj, .glb, .gltf, .3mf and .ply with trimesh. A file holding several meshes
   (a scene) is flattened into one mesh with every transform applied. Any other extension
@@ -21,6 +21,15 @@ CONTRACT (see tests/test_seed.py)
   exactly (0, 0, 0) along any side that is a whole number of studs (within 1e-6 of a stud).
   Centring matters because a model that is symmetric left to right must come out symmetric
   in the grid: the same fraction of a cell at both edges.
+- ``seat`` (stage 4): (sx, sy), 0 or 1 each. Where it is 1 the model is placed half a stud
+  (4 mm) further along that axis than centred, and ``Seed.seat`` says so. A seat of 1 on a
+  side that is a whole number of studs raises ValueError (such a side is never moved: its
+  end cells would be half covered). (0, 0) gives exactly the Seed it always did.
+  ``seated(seed, seat)`` does the same to a Seed loaded with (0, 0), without reading the
+  file again; ``seatings(seed, studs)`` lists the seats allowed for such a Seed: (0, 0), and
+  half a stud over on each axis whose side is not a whole number of studs and whose grid
+  (``ceil(start + side)`` cells, counted from 0) is then no longer than ``studs``, the size
+  asked for. Which seat a project uses is chosen in ``bricksnap.pipeline.create_project``.
 - Degenerate (zero-area) triangles are dropped.
 - ``piece`` or ``piece_box``: keep only one piece of a file that looks like several separate
   pieces (``bricksnap.pieces.keep_piece``, whose contract says how a piece is found and
@@ -109,11 +118,12 @@ def load_seed(
     up: str | None = None,
     piece: int | None = None,
     piece_box: Any = None,
+    seat: tuple[int, int] = (0, 0),
 ) -> Seed:
     """Load a model file as a Seed: z up, front facing -y, longest side ``studs * 8`` mm.
 
     With ``piece`` (1, 2, ...) or ``piece_box`` only that piece of the file is kept
-    (``bricksnap.pieces.keep_piece``)."""
+    (``bricksnap.pieces.keep_piece``). ``seat`` places it half a stud over (``seated``)."""
     studs = _check_studs(studs)
     vertices, faces, colours, name, axis = load_mesh(path, up)
     if piece is not None or piece_box is not None:
@@ -139,7 +149,50 @@ def load_seed(
     vertices = (vertices - vertices.min(axis=0)) * scale
     vertices = np.maximum(vertices, 0.0)  # remove -0.0 and rounding below zero
     vertices[:, :2] += _centring(vertices.max(axis=0)[:2])
-    return Seed(vertices=vertices, faces=faces, face_colors=colours, source=name)
+    seed = Seed(vertices=vertices, faces=faces, face_colors=colours, source=name)
+    return seated(seed, seat) if tuple(seat) != (0, 0) else seed
+
+
+def _whole_sides(seed: Seed) -> np.ndarray:
+    """Whether each of x and y is a whole number of studs (as ``_centring`` judges it)."""
+    studs = seed.extent_mm[:2] / STUD_MM
+    return np.abs(studs - np.round(studs)) <= _WHOLE_STUD
+
+
+def seated(seed: Seed, seat: tuple[int, int]) -> Seed:
+    """The Seed (loaded with seat (0, 0)) placed half a stud further along each axis whose
+    ``seat`` is 1. ValueError for a seat that is not 0 or 1, or that would move a side that
+    is a whole number of studs."""
+    sx, sy = (int(v) for v in seat)
+    if {sx, sy} - {0, 1} or tuple(seat) != (sx, sy) or tuple(seed.seat) != (0, 0):
+        raise ValueError(f"A seat is two of 0 or 1, given to a centred Seed, not {seat!r}")
+    if (sx and _whole_sides(seed)[0]) or (sy and _whole_sides(seed)[1]):
+        raise ValueError("A side that is a whole number of studs is never moved half a stud")
+    vertices = seed.vertices.copy()
+    vertices[:, 0] += sx * STUD_MM / 2.0
+    vertices[:, 1] += sy * STUD_MM / 2.0
+    return Seed(
+        vertices=vertices,
+        faces=seed.faces,
+        face_colors=seed.face_colors,
+        source=seed.source,
+        seat=(sx, sy),
+    )
+
+
+def seatings(seed: Seed, studs: int) -> list[tuple[int, int]]:
+    """The seats allowed for a centred Seed, (0, 0) first: half a stud over on an axis only
+    where its side is not a whole number of studs and the grid is then no longer than
+    ``studs`` cells on that axis."""
+    whole = _whole_sides(seed)
+    start = seed.vertices.min(axis=0)[:2]
+    room = []
+    for axis in (0, 1):
+        end = (start[axis] + STUD_MM / 2.0) / STUD_MM + seed.extent_mm[axis] / STUD_MM
+        room.append(not whole[axis] and int(np.ceil(end - 1e-6)) <= studs)
+    return [
+        (sx, sy) for sx in (0, 1) for sy in (0, 1) if (room[0] or not sx) and (room[1] or not sy)
+    ]
 
 
 def load_mesh(

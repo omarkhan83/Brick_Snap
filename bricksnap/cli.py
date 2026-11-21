@@ -50,19 +50,23 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
     bricksnap make "WORDS" [--name NAME] [--parts N] [--reference PROJECT] [--model ID]
                    [--guide] [--dir projects]
         A new free-build project (``bricksnap.lab.freebuild``): one AI session builds the
-        model WORDS describe from the whole LDraw parts library, about N parts (20 to 300,
+        model WORDS describe from the whole LDraw parts library, about N parts (20 to 600,
         default 80). With --reference, the AI is also shown that ordinary project's 3D model
         from five sides (``freebuild.reference_sheet``). Before starting it says what is
         sent off the computer (the words, and the reference pictures when there are any),
-        that it is one AI run using the person's Claude Code login, usually ten to twenty
-        minutes with Fable 5.2, and that it is experimental and what the checker does not
-        prove. Progress is printed in plain sentences (``freebuild.Progress``); at the end,
-        the checker's summary, where the model and parts list are, and the AI's notes.
+        that it is one AI run using the person's Claude Code login, how long a model of that
+        size usually takes, when it is stopped and what builds that size have used of the
+        subscription (``freebuild.time_and_cost``), and that it is experimental and
+        what the checker does not prove. Progress is printed in plain sentences
+        (``freebuild.Progress``); at the end, the checker's summary, where the model and
+        parts list are, and the AI's notes.
         0 when the checker found no problems, 1 when it found some or the run failed (the
         message says why and what was kept), 2 for a mistake (no words, --parts out of range,
         a reference that is not an ordinary project with a 3D model). With --guide
-        (experimental) the builder is given the set designers' guide (``lab.guide``): the
-        project remembers it, and every later change to it has the guide too.
+        (experimental) the builder designs it first and builds it the way set designers do
+        (``lab.guide``, ``lab.style``, ``lab.art``: an art direction before the first part,
+        the guides' rules, a critique of its own pictures before it finishes): the project
+        remembers it, and every later change to it has the guide too.
     bricksnap make --change PROJECT "WORDS" [--model ID]
         The same, starting from that free-build project's current model, with WORDS as one
         change; the result is kept as a new run.
@@ -89,6 +93,8 @@ STAGE 2 ADDITIONS TO THE CONTRACT
 - ``render PROJECT --rough``: the three-row picture (seed, rough, build) through
   ``pipeline.render_compare(project, rough=True)``, saved as ``renders/compare-rough.png``
   unless ``--out`` is given.
+- ``new`` prints the line ``pipeline.create_project`` says while it tries where the model
+  sits on the grid (stage 4), followed by "...".
 - ``new`` and ``build`` print the build's notes under "What the software changed by itself:"
   when there are any, and show only the three most serious weak spots, followed by how many
   more there are and that ``check`` lists them all. ``check`` prints everything.
@@ -428,12 +434,17 @@ def open_project(ref: str) -> Project:
             )
             try:
                 project = Project(candidate)
+            except ProjectError:  # said plainly already (a damaged seat)
+                raise
             except ValueError as e:  # not JSON, or not text at all
                 raise damaged from e
             if not isinstance(project.meta, dict):
                 raise damaged
             if project.meta.get("kind") == "free":
                 raise UserError(free_build_refusal(ref))
+            from bricksnap.pipeline import check_seat
+
+            check_seat(project)  # a whole side marked seated is said here, every command
             return project
     if _is_dir(given):
         raise ProjectError(
@@ -741,6 +752,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         hollow=args.hollow,
         piece=piece if isinstance(piece, int) else None,
         piece_box=box,
+        say=lambda line: print(f"{line}..."),
     )
     build, picture = _build_and_render(project)
     _pieces_picture(args, model, folder).unlink(missing_ok=True)  # the question is answered
@@ -2224,8 +2236,10 @@ FREE_EXPERIMENTAL = (
 )
 
 GUIDE_WORDS = (
-    "It builds the way set designers do (experimental): a core first, sides built flat and "
-    "pressed on, following a guide drawn from how official sets are built."
+    "It designs the model first, then builds it the way set designers do (experimental): it "
+    "writes an art direction (the scale, two or three colours and where they go, the shapes "
+    "that make the subject), builds a core with sides made flat and pressed on, and judges "
+    "its own pictures against a style guide before it finishes."
 )
 
 
@@ -2314,7 +2328,10 @@ def _make(args: argparse.Namespace) -> int:
         print(f'Asking the AI to change "{name}": "{freebuild.clean(words, 200)}".')
         sent = "the words you typed (and the words the model was first built from)"
         if meta.get("guide") is True:
-            print("This model was built the way set designers do, and the change is made so too.")
+            print(
+                "This model was designed first and built the way set designers do, and the "
+                "change is made so too."
+            )
     else:
         folder = freebuild.create(
             Path(args.dir),
@@ -2339,8 +2356,9 @@ def _make(args: argparse.Namespace) -> int:
         "BrickSnap sends anything off your computer."
     )
     print(
-        "It is one AI run that uses your own Claude Code login, usually ten to twenty minutes "
-        "with Fable 5.2. Press Ctrl+C to stop it."
+        "It is one AI run that uses your own Claude Code login. "
+        + freebuild.time_and_cost(freebuild.next_size(freebuild.read_meta(folder)))
+        + " Press Ctrl+C to stop it."
     )
     print(FREE_EXPERIMENTAL)
     print()
@@ -2598,7 +2616,9 @@ def _parser() -> _Parser:
         "to the AI)",
         description=(
             "Experimental: the AI builds a model itself, part by part, from the whole LDraw "
-            "parts library, checks it and looks at it, in one run of ten to twenty minutes. "
+            "parts library, checks it and looks at it, in one run: the more parts, the longer "
+            "it takes and the more of your Claude subscription it uses (it says how much "
+            "before it starts). "
             "It sends the words you type (and, with --reference, pictures of that model) to "
             "the AI provider. Needs LeoCAD and its parts library on this computer."
         ),
@@ -2612,7 +2632,7 @@ def _parser() -> _Parser:
     )
     p.add_argument("--name", help="a name for the model (default: its first few words)")
     p.add_argument(
-        "--parts", type=int, metavar="N", help="about how many parts, 20 to 300 (default: 80)"
+        "--parts", type=int, metavar="N", help="about how many parts, 20 to 600 (default: 80)"
     )
     p.add_argument(
         "--reference",
@@ -2623,8 +2643,9 @@ def _parser() -> _Parser:
     p.add_argument(
         "--guide",
         action="store_true",
-        help="experimental: build it the way set designers do: a core first, sides built "
-        "flat and pressed on (the model remembers this for later changes)",
+        help="experimental: design it first, then build it the way set designers do (an "
+        "art direction, a core with sides pressed on, a critique of its own pictures; the "
+        "model remembers this for later changes)",
     )
     p.add_argument(
         "--change",

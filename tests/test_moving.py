@@ -911,7 +911,9 @@ def test_prompt_has_the_method_for_what_moves():
         "points DOWN",
     ):
         assert kept in text
-    assert len(text) < 1.15 * 9251  # main's prompt is 9251 characters
+    # main's prompt was 9251 characters; the fuller colour list of 20 November (the style
+    # study) added about 320
+    assert len(text) < 1.2 * 9251
 
 
 # ---- the free-build project ------------------------------------------------------------------
@@ -1663,9 +1665,7 @@ def _declare(text, f, m, at, axis, kind="SPIN", low=0.0, high=0.0):
 def test_a_clip_joint_cannot_be_declared_yet(text, at, axis):
     report = check(text)
     # a joint (tested for fit, or known by name only), but not one that can be declared yet
-    assert any(
-        i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked + report.fits
-    )
+    assert any(i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked + report.fits)
     why = _declare(text, 1, 2, at, axis)
     assert why == "the checker cannot yet confirm how a clip turns: use a module instead"
 

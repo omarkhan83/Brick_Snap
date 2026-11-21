@@ -30,6 +30,31 @@ export function el(tag, props = {}, children = []) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** What a person is told before an AI build of n parts: the same numbers, by the same
+ * whole-number rules, as freebuild.estimate (bricksnap/lab/freebuild.py); a test holds the
+ * two equal at every size from 20 to 600. */
+export const FREE_SIZES = { min: 20, max: 600, fallback: 80, onRecord: 290 };
+export function freeEstimate(n) {
+  const v = Number(n);
+  const parts = Number.isInteger(v) ? Math.min(FREE_SIZES.max, Math.max(FREE_SIZES.min, v)) : FREE_SIZES.fallback;
+  const five = (hundredths) => 5 * Math.floor((hundredths + 250) / 500);
+  const low = Math.max(5, five(parts * 9));
+  const high = Math.max(low + 5, five(parts * 20));
+  const stop = Math.max(90, Math.ceil((parts * 18) / 60));
+  const d0 = Math.floor((parts * 2 + 50) / 100);
+  const d1 = Math.floor((parts * 7 + 50) / 100);
+  const dollars = [Math.max(1, d0), Math.max(d0 + 1, d1)];
+  return { parts, minutes: [low, high], stop_minutes: stop, dollars, estimated: parts > FREE_SIZES.onRecord };
+}
+
+/** The sentence a person reads before a build (as freebuild.time_and_cost says it). */
+export function freeTimeAndCost(n) {
+  const e = freeEstimate(n);
+  const guess = e.estimated ? ' (an estimate: no build this large is on record)' : '';
+  const dollars = `$${e.dollars[0]} to $${e.dollars[1]}`;
+  return `A model of about ${e.parts} parts usually takes ${e.minutes[0]} to ${e.minutes[1]} minutes and is stopped at ${e.stop_minutes} minutes; builds this size have used about ${dollars} of your Claude subscription at list prices${guess}.`;
+}
+
 export function plural(n, word) {
   return `${Number(n).toLocaleString('en')} ${n === 1 ? word : `${word}s`}`;
 }

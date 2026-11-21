@@ -83,6 +83,11 @@ STAGE 2 ADDITION TO THE CONTRACT: the seed keeps its place on the grid
   start at 0, as before. The same happens when keeping the offset would need one more cell
   than the extent alone (a hand-made seed with more offset than slack). Seeds made by hand
   in tests usually start at 0 and are unaffected.
+- (stage 4) A seed that says it is seated (``Seed.seat``, set by ``seed.seated``: placed
+  half a stud further along x or y than centred) keeps its offset on that axis even where
+  that needs one more cell than the extent alone: the body is then ceil(maximum / cell)
+  cells on that axis, counted from 0. Only a seated axis gains a cell; a hand-made seed
+  with more offset than slack is still moved to 0 as above.
 - A model that is mirror-symmetric left to right therefore gives a Design whose filled
   cells, colours and finish are mirror-symmetric too (cell x against nx - 1 - x), up to the
   tie-breaking of colour votes.
@@ -168,6 +173,17 @@ What must be true, and is tested
   directly above for the slope hint, the nearest such neighbour for the colour. A top cell
   must not lose its hint or its colour because its skin cell was dropped.
 - Hollowing, padding, determinism and the speed limits are as before.
+
+STAGE 4 ADDITION: sections fused
+``voxelize(..., fused=[])`` fills the list with, for each level of the body, how many of the
+model's own sections come out joined to another. The model's sections in a level are its
+pieces seen from above at a third of a cell (the sub-cells that hold some of the model, in
+any of the level's three sub-layers, joined side to side or corner to corner), leaving out
+specks of fewer than ``_SPECK`` (3) sub-cells; the Design's are its filled cells joined
+through faces in that level (after rule 4, before hollowing). A piece of the Design that
+holds n of the model's sections counts n - 1. So two legs a stud apart that the fill keeps
+apart count 0, and the same legs filled into one block count 1 per level. Nothing else
+about the result changes (``bricksnap.pipeline`` uses it to choose where a model sits).
 
 STAGE 3 ADDITION TO THE CONTRACT: the skin
 - ``Design.skin`` holds, in each cell of stage 1's fill that the new fill leaves empty (the
@@ -460,8 +476,11 @@ def voxelize(
     margin_studs: int = 2,
     default_colour: int = DEFAULT_COLOUR,
     slope_hints: bool = True,
+    fused: list[int] | None = None,
 ) -> Design:
-    """Turn a Seed into a Design (see the module docstring for the rules)."""
+    """Turn a Seed into a Design (see the module docstring for the rules). ``fused``, when
+    given a list, is filled with how many of the model's own sections come out joined to
+    another, per level of the body (see "STAGE 4 ADDITION: sections fused")."""
     shell_studs = _whole(shell_studs, "shell_studs", minimum=1)
     margin_studs = _whole(margin_studs, "margin_studs", minimum=0)
     default_colour = _solid_colour(default_colour, catalog)
@@ -483,7 +502,7 @@ def voxelize(
         if face_colors.shape != (len(faces), 3):
             raise ValueError("Seed.face_colors must be an (m, 3) array, one RGB per face")
 
-    tris, body = _place(vertices[faces])
+    tris, body = _place(vertices[faces], tuple(seed.seat))
     nx, ny, nz = body
 
     # colour of each face, as an index into `codes`
@@ -553,6 +572,9 @@ def voxelize(
     skin[hidden] = EMPTY
     filled = filled | hidden
 
+    if fused is not None:
+        fused[:] = _fused(filled, sub, occupied, index, surface, interior)
+
     if hollow:
         colours[filled & ~_keep_shell(filled, shell_studs)] = EMPTY
         finish[colours == EMPTY] = FINISH_STUDS
@@ -588,18 +610,22 @@ def _solid_colour(value: Any, catalog: Catalog) -> int:
     return int(colour.code)
 
 
-def _place(tris_mm: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int]]:
+def _place(
+    tris_mm: np.ndarray, seat: tuple[int, int] = (0, 0)
+) -> tuple[np.ndarray, tuple[int, int, int]]:
     """Triangles (m, 3, 3) in mm to cell units on the body grid, and the body's size.
 
     On each axis where the seed starts within the first cell (0 <= minimum < 1 cell; never
     in z) it keeps that offset, so a point p is in body cell floor(p / CELL_MM). Elsewhere,
     or where the seed would then reach past the ceil(extent / cell) cells the body has, it
-    is first moved along that axis to start at 0. Coordinates within _SNAP of a cell
-    boundary are put on it."""
+    is first moved along that axis to start at 0, except on an axis the seed is seated on
+    (``Seed.seat``): there the body gains the cell the offset needs. Coordinates within
+    _SNAP of a cell boundary are put on it."""
     cell = np.asarray(CELL_MM, dtype=np.float64)
     low = tris_mm.reshape(-1, 3).min(axis=0)
     keep = (low >= 0.0) & (low < cell)
     keep[2] = False  # the model stands on z = 0
+    seated = np.array([bool(seat[0]), bool(seat[1]), False]) & keep
     while True:
         tris = (tris_mm - np.where(keep, 0.0, low)) / cell
         nearest = np.round(tris)
@@ -607,6 +633,8 @@ def _place(tris_mm: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int]]:
         flat = tris.reshape(-1, 3)
         start, end = flat.min(axis=0), flat.max(axis=0)
         size = np.maximum(1, np.ceil(end - start - _CEIL_EPS)).astype(np.int64)
+        grown = np.maximum(size, np.ceil(end - _CEIL_EPS).astype(np.int64))
+        size = np.where(seated, grown, size)
         beyond = keep & (end > size + _CEIL_EPS)  # would need one more cell: move it to 0
         if not beyond.any():
             return tris, (int(size[0]), int(size[1]), int(size[2]))
@@ -1069,6 +1097,52 @@ def _choose(
     filled |= resting
     filled = _join(filled, coverage, occupied, index, surface, stage1, crossed)
     return _stand(filled, stage1, coverage), went
+
+
+_SPECK = 3  # sub-cells (seen from above); a section of the model smaller than this is a speck
+
+
+def _fused(
+    filled: np.ndarray,
+    sub: np.ndarray,
+    occupied: np.ndarray,
+    index: np.ndarray,
+    surface: np.ndarray,
+    interior: np.ndarray,
+) -> list[int]:
+    """Per level: how many of the model's own sections come out joined to another (see
+    "STAGE 4 ADDITION: sections fused")."""
+    nx, ny, nz = filled.shape
+    s = sub.shape[1]
+    there = np.zeros((nx, s, ny, s, nz), dtype=bool)
+    xs, ys, zs = np.nonzero(surface)
+    rows = index[xs, ys, zs]
+    there[xs, :, ys, :, zs] = ((sub[rows] > _MATERIAL) & occupied[rows]).any(axis=3)
+    xi, yi, zi = np.nonzero(interior)
+    there[xi, :, yi, :, zi] = True
+    there = there.reshape(nx * s, ny * s, nz)
+    flat = np.zeros((3, 3, 3), dtype=bool)
+    flat[:, :, 1] = True  # 8-connected within a level, never across levels
+    model, n_model = ndimage.label(there, structure=flat)
+    if n_model == 0:
+        return [0] * nz
+    big = np.bincount(model.ravel(), minlength=n_model + 1) >= _SPECK
+    big[0] = False
+    cross = np.zeros((3, 3, 3), dtype=bool)
+    cross[1, :, 1] = cross[:, 1, 1] = True  # cells joined through faces, within a level
+    cells, _ = ndimage.label(filled, structure=cross)
+    under = np.repeat(np.repeat(cells, s, axis=0), s, axis=1)  # the cell each sub-cell is in
+    keep = big[model] & (under > 0)
+    pairs = np.unique(np.stack([under[keep], model[keep]], axis=1), axis=0)
+    out = np.zeros(nz, dtype=np.int64)
+    if len(pairs):
+        per_cell_section = np.bincount(pairs[:, 0], minlength=int(cells.max()) + 1)
+        level = np.zeros(int(cells.max()) + 1, dtype=np.int64)
+        cz = np.nonzero(filled)
+        level[cells[cz]] = cz[2]
+        joined = np.maximum(per_cell_section - 1, 0)
+        np.add.at(out, level[1:], joined[1:])
+    return [int(v) for v in out]
 
 
 def _stands(filled: np.ndarray) -> bool:

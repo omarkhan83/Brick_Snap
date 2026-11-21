@@ -145,6 +145,10 @@ Implementation notes
   appeared meanwhile) and is held by the job, so two uploads of cat.stl become ``cat`` and
   ``cat-2``. The project's name is the given name, or the file's name without its suffix, cut
   to 80 characters with control characters removed: it is only ever shown as text.
+- (stage 4) Making the project tries where the model sits on the grid
+  (``pipeline.create_project``, "the model sits where its build comes out best"); while it
+  does, the job shows the line ``create_project`` says (``say=job.say``). The project's page
+  shows the sentence that says where the model was moved first among the build's notes.
 - Upload limits: a body whose Content-Length is more than 60 MB plus 1 MB for the form's
   other fields is refused before any of it is read; a body with no Content-Length is refused
   (411); the file is written to disk as it arrives and the upload is stopped as soon as it
@@ -301,7 +305,7 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   LDraw parts library. It lives in the same projects folder; ``kind`` tells the two apart
   ("model" for one made from a 3D file, "free" for a free build). The pages call it "Built
   by the AI, part by part" and mark it experimental wherever it appears.
-- ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 300, default 80),
+- ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 600, default 80),
   "reference"? (the folder name of an ordinary project with a 3D model, whose pictures from
   five sides the AI is shown), "guide"? (true: build it the way set designers do, with
   ``lab.guide``; false when left out; anything but true or false is refused), "understood":
@@ -336,9 +340,18 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   each ``{"n", "kind", "words", "created", "ok", "error", "has_model", "parts", "kinds",
   "summary", "clean", "problems", "unchecked", "seconds", "guide", "playbook", "picture"}``:
   ``guide`` true, false or null when not known, ``playbook`` the title of the playbook the
-  builder asked for or null), ``guide`` (whether the project's runs have it), ``turntable`` (the
+  builder asked for or null), ``guide`` (whether the project's runs have it), the current
+  run's art direction as ``freebuild.describe`` gives it (``freebuild.ART_KEYS``: ``art``
+  true when the run recorded one, ``brief``, ``brief_story``, ``critique`` with its facts
+  and mismatches, ``critiques``, ``first_no``, ``built_without_brief``,
+  ``ended_without_critique``; null for a run without them),
+  ``turntable`` (the
   addresses of the twelve views round the model), ``sheet``, ``picture_problem``, ``files``
-  (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``.
+  (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``, and
+  ``looks_lines`` (``freebuild.describe``: how the current run looks against official sets,
+  three or four sentences; a run kept before runs had the record is measured when the page
+  asks, in memory only, never written), which the page
+  shows under the checker's verdict as "How it looks".
 - The page ``/p/<project>`` of a free build is ``viewer/free.html`` (with ``free.js``), not
   the 3D viewer, which cannot draw these parts; ``project-files.json`` is not found for it.
 - Files: for a free build, ``files/`` serves only model.ldr, parts.csv, report.txt,
@@ -993,6 +1006,13 @@ class App:
             card["studs"] = studs if isinstance(studs, int) else None
         except (OSError, ValueError):
             card["problem"] = "This project's file project.json is damaged and cannot be read."
+        if card["problem"] is None:
+            try:
+                Project(folder)
+            except ProjectError as e:  # a damaged seat
+                card["problem"] = str(e)
+            except Exception:
+                pass
         build_file = folder / "build.json"
         if build_file.is_file():
             try:
@@ -1061,7 +1081,7 @@ class App:
         info = self.free_summary(folder)
         about: dict[str, Any]
         try:
-            about = freebuild.describe(folder)
+            about = freebuild.describe(folder, measure_missing=True)
         except freebuild.FreeBuildError as e:
             about = {"runs": [], "turntable": [], "files": []}
             info["problem"] = str(e)
@@ -1121,6 +1141,8 @@ class App:
             turntable=[u for u in (url(rel) for rel in about.get("turntable", [])) if u],
             sheet=url(str(about.get("sheet") or "")),
             moves=list(about.get("moves") or []),
+            looks_lines=[str(x) for x in about.get("looks_lines") or []],
+            **{k: about.get(k) for k in freebuild.ART_KEYS},
             opened=url(str(about.get("opened") or "")),
             picture_problem=about.get("picture_problem"),
             files={rel: url(rel) for rel in about.get("files", [])},
@@ -1229,6 +1251,14 @@ class App:
             info["current"] = project.build_is_current()
         except Exception:  # damaged files: the card's "problem" already says so
             info["current"] = False
+        try:
+            from bricksnap.pipeline import check_seat
+
+            check_seat(Project(folder))
+        except ProjectError as e:  # a damaged or impossible seat: said on the page
+            info["problem"] = str(e)
+        except Exception:  # anything else damaged: the card's "problem" says so
+            pass
         if info["valid"]:
             info["verdict"] = (
                 f"{_plural(info['parts'] or 0, 'part')} in one connected piece that stands up on "
@@ -1425,6 +1455,7 @@ class App:
                     hollow=hollow,
                     piece=piece if isinstance(piece, int) else None,
                     piece_box=box,
+                    say=job.say,
                 )
                 with self.lock:
                     target = self.root / job.project
@@ -2130,11 +2161,13 @@ class App:
             job.say("This is a new model: the AI builds it part by part from the parts library")
         else:
             job.say(f'This is one change to the model: "{_short(words, 200)}"')
-        if freebuild.read_meta(folder).get("guide") is True:
+        meta = freebuild.read_meta(folder)
+        if meta.get("guide") is True:
             job.say(
-                "It builds the way set designers do: a core first, sides built flat and pressed on"
+                "It designs the model first, then builds it the way set designers do, and "
+                "judges its own pictures before it finishes"
             )
-        job.say("One AI run; it usually takes ten to twenty minutes")
+        job.say("One AI run. " + freebuild.time_and_cost(freebuild.next_size(meta)))
         entry = freebuild.build(folder, words, on_say=job.say, references=references)
         verdict = entry.get("summary") or "not checked"
         job.say(f"Done: {verdict}")

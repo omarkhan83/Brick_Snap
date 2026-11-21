@@ -2,7 +2,7 @@
 // makes a new one from a model file, and the experimental form that lets the AI build one
 // from parts (a "free build"). Text from the server goes in with textContent.
 
-import { JobView, NOT_ANSWERING, TOKEN, appState, el, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { JobView, NOT_ANSWERING, TOKEN, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const MAX_UPLOAD_MB = 60;
 const SUFFIXES = ['.stl', '.obj', '.glb', '.gltf', '.3mf', '.ply'];
@@ -312,8 +312,13 @@ let freeSending = false;
 function showParts() {
   const n = Number(freeParts.value);
   $('freePartsOut').textContent = `${n} parts`;
-  $('freePartsHint').textContent =
-    n <= 60 ? 'A small model.' : n <= 140 ? 'A medium model, like a small set.' : 'A big model: the AI takes longer, and may run out of checks.';
+  const size =
+    n <= 60
+      ? 'A small model.'
+      : n <= 140
+        ? 'A medium model, like a small set.'
+        : 'A big model: big models take longer and use more of your subscription.';
+  $('freePartsHint').textContent = `${size} ${freeTimeAndCost(n)}`;
 }
 freeParts.addEventListener('input', showParts);
 showParts();
@@ -343,8 +348,9 @@ function describeFree() {
   $('freeWhat').replaceChildren(
     document.createTextNode('What the AI will build: '),
     el('span', { className: 'quote', id: 'freeQuote', text: `“${words}”` }),
-    document.createTextNode(`, about ${freeParts.value} parts${freeGuide.checked ? ', built the way set designers do' : ''}.`),
+    document.createTextNode(`, about ${freeParts.value} parts${freeGuide.checked ? ', designed first and built the way set designers do' : ''}.`),
   );
+  $('freeTime').textContent = `It is one AI run. ${freeTimeAndCost(Number(freeParts.value))} You can leave this page while it works.`;
   const ref = freeRef.value ? freeRef.options[freeRef.selectedIndex].text : '';
   $('freeSends').textContent = ref
     ? `It sends the words you typed and pictures of “${ref}” from five sides to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.`

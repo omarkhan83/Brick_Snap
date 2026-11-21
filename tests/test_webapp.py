@@ -2463,3 +2463,27 @@ def test_browser_choosing_a_piece_of_a_kit(
             tab.assert_clean()
         finally:
             tab.close()
+
+
+# ---- where the model sits on the grid (bricksnap/pipeline.py, stage 4) ------------------------
+
+
+def test_making_a_project_says_while_it_tries_the_seatings(running: Running) -> None:
+    bottle = (REPO / "samples" / "models" / "bottle.glb").read_bytes()
+    status, data = running.upload(bottle, "bottle.glb", {"studs": "12"})
+    assert status == 202, data
+    state = running.wait(data["job"], timeout=180)
+    assert state["state"] == "done", state
+    assert any("Trying 4 ways of setting the model" in line for line in state["progress"])
+    info = running.get_json(f"/api/p/{state['result']['project']}")
+    assert info["notes"][0].startswith("When this project was made the model was set half")
+
+
+def test_a_damaged_seat_is_said_on_the_card_and_the_page(running: Running, projects: Path) -> None:
+    project = Project(projects / "pawn")
+    project.meta["seat"] = [2, 0]
+    project.save_meta()
+    info = running.get_json("/api/p/pawn")
+    assert "where the model sits on the grid" in (info["problem"] or "")
+    card = next(c for c in running.get_json("/api/projects")["projects"] if c["project"] == "pawn")
+    assert "where the model sits on the grid" in (card["problem"] or "")

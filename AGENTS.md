@@ -194,6 +194,9 @@ Why, in one to three sentences. What was rejected, if that will save someone re-
   `docs/research/2026-11-19-ai-as-the-builder/README.md` before working on how the AI designs or builds,
   and `docs/research/2026-11-19-how-real-sets-are-built/README.md` (how official sets are built, with a
   draft guide for the AI builder) before changing what the builder is told or how models are structured.
+  `docs/research/2026-11-20-what-makes-a-model-look-styled/README.md` is about how a model looks (what
+  reads as dated or as designed, measured, with a style guide): read it before judging or changing
+  anything that affects a build's appearance. How a build looks is what its owner judges it by.
 - **The prototype** is `legacy/index.html`: one page that fills a shape with custom 3D-printed bricks. It
   still opens by double-click. It is not developed further: do not fix or extend it.
 - `projects/` holds whatever you build locally and is ignored by git. Examples worth keeping go in

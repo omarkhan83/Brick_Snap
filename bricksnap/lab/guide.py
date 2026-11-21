@@ -10,16 +10,17 @@ both in the same commit, so the study always shows what was tested.
 
 The reader finds its parts by their headings, and a test fails when one goes missing:
 ``## Rules for any subject`` (the twelve numbered rules), ``## Playbooks`` (``### <Kind>, <N>
-parts``, two sizes for each of five kinds), ``## Parts by job`` (a table, then the paragraph
+parts``, two sizes for each of six kinds), ``## Parts by job`` (a table, then the paragraph
 "Sizes that fit"). Everything before the rules is the words (``words()``).
 
 - ``rules(evidence=False)``: the twelve rules as a numbered list, one line each; without
   ``evidence`` the bracketed sources ("[10 of 10]", "[36 models]") are left out, which is
   how the builder's instructions carry them (the figures in the sentences stay).
-- ``kinds()``: ``{kind: one line}`` for the five kinds: vehicle, hollow, creature, plant,
-  machine (``KIND_LINES``, which must name every kind the file has).
-- ``kind_of(word)``: a kind from a word the builder might use ("car", "house", "animal",
-  "flower", "technic"...); None when there is none.
+- ``kinds()``: ``{kind: one line}`` for the six kinds: vehicle, aircraft, hollow, creature,
+  plant, machine (``KIND_LINES``, which must name every kind the file has).
+- ``kind_of(word)``: a kind from a word the builder might use ("car", "plane", "house",
+  "animal", "flower", "technic"...); None when there is none. ``refine(kind, words)``: a
+  vehicle whose subject's words say it flies is an aircraft.
 - ``playbook(kind, parts)``: ``(title, text, why)``: the playbook of that kind whose size is
   nearest ``parts`` on a ratio scale (so 200 parts is the dividing line between 100 and
   400), with a sentence saying which was chosen and why. Raises ``KeyError`` for a kind the
@@ -33,7 +34,9 @@ parts``, two sizes for each of five kinds), ``## Parts by job`` (a table, then t
   one sentence on what the checker cannot confirm, and the vehicle's lift-off roof added to
   the section on things that move. Every place it changes must be found exactly once in
   ``base`` (``ValueError`` otherwise), so a change to ``prompt.md`` cannot silently leave
-  the guide-mode instructions saying two things.
+  the guide-mode instructions saying two things. The result then gains the art direction
+  of the style guide (``style.system_prompt``: the brief, the rules of finish, the
+  critique).
 """
 
 from __future__ import annotations
@@ -52,8 +55,10 @@ _PLAYBOOK = re.compile(r"^### (.+), (\d+) parts\s*$", re.M)
 _EVIDENCE = re.compile(r"\s*\[[^\]]*\]")
 
 KIND_LINES = {
-    "vehicle": "a car, truck, train, boat or plane: a base as long as the vehicle, side "
-    "units, end faces as panels, wheels last",
+    "vehicle": "a car, truck, train or boat: a base as long as the vehicle, side units, end "
+    "faces as panels, wheels last",
+    "aircraft": "a plane, helicopter or spaceship: a 2-stud core of side-stud bricks with skins, "
+    "the wing one long locked plate course, gear and struts last",
     "hollow": "a building, room, house or box with an inside: a plate, walls one stud thick, "
     "a lid that lifts off",
     "creature": "an animal, character, figure or sculpture: a block of side-stud bricks with "
@@ -65,9 +70,10 @@ KIND_LINES = {
 }
 
 _WORDS = {
-    "vehicle": "vehicle car truck lorry van bus train tram locomotive boat ship plane "
-    "aeroplane airplane aircraft helicopter jet rocket spaceship tractor bike motorbike "
-    "motorcycle tank digger excavator",
+    "vehicle": "vehicle car truck lorry van bus train tram locomotive boat ship tractor bike "
+    "motorbike motorcycle tank digger excavator",
+    "aircraft": "aircraft plane aeroplane airplane jet helicopter glider biplane seaplane "
+    "airliner cessna fighter rocket spaceship spacecraft shuttle drone",
     "hollow": "hollow building house home room shop castle tower church cabin hut shed box "
     "chest interior diorama station garage",
     "creature": "creature animal character figure sculpture person people bird cat dog fish "
@@ -150,6 +156,13 @@ def kind_of(word: str) -> str | None:
             if kind in books and (token in names.split() or token.rstrip("s") in names.split()):
                 return kind
     return None
+
+
+def refine(kind: str, words: str) -> str:
+    """A vehicle whose words say it flies is an aircraft; any other kind stays."""
+    if kind == "vehicle" and kind_of(words) == "aircraft":
+        return "aircraft"
+    return kind
 
 
 def playbook(kind: str, parts: int) -> tuple[str, str, str]:
@@ -270,8 +283,9 @@ def _swap(base: str, old: str, new: str) -> str:
     return base.replace(old, new)
 
 
-def system_prompt(base: str) -> str:
-    """The guide-mode instructions made from the standing ones (see the contract)."""
+def system_prompt(base: str, session: str = "first") -> str:
+    """The guide-mode instructions made from the standing ones (see the contract);
+    ``session`` ("first", "start" or "change") is passed to ``style.system_prompt``."""
     out = base
     for old, new in (
         (OLD_STEP_1, NEW_STEP_1),
@@ -284,4 +298,6 @@ def system_prompt(base: str) -> str:
     added = (
         "# How set designers build (follow these)\n\n" + rules() + "\n\n" + PANELS + RULES_BEFORE
     )
-    return _swap(out, RULES_BEFORE, added)
+    from bricksnap.lab import style  # the art direction: the brief, finish, the critique
+
+    return style.system_prompt(_swap(out, RULES_BEFORE, added), session)

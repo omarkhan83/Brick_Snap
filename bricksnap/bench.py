@@ -27,7 +27,13 @@ CONTRACT (tests go in tests/test_bench.py)
   the seed's, from 0 to 1: the area both silhouettes cover divided by the area either
   covers (``bricksnap.render.silhouette`` of the seed and of the Build in the same frame);
 - ``notes``: how many notes the make-buildable and finishing passes left;
-- ``seconds``: time to build (not counting pictures); ``error``: "" when all went well.
+- ``seconds``: time to build (not counting pictures; including the seatings tried, see
+  below); ``error``: "" when all went well.
+- (stage 4) ``seat``: where the model sits on the grid, "" where it always sat, otherwise
+  "x", "y" or "x and y" for half a stud over on those axes (``pipeline.create_project``
+  chooses it). ``format_table`` says under the table which models sit half a stud over,
+  and ``compare`` says first when a model's seating moved, so that a seating that flips can
+  be told apart from a change in the engine.
 - (added, see the notes below) ``picture_error``: "" unless the model was built and measured
   but its picture could not be drawn.
 
@@ -53,7 +59,8 @@ Implementation notes
   second would delete the first's project, so it is left out with an error row naming the
   folder. A name in ``names`` with no model file gets an error row too. A missing
   ``models_dir`` is not a bad model: it raises ``FileNotFoundError`` with a plain message.
-- ``seconds`` counts loading and voxelising the model (``create_project``) and
+- ``seconds`` counts loading and voxelising the model (``create_project``, which since stage
+  4 also builds it in each seating it tries, up to ``pipeline.SEAT_STUDS`` studs) and
   ``pipeline.rebuild`` (make buildable, lay out, finish, check): the steps a user waits for.
   The rough build, the measuring and the picture are not counted. Rounded to 0.01 s.
 - ``shaped`` (``shaped_share``). The cells come from ``connect.occupancy``, so detail
@@ -153,6 +160,7 @@ class Row:
     seconds: float = 0.0
     error: str = ""
     picture_error: str = ""
+    seat: str = ""
 
 
 # ---- measures -------------------------------------------------------------------------------
@@ -349,6 +357,7 @@ def _bench_one(path: Path, out_dir: Path, studs: int, catalog: Catalog, hide: li
             match_top=matches[2],
             notes=len(build.notes),
             seconds=round(seconds, 2),
+            seat=" and ".join(a for a, s in zip(("x", "y"), project.seat, strict=True) if s),
         )
     except (SeedError, ProjectError) as e:
         return Row(name, error=_private(str(e), hide))
@@ -484,8 +493,8 @@ _KEY = (
     "that is tiles, slopes or detail parts instead of plain studs. rough = the plain "
     "conversion before finishing. front, right, top = how closely the outline matches the "
     "model seen from that side (100% is exact). notes = remarks the passes left. secs = "
-    "time to build. In the last row numbers are totals and percentages are averages, over "
-    "the models that built."
+    "time to build, including the seatings tried. In the last row numbers are totals and "
+    "percentages are averages, over the models that built."
 )
 
 
@@ -575,6 +584,9 @@ def format_table(rows: list[Row]) -> str:
         + " |"
     )
     out = [line(table[0]), rule] + [line(c) for c in table[1:]]
+    seated = [f"{r.name} ({r.seat})" for r in rows if r.seat and not r.error]
+    if seated:
+        out += ["", f"Sitting half a stud over on the grid: {', '.join(seated)}."]
     return "\n".join(out) + "\n\n" + _KEY + "\n"
 
 
@@ -595,6 +607,9 @@ def _shown(value: float) -> str:
 
 def _changes(old: Row, new: Row) -> list[str]:
     said: list[str] = []
+    if old.seat != new.seat:
+        where = lambda s: f"half a stud over in {s}" if s else "where it always sat"  # noqa: E731
+        said.append(f"its seating moved from {where(old.seat)} to {where(new.seat)}")
     if old.ok != new.ok:
         said.append("became buildable (better)" if new.ok else "is no longer buildable (worse)")
     if old.loose != new.loose:

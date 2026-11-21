@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from bricksnap.lab import guide, ldraw_lib, run, tools
+from bricksnap.lab import art, guide, ldraw_lib, run, tools
 
 ROOT = Path(__file__).resolve().parent.parent
 STUDY_GUIDE = ROOT / "docs" / "research" / "2026-11-19-how-real-sets-are-built" / "guide.md"
@@ -22,8 +22,21 @@ STUDY_GUIDE = ROOT / "docs" / "research" / "2026-11-19-how-real-sets-are-built" 
 # What the builder is given with the guide off, as it was before the switch existed: the
 # baseline of the with-and-without comparison. If you change prompt.md or a tool on purpose,
 # update these, knowing that guide-off runs before and after the change are no longer alike.
-BASELINE_PROMPT_SHA256 = "a36fcd7a6b0ed38c32f0cf3b82535cfd2320a6e8d30cb82cb6e93b9db507bbe2"
+BASELINE_PROMPT_SHA256 = "94dc1c85fdc343ecbf4e2a2f3bbf6729dad9ae1f0b106f4e5ba05cea807eb6af"
 BASELINE_TOOLS_SHA256 = "2d3fc284e8048eddf66d45aac47390758487adaa707209360cb0d98053a3f990"
+# On 20 November the colour line was changed on purpose (the style study: a fuller list, true
+# names, trans black for glass). Before it, the prompt's pin was this, with this colour line:
+# putting the old line back must give the old pin, so the change is that one line and no other.
+# (Since then the check tool's sentence on joints changed once more, for clips on bars: this
+# pin is the old colour line with today's sentence.)
+PROMPT_SHA256_BEFORE_COLOURS = "a36fcd7a6b0ed38c32f0cf3b82535cfd2320a6e8d30cb82cb6e93b9db507bbe2"
+OLD_COLOUR_LINE = (
+    "- Colours are LDraw codes: 0 black, 1 blue, 2 green, 4 red, 14 yellow, 15 white, 19 tan, "
+    "25 orange, 27 lime, 28 dark tan, 70 reddish brown, 71 light bluish grey, 72 dark bluish "
+    "grey, 5 dark pink, 13 pink, 22 purple, 10 bright green, 288 dark green, 320 dark red, 272 "
+    "dark blue, 47 transparent clear, 40 transparent brown (smoke), 36 transparent red, 46 "
+    "transparent yellow. Never use 16 or 24."
+)
 
 needs_library = pytest.mark.skipif(
     not ldraw_lib.zip_path().is_file(), reason="needs the LDraw parts library"
@@ -99,15 +112,15 @@ def test_the_words_and_the_table():
     assert "**Sizes that fit.**" in table
 
 
-def test_ten_playbooks_five_kinds():
-    assert list(guide.kinds()) == ["vehicle", "hollow", "creature", "plant", "machine"]
+def test_twelve_playbooks_six_kinds():
+    assert list(guide.kinds()) == ["vehicle", "aircraft", "hollow", "creature", "plant", "machine"]
     assert set(guide.KIND_LINES) == set(guide.kinds())
     assert all(guide.kinds().values())
     for kind in guide.kinds():
         assert guide.sizes(kind) == [100, 400]
 
 
-@pytest.mark.parametrize("kind", ["vehicle", "hollow", "creature", "plant", "machine"])
+@pytest.mark.parametrize("kind", ["vehicle", "aircraft", "hollow", "creature", "plant", "machine"])
 @pytest.mark.parametrize(
     ("parts", "size"), [(20, 100), (100, 100), (200, 100), (250, 400), (400, 400), (2000, 400)]
 )
@@ -120,6 +133,10 @@ def test_the_nearest_playbook(kind, parts, size):
 
 def test_kinds_from_words():
     assert guide.kind_of("a red fire truck") == "vehicle"
+    assert guide.kind_of("a Cessna 172") == "aircraft" and guide.kind_of("planes") == "aircraft"
+    assert guide.refine("vehicle", "a Cessna 172 Skyhawk") == "aircraft"
+    assert guide.refine("vehicle", "a fire truck") == "vehicle"
+    assert guide.refine("creature", "a plane") == "creature"
     assert guide.kind_of("House") == "hollow"
     assert guide.kind_of("cats") == "creature"
     assert guide.kind_of("flowers") == "plant"
@@ -136,16 +153,23 @@ def test_the_guide_mode_instructions():
     assert guide.rules() in text and "# Panels" in text
     assert "Build from the ground up" not in text and "a sturdy core" not in text
     assert "call playbook once" in text and "which playbook you followed" in text
+    assert "Write the art direction and give it with brief" in text
     assert "not of a ball joint or a hinge" in text
     assert "lifts off" in text and "hinged doors" in text
     # one method: the rules and Panels come after the working order, before what moves
     assert text.index("7. Stop when") < text.index("# How set designers build")
     assert text.index("# Panels") < text.index("# When the subject moves")
-    # everything about coordinates and the tools is as it was
-    for heading in ("# The coordinates (LDraw)", "# Your tools, and how to work with them"):
-        part = base[base.index(heading) : base.index("\n- check ")]
-        assert part in text
-    assert base[base.index("# When you start from a model") :] in text
+    # everything about coordinates is as it was; the tools as they were but for how to
+    # spend turns (place, add) and what submit and brief do
+    part = base[base.index("# The coordinates (LDraw)") : base.index("- place attaches")]
+    assert part in text
+    # a first build has neither the start-from-a-model nor the change section
+    assert "# When you start from a model" not in text
+    assert "# When you are asked for a change" not in text
+    start = guide.system_prompt(base, "start")
+    change = guide.system_prompt(base, "change")
+    assert "# When you start from a model" in start and "# When you are asked" not in start
+    assert "# When you are asked for a change" in change and "# When you start" not in change
 
 
 def test_a_changed_prompt_cannot_slip_past(monkeypatch):
@@ -155,6 +179,36 @@ def test_a_changed_prompt_cannot_slip_past(monkeypatch):
 
 
 # ---- the switch ---------------------------------------------------------------------------
+
+
+def _colour_line(text: str) -> str:
+    lines = [ln for ln in text.splitlines() if ln.startswith("- Colours are LDraw codes")]
+    assert len(lines) == 1
+    return lines[0]
+
+
+def test_the_colour_line_is_the_only_change_to_the_pinned_prompt():
+    text = run.PROMPT_FILE.read_text(encoding="utf-8")
+    assert _sha(text.encode()) == BASELINE_PROMPT_SHA256
+    before = text.replace(_colour_line(text), OLD_COLOUR_LINE)
+    assert _sha(before.encode()) == PROMPT_SHA256_BEFORE_COLOURS
+
+
+@needs_library
+def test_every_colour_the_builder_is_told_is_in_the_library_by_that_name():
+    import re
+
+    line = _colour_line(run.PROMPT_FILE.read_text(encoding="utf-8"))
+    body = line.split("Never use")[0]
+    pairs = re.findall(r"\b(\d+) ([a-z][a-z ]*?)(?= \(|,|\.)", body)
+    names = ldraw_lib.library().colours()
+    assert len(pairs) == 38
+    for code, name in pairs:
+        assert names.get(int(code), "").lower() == name, (code, name, names.get(int(code)))
+    for code in (272, 320, 288, 379, 378, 321, 322, 484, 191, 84, 28, 330, 308, 70, 19, 315, 297):
+        assert str(code) in {c for c, _ in pairs}
+    assert "10375 trans black (the neutral smoke for glass)" in line
+    assert "smoke" not in line.split("10375")[0] and "(smoke)" not in line
 
 
 def test_with_the_guide_off_the_tools_are_todays(tmp_path):
@@ -172,28 +226,31 @@ def test_with_the_guide_off_the_tools_are_todays(tmp_path):
 def test_with_the_guide_on_playbook_is_offered(tmp_path):
     on = _folder(tmp_path, guide=True)
     names = [t["name"] for t in tools.tools_for(on)]
-    assert names == [t["name"] for t in tools.TOOLS] + ["playbook"]
+    assert names == [t["name"] for t in tools.TOOLS] + ["playbook", "brief"]
     (on / "reference").mkdir()
     (on / "reference" / "reference-1.png").write_bytes(b"x")
-    assert [t["name"] for t in tools.tools_for(on)][-2:] == ["playbook", "reference"]
+    assert [t["name"] for t in tools.tools_for(on)][-3:] == ["playbook", "brief", "reference"]
     blind = tmp_path / "blind"
     blind.mkdir()
     (blind / "config.json").write_text(json.dumps({"mode": "blind", "guide": True}))
     assert [t["name"] for t in tools.tools_for(blind)] == ["submit"]
 
 
-@pytest.mark.parametrize("kind", ["vehicle", "hollow", "creature", "plant", "machine"])
+@pytest.mark.parametrize("kind", ["vehicle", "aircraft", "hollow", "creature", "plant", "machine"])
 @pytest.mark.parametrize("parts", [20, 100, 250, 400, 2000])
 def test_playbook_answers(tmp_path, kind, parts):
     f = _folder(tmp_path, guide=True)
     reply = _text(tools.call_tool(f, "playbook", {"kind": kind, "parts": parts}))
     size = 100 if parts < 200 else 400
     assert reply.startswith(f"Playbook: {guide.playbook(kind, size)[0]}.")
-    assert reply.endswith("\n\n" + guide.playbook(kind, size)[1])
-    assert json.loads((f / "playbook.json").read_text()) == {
+    after = "\n\n" + art.PRECEDENCE + "\n\nHOW IT SHOULD LOOK (style guide, "
+    assert "\n\n" + guide.playbook(kind, size)[1] + after in reply
+    saved = json.loads((f / "playbook.json").read_text())
+    assert saved == {
         "kind": kind,
         "parts": parts,
         "playbook": guide.playbook(kind, size)[0],
+        "style": saved["style"],
     }
 
 
@@ -265,9 +322,11 @@ def test_a_session_with_the_guide(tmp_path, given):
     base = run.PROMPT_FILE.read_text(encoding="utf-8")
     assert given["prompt"].decode() == guide.system_prompt(base)
     assert given["prompt_file"] == tmp_path / "s" / run.GUIDE_PROMPT_NAME
-    assert [t["name"] for t in given["tools"]][-1] == "playbook"
+    assert [t["name"] for t in given["tools"]][-2:] == ["playbook", "brief"]
     assert given["config"]["guide"] is True
-    assert given["message"] == run.message("a red car", "tools", 25, 0)
+    assert given["message"] == run.message("a red car", "tools", 25, 0, guide=True)
+    assert "hand in with submit {}" in given["message"] and "brief" in given["message"]
+    assert "check and submit each use one" not in given["message"]
     assert record["guide"] is True and record["playbook"] == "Vehicle, 100 parts"
     saved = json.loads((tmp_path / "s" / "session.json").read_text())
     assert saved["guide"] is True and saved["playbook"] == "Vehicle, 100 parts"
@@ -297,6 +356,25 @@ CORE = [
     ("place", {"part": "87087.dat", "colour": 72, "line": 1, "stud": 14, "turn": 2}),
     ("place", {"part": "87087.dat", "colour": 72, "line": 1, "stud": 15, "turn": 2}),
 ]
+BRIEF = {
+    "scale": "4 studs wide, forced by the narrowest roundable body",
+    "colours": [
+        {"code": 15, "job": "body", "share": "70%"},
+        {"code": 72, "job": "belly", "share": "20%"},
+        {"code": 25, "job": "one line", "share": "under 10%"},
+        {"code": 10375, "job": "glass"},
+    ],
+    "pattern": "grey below a low level line",
+    "shapes": [
+        {"shape": "the core", "part": "87087"},
+        {"shape": "a panel", "part": "3020"},
+        {"shape": "a rounded top", "part": "11477"},
+    ],
+    "sideways": "both flanks",
+    "thin": "none at this size",
+    "studs": "none",
+    "glass": "none; it sits flat on the ground",
+}
 PANEL = ("place", {"part": "3020.dat", "colour": 4, "line": 3, "stud": 2, "socket": 2})
 SKIN = [
     ("place", {"part": "3069b.dat", "colour": 15, "line": 7, "stud": 1, "turn": 3}),
@@ -314,6 +392,8 @@ def test_a_panel_on_side_studs(tmp_path, on, monkeypatch):
 
     monkeypatch.setattr(picture, "model_sheet", lambda text, out, title="": out)
     f = _folder(tmp_path, guide=on)
+    if on:  # in guide mode the art direction comes before the first part
+        assert _text(tools.call_tool(f, "brief", BRIEF)).startswith("Brief 1 recorded.")
     for name, args in CORE:
         assert "PROBLEM" not in _text(tools.call_tool(f, name, args))
     reply = _text(tools.call_tool(f, *PANEL))
