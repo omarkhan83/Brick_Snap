@@ -49,8 +49,9 @@ quarter turn): for a part held by exactly one stud only (a 1 x 2 plate on a jump
 stud turned 45 degrees). Placed without the angle, the part and that line must join by one
 stud (the checker's stud test), else it is refused in plain words; on the ground it is
 refused (use turn). The matrix is then not whole numbers.
-When another quarter turn would join more studs between the new part and that line (counted
-by the checker's own stud test, both ways), the note ends with one sentence saying so ("Turn 2
+When another quarter turn would join more studs between the new part and the parts it lands
+on (every part of the model it touches, not only that line; counted by the checker's own stud
+test, both ways), the note ends with one sentence saying so ("Turn 2
 would catch 4 side studs; this catches 1."); what is placed does not change.
 """
 
@@ -325,9 +326,12 @@ def place(
             "Say where: stud (a stud of that line), under_socket (a socket of that line), or "
             "line 0 with x and z for the ground."
         )
-    target_info, new_info = (t_name, target, t_pos, t_m), (new_name, new)
+    from bricksnap.lab.validate import Placed, Report, parse
+
+    target_placed = Placed(line, 16, t_pos, t_m, t_name, t_name, target, 0, np.linalg.inv(t_m))
+    new_info = (new_name, new)
     if angle is not None:
-        held = _caught(target_info, new_info, *reversed(pose(q)))
+        held = _caught([target_placed], new_info, *reversed(pose(q)))
         if held != 1:
             raise PlaceError(
                 f"angle is for a part held by exactly one stud (a part turned on one stud); "
@@ -346,7 +350,7 @@ def place(
     if angle is not None:
         return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
     better = _better_turn(
-        target_info,
+        parse(text, lib, Report()),
         new_info,
         [(k, *pose(np.linalg.matrix_power(QUARTER, k))) for k in range(4)],
         turn,
@@ -357,23 +361,29 @@ def place(
     return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
 
 
-def _caught(target: tuple, new: tuple, pos: np.ndarray, m: np.ndarray) -> int:  # type: ignore[type-arg]
-    """How many studs join the new part, placed at ``pos`` with ``m``, and the target (either
-    way), by the checker's own stud test."""
-    from bricksnap.lab.validate import Placed, _stud_hits
+def _caught(others: list, new: tuple, pos: np.ndarray, m: np.ndarray) -> int:  # type: ignore[type-arg]
+    """How many studs join the new part, placed at ``pos`` with ``m``, and the parts ``others``
+    (``validate.Placed``; either way round), by the checker's own stud test. Only parts whose
+    box comes within 2 LDU of the new part's are tried."""
+    from bricksnap.lab.validate import Placed, _stud_hits, _world_bbox
 
-    t_name, t_part, t_pos, t_m = target
     n_name, n_part = new
     m = _clean(m)
-    a = Placed(1, 16, t_pos, t_m, t_name, t_name, t_part, 0, np.linalg.inv(t_m))
-    b = Placed(2, 16, pos, m, n_name, n_name, n_part, 0, np.linalg.inv(m))
-    return sum(h.ok for h in _stud_hits(a, b)) + sum(h.ok for h in _stud_hits(b, a))
+    b = Placed(0, 16, pos, m, n_name, n_name, n_part, 0, np.linalg.inv(m))
+    lo, hi = _world_bbox(b, 2.0)
+    n = 0
+    for a in others:
+        alo, ahi = _world_bbox(a, 0.0)
+        if (alo > hi).any() or (ahi < lo).any():
+            continue
+        n += sum(h.ok for h in _stud_hits(a, b)) + sum(h.ok for h in _stud_hits(b, a))
+    return n
 
 
-def _better_turn(target: tuple, new: tuple, poses: list, turn: int, sideways: bool) -> str:  # type: ignore[type-arg]
-    """A sentence when another quarter turn would catch more studs than the one asked for,
-    else ""."""
-    counts = {k: _caught(target, new, p, mm) for k, mm, p in poses}
+def _better_turn(others: list, new: tuple, poses: list, turn: int, sideways: bool) -> str:  # type: ignore[type-arg]
+    """A sentence when another quarter turn would catch more studs, from all the parts the new
+    part lands on, than the one asked for, else ""."""
+    counts = {k: _caught(others, new, p, mm) for k, mm, p in poses}
     best = max(counts, key=lambda k: (counts[k], -abs(k - turn)))
     if counts[best] <= counts[turn]:
         return ""

@@ -762,6 +762,13 @@ def test_place_says_when_another_turn_would_catch_more_studs():
         "Turn 2 would catch 4 studs; this catches 2."
     )
     assert "would catch" not in place(t, "3001.dat", 1, 2, stud=1).note
+    # laid across two bricks, on all 8 studs (4 of each): no other turn catches more in all,
+    # though turn 0 would catch more of the named brick alone
+    t = on(t, "3001.dat", 4, 1, stud=b(-50, -10))
+    across = place(t, "3001.dat", 1, 2, stud=1, socket=4, turn=1)
+    assert "would catch" not in across.note, across.note
+    r = check(t + "\n" + across.line)
+    assert held(r) and sum(len(x.studs) for x in r.links if x.held == 4) == 8
 
 
 def test_place_turns_a_part_on_one_stud_by_an_angle():
