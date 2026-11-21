@@ -399,3 +399,97 @@ def test_an_aerial_on_a_lever_and_in_an_open_stud():
     # the bar in the open stud is tested for fit; the lever is a hinge, known by name only
     assert any("as a bar in an open stud" in i.text for i in r.fits), r.text()
     assert any("hinge" in i.text for i in r.unchecked), r.text()
+
+
+# ---- the builder's clip and strut tools (guide mode) ------------------------------------------
+
+
+@pytest.fixture
+def work(tmp_path):
+    import json
+
+    (tmp_path / "config.json").write_text(json.dumps({"mode": "tools", "guide": True}))
+    return tmp_path
+
+
+def use(work, name: str, args: dict) -> str:
+    from bricksnap.lab import tools
+
+    handler = {"clip": tools._clip_tool, "strut": tools._strut_tool}[name]
+    return "\n".join(b["text"] for b in handler(work, args))
+
+
+def model(work) -> str:
+    return (work / "model.ldr").read_text()
+
+
+def test_the_clip_and_strut_tools_are_offered_with_the_guide_only(work, tmp_path):
+    import json
+
+    from bricksnap.lab import tools
+
+    names = [t["name"] for t in tools.tools_for(work)]
+    assert "clip" in names and "strut" in names
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "config.json").write_text(json.dumps({"mode": "tools"}))
+    assert tools.tools_for(off) == tools.TOOLS
+
+
+def test_the_clip_tool_puts_a_clip_plate_on_a_handle(work):
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2})
+    assert said.startswith("Added line 3: 60897.dat clipped on the bar of line 2"), said
+    assert "fitted (tested for fit)" in said
+    r = check(model(work))
+    assert clips_fitted(r) == 1 and not r.problems, r.text()
+
+
+@pytest.mark.parametrize("angle", [0, 30, 45, 90])
+def test_the_clip_tool_puts_11090_on_a_handle_at_an_angle(work, angle):
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    said = use(work, "clip", {"part": "11090", "colour": 15, "onto": 2, "angle": angle})
+    assert "fitted (tested for fit)" in said and "Its bore opens at" in said, said
+    r = check(model(work))
+    assert clips_fitted(r) == 1 and all_fitted(r), r.text()
+
+
+def test_the_clip_tool_refuses_in_plain_words(work):
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    said = use(work, "clip", {"part": "4085c", "colour": 15, "onto": 2})
+    assert said.startswith("ERROR:") and "Clips that work: 60897" in said, said
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 1})
+    assert said.startswith("ERROR:") and "has no bar or handle the checker can find" in said
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2, "which": 3})
+    assert said.startswith("ERROR:") and "which is 1 to 1" in said
+    assert model(work) == BASE + HANDLE  # nothing was added
+
+
+def test_the_strut_tool_builds_the_strut_built_by_hand(work):
+    hand = strut_on_11090()
+    handles = "\n".join(hand.splitlines()[:6]) + "\n"  # the plate, the handles and the bricks
+    (work / "model.ldr").write_text(handles)
+    said = use(work, "strut", {"onto": [2, 6], "colour": 15})
+    assert "a Bar 4L between them" in said and "63.2 LDU apart" in said, said
+    made = model(work).splitlines()[6:]
+    for a, b in zip(made, hand.splitlines()[6:], strict=True):
+        # the same parts in the same places (a tube may be turned half round its own clip's
+        # line, which is the same joint); the bar exactly the same
+        x = np.array([float(v) for v in a.split()[2:14]])
+        y = np.array([float(v) for v in b.split()[2:14]])
+        assert a.split()[-1] == b.split()[-1] and np.allclose(x[:3], y[:3], atol=0.01), (a, b)
+    assert made[-1].split()[2:] == hand.splitlines()[-1].split()[2:] or np.allclose(
+        [float(v) for v in made[-1].split()[2:14]],
+        [float(v) for v in hand.splitlines()[-1].split()[2:14]],
+        atol=0.01,
+    )
+    r = check(model(work))
+    assert clips_fitted(r) == 2 and tubes_fitted(r) == 2 and not r.problems, r.text()
+
+
+def test_the_strut_tool_says_what_to_move_when_no_bar_closes_the_gap(work):
+    text = "\n".join(strut_on_11090().splitlines()[:6]) + "\n"
+    text = text.replace("1 72 0 -88 50", "1 72 0 -112 50")  # the high handle a brick higher
+    (work / "model.ldr").write_text(text)
+    said = use(work, "strut", {"onto": [2, 6], "colour": 15})
+    assert said.startswith("ERROR:") and "78.6 LDU apart" in said and "Move one end by 4.6" in said

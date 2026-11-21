@@ -226,7 +226,7 @@ def test_with_the_guide_off_the_tools_are_todays(tmp_path):
 def test_with_the_guide_on_playbook_is_offered(tmp_path):
     on = _folder(tmp_path, guide=True)
     names = [t["name"] for t in tools.tools_for(on)]
-    assert names == [t["name"] for t in tools.TOOLS] + ["playbook", "brief"]
+    assert names == [t["name"] for t in tools.TOOLS] + ["clip", "strut", "playbook", "brief"]
     (on / "reference").mkdir()
     (on / "reference" / "reference-1.png").write_bytes(b"x")
     assert [t["name"] for t in tools.tools_for(on)][-3:] == ["playbook", "brief", "reference"]
