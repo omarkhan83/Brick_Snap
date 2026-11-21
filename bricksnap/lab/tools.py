@@ -557,75 +557,94 @@ _STRUT = {
 
 
 def _vec(v: Any) -> str:
-    return " ".join(f"{round(float(x), 1):g}" for x in v)
+    return " ".join(f"{round(float(x), 3) + 0.0:g}" for x in v)
 
 
-def _fitted(text: str, a: int, b: int) -> str:
+def _fitted(report: Any, a: int, b: int) -> str:
     """Whether the checker counts the joint between lines a and b as tested for fit."""
-    from bricksnap.lab.validate import check
-
-    r = check(text, movement=False)
-    if any(set(i.lines) == {a, b} for i in r.fits):
-        return "The checker counts the joint as fitted (tested for fit)."
-    if any(i.kind == "joint" and set(i.lines) == {a, b} for i in r.unchecked):
-        return "The checker counts it as joined but has not measured the fit: check the model."
-    return "The checker does not see a joint there: check the model."
+    if any(set(i.lines) == {a, b} for i in report.fits):
+        return f"lines {a} and {b}: tested for fit"
+    if any(i.kind == "joint" and set(i.lines) == {a, b} for i in report.unchecked):
+        return f"lines {a} and {b}: joined, but the fit is not measured"
+    return f"lines {a} and {b}: no joint"
 
 
 def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab import clips
+    from bricksnap.lab.validate import check
 
-    part = args.get("part")
-    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
-    onto = _whole(args, "onto", None, 1)
-    which = _whole(args, "which", 1, 1)
-    if not isinstance(part, str) or colour is None or onto is None:
-        return _error("part, colour and onto are needed.")
     try:
-        angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
-        c = clips.clip(_model(folder), part, colour, onto, which or 1, angle, slide)
+        part = args.get("part")
+        colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+        onto = _whole(args, "onto", None, 1)
+        which = _whole(args, "which", 1, 1)
+        if not isinstance(part, str) or colour is None or onto is None or which is None:
+            raise ValueError("part, colour and onto are needed; which is 1 or more.")
+        try:
+            angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
+        except (ValueError, TypeError):
+            raise ValueError("angle and slide must be numbers (degrees, LDU).") from None
+        c = clips.clip(_model(folder), part, colour, onto, which, angle, slide)
     except (ValueError, TypeError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [c.line])
     n = numbers[0]
+    report = check(text)
     said = (
         f"Added line {n}: {c.line.split()[-1]} clipped on the bar of line {onto}, its grip at "
         f"({_vec(c.grip)}) on the bar running ({_vec(c.along)}); it points ({_vec(c.points)}) "
         "from the bar."
     )
+    if c.clamped:
+        said += " (slide went past the bar's end: the clip is at the end's last grip.)"
     if c.bore is not None:
         mouth, inward = c.bore
+        lo, hi = clips.BORE_IN
         said += (
-            f" Its bore opens at ({_vec(mouth)}) and runs ({_vec(inward)}) for 10 LDU: a bar "
-            f"pushed 3 to 10 LDU into it lies along ({_vec(-inward)}) from there."
+            f" Its bore opens at ({_vec(mouth)}) and runs ({_vec(inward)}): a bar in it {lo:g} "
+            f"to {hi:g} LDU deep lies along ({_vec(-inward)}) from there."
         )
-    return [_text(said + " " + _fitted(text, onto, n))]
+    said += f" The checker: {_fitted(report, onto, n)}."
+    if any(n in i.lines for i in report.problems):
+        said += " But it finds a problem with the new line (below): fix it or remove the line."
+    return [
+        _text(
+            said + "\nWhat the checker says about it:\n" + _quick(folder, text, [n], report=report)
+        )
+    ]
 
 
 def _strut_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab import clips
+    from bricksnap.lab.validate import check
 
     def two(v: Any) -> list[int] | None:
         good = isinstance(v, list) and len(v) == 2
         good = good and all(isinstance(x, int) and not isinstance(x, bool) and x >= 1 for x in v)
         return v if good else None
 
-    onto, which = two(args.get("onto")), two(args.get("which") or [1, 1])
-    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
-    if onto is None or which is None or colour is None:
-        return _error("onto must be two line numbers, which two whole numbers, and a colour.")
     try:
+        onto, which = two(args.get("onto")), two(args.get("which") or [1, 1])
+        colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+        if onto is None or which is None or colour is None:
+            raise ValueError(
+                "onto must be two line numbers, which two whole numbers, and a colour."
+            )
         a, b, bar, name, gap = clips.strut(_model(folder), onto[0], onto[1], colour, *which)
     except (ValueError, TypeError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [a.line, b.line, bar])
     na, nb, nbar = numbers
+    report = check(text)
+    joints = "; ".join(
+        _fitted(report, x, y) for x, y in ((onto[0], na), (onto[1], nb), (na, nbar), (nb, nbar))
+    )
     return [
         _text(
             f"Added lines {na} and {nb} (11090 on the bars of lines {onto[0]} and {onto[1]}, "
             f"their bores facing each other {gap:.1f} LDU apart) and line {nbar}, a {name} "
-            f"between them. {_fitted(text, onto[0], na)} {_fitted(text, onto[1], nb)} For the "
-            f"bar: {_fitted(text, na, nbar)} {_fitted(text, nb, nbar)}"
+            f"between them. The checker: {joints}.\nWhat the checker says about them:\n"
+            + _quick(folder, text, numbers, report=report)
         )
     ]
 

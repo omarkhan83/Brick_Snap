@@ -10,6 +10,7 @@ clip's grip is, where a handle's bar is, which way a bar tube's bore points.
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 import pytest
@@ -490,7 +491,7 @@ def test_the_clip_tool_puts_a_clip_plate_on_a_handle(work):
     (work / "model.ldr").write_text(BASE + HANDLE)
     said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2})
     assert said.startswith("Added line 3: 60897.dat clipped on the bar of line 2"), said
-    assert "fitted (tested for fit)" in said
+    assert "The checker: lines 2 and 3: tested for fit." in said
     r = check(model(work))
     assert clips_fitted(r) == 1 and not r.problems, r.text()
 
@@ -499,7 +500,8 @@ def test_the_clip_tool_puts_a_clip_plate_on_a_handle(work):
 def test_the_clip_tool_puts_11090_on_a_handle_at_an_angle(work, angle):
     (work / "model.ldr").write_text(BASE + HANDLE)
     said = use(work, "clip", {"part": "11090", "colour": 15, "onto": 2, "angle": angle})
-    assert "fitted (tested for fit)" in said and "Its bore opens at" in said, said
+    assert "lines 2 and 3: tested for fit" in said and "Its bore opens at" in said, said
+    assert "a bar in it 3.5 to 10 LDU deep" in said
     r = check(model(work))
     assert clips_fitted(r) == 1 and all_fitted(r), r.text()
 
@@ -507,12 +509,34 @@ def test_the_clip_tool_puts_11090_on_a_handle_at_an_angle(work, angle):
 def test_the_clip_tool_refuses_in_plain_words(work):
     (work / "model.ldr").write_text(BASE + HANDLE)
     said = use(work, "clip", {"part": "4085c", "colour": 15, "onto": 2})
-    assert said.startswith("ERROR:") and "Clips that work: 60897" in said, said
+    assert said.startswith("ERROR:") and "Clips it measures: 60897" in said, said
+    assert "4085a" not in said
     said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 1})
     assert said.startswith("ERROR:") and "has no bar or handle the checker can find" in said
     said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2, "which": 3})
     assert said.startswith("ERROR:") and "which is 1 to 1" in said
+    for bad in (
+        {"which": 0},
+        {"onto": 0},
+        {"colour": -1},
+        {"angle": float("nan")},
+        {"angle": float("inf")},
+        {"angle": "up"},
+        {"slide": float("nan")},
+    ):
+        said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2, **bad})
+        assert said.startswith("ERROR:") and "Traceback" not in said, (bad, said)
     assert model(work) == BASE + HANDLE  # nothing was added
+
+
+def test_the_clip_tool_reports_a_clash_as_the_checker_finds_it(work):
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    use(work, "clip", {"part": "60897", "colour": 15, "onto": 2})
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2})  # the same spot again
+    assert "But it finds a problem with the new line" in said and "PROBLEM:" in said, said
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    said = use(work, "clip", {"part": "15712", "colour": 15, "onto": 2, "slide": 500})
+    assert said.startswith("Added line 3: 15712.dat") and "slide went past the bar's end" in said
 
 
 def test_the_strut_tool_builds_the_strut_built_by_hand(work):
@@ -537,12 +561,66 @@ def test_the_strut_tool_builds_the_strut_built_by_hand(work):
     assert clips_fitted(r) == 2 and tubes_fitted(r) == 2 and not r.problems, r.text()
 
 
-def test_the_strut_tool_says_what_to_move_when_no_bar_closes_the_gap(work):
-    text = "\n".join(strut_on_11090().splitlines()[:6]) + "\n"
-    text = text.replace("1 72 0 -88 50", "1 72 0 -112 50")  # the high handle a brick higher
+def two_handles(apart: float, side: float = 0.0) -> str:
+    """Two 2540 handles on 2 x 4 bricks facing each other, their bars ``apart`` LDU across and
+    the second ``side`` LDU along its bar (the review's cases)."""
+    tz = -30 - apart - 30
+    return (
+        "1 7 0 -24 0 1 0 0 0 1 0 0 0 1 3001.dat\n1 14 0 -32 -10 1 0 0 0 1 0 0 0 1 2540.dat\n"
+        f"1 7 {side} -24 {tz} 1 0 0 0 1 0 0 0 1 3001.dat\n"
+        f"1 14 {side} -32 {tz + 10} -1 0 0 0 1 0 0 0 -1 2540.dat\n"
+    )
+
+
+def follow(work, said: str, line_no: int) -> None:
+    """Move line ``line_no`` (and the brick under it, the line before) as the advice says."""
+    m = re.search(r"Move line (\d+) by \(([-0-9. ]+)\)", said)
+    assert m and int(m.group(1)) == line_no, said
+    move = np.array([float(v) for v in m.group(2).split()])
+    lines = model(work).splitlines()
+    for n in (line_no - 1, line_no):
+        t = lines[n - 1].split()
+        t[2:5] = [f"{float(v) + d:g}" for v, d in zip(t[2:5], move, strict=True)]
+        lines[n - 1] = " ".join(t)
+    (work / "model.ldr").write_text("\n".join(lines) + "\n")
+
+
+@pytest.mark.parametrize(
+    "apart, side",
+    [(20, 0), (40, 0), (114, 0), (134, 0), (100, 20), (100, 40)],
+)
+def test_the_strut_tool_refuses_and_its_advice_closes_the_strut(work, apart, side):
+    # bars 20 apart (the tubes would cross), 40 apart, bores 54 or 74 apart (in by 3, which
+    # the checker does not count), one handle 20 or 40 along its bar: nothing is added, and
+    # moving the second handle as the advice says lets strut build a fitted strut
+    text = two_handles(apart, side)
     (work / "model.ldr").write_text(text)
-    said = use(work, "strut", {"onto": [2, 6], "colour": 15})
-    assert said.startswith("ERROR:") and "78.6 LDU apart" in said and "Move one end by 4.6" in said
+    said = use(work, "strut", {"onto": [2, 4], "colour": 4})
+    assert said.startswith("ERROR:") and model(work) == text, said
+    follow(work, said, 4)
+    said = use(work, "strut", {"onto": [2, 4], "colour": 4})
+    assert said.startswith("Added lines 5 and 6"), said
+    r = check(model(work))
+    assert clips_fitted(r) == 2 and tubes_fitted(r) == 2, r.text()
+
+
+def test_the_strut_tool_refuses_bars_that_are_not_parallel(work):
+    text = two_handles(100).replace(
+        "-1 0 0 0 1 0 0 0 -1 2540.dat", "-0.9397 0 -0.342 0 1 0 0.342 0 -0.9397 2540.dat"
+    )  # the second handle turned 20 degrees
+    (work / "model.ldr").write_text(text)
+    said = use(work, "strut", {"onto": [2, 4], "colour": 4})
+    assert said.startswith("ERROR:") and "20 degrees apart" in said and model(work) == text
+
+
+@pytest.mark.parametrize("apart, bar", [(100, "Bar 3L"), (113, "Bar 3L"), (120, "Bar 4L")])
+def test_the_strut_tools_range_is_the_checkers(work, apart, bar):
+    # bores 40, 53 and 60 apart: a bar in each by 10, 3.5 and 10 (BORE_IN), each fitted
+    (work / "model.ldr").write_text(two_handles(apart))
+    said = use(work, "strut", {"onto": [2, 4], "colour": 4})
+    assert f"a {bar} between them" in said, said
+    r = check(model(work))
+    assert tubes_fitted(r) == 2 and not r.problems, r.text()
 
 
 # ---- what a clip may carry -----------------------------------------------------------------
