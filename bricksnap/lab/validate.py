@@ -140,12 +140,14 @@ What it reports, each item naming the line number, the part and its position:
     ``_tube_hollows``) and a stud in a Technic pin hole;
   - a clip on a bar or a handle (``_clip_fit``): the bar (a handle's, ``_handle_bars``, or a
     bar part's long axis, ``_bar_lines``) along the clip's grip (``grip_lines``, found per
-    clip in the part's real shape, with or without a clip primitive) within ``CLIP_DEG``
-    degrees, and at the bar's point nearest the grip the grip holds (``_grip_holds``): the
-    bar bar-thick, the clip closed round it (``GRIP_RING`` of 12 points on a circle of
-    ``GRIP_R``, more than half; none at 3 LDU) there and ``GRIP_HALF`` either side, which
-    also keeps the grip off the bar's end. On a bar the library does not draw (23443's
-    handle) the grip's own line is measured. Any angle about the bar's line is a fit;
+    clip in the part's real shape, with or without a clip primitive, and kept on disk under
+    the library's stamp, the solid's version and every number of the search) within
+    ``CLIP_DEG`` degrees, and at the bar's point nearest the grip the grip holds
+    (``_grip_holds``): the bar bar-thick, the clip closed round it (``GRIP_RING`` of 12
+    points on a circle of ``GRIP_R``, more than half; none at ``GRIP_CLEAR``) there and
+    ``GRIP_HALF`` either side, which also keeps the grip off the bar's end. On a bar the
+    library does not draw (23443's handle) the grip's own line is measured. Any angle
+    about the bar's line is a fit;
   each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
   KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip with no closed
   grip (the thick U-clip 4085c) or not round its bar, hinge halves, finger hinges, ball and
@@ -1741,7 +1743,11 @@ CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
 CLIP_DEG = 5.0  # degrees the bar may lean from the grip's direction
 GRIP_HALF = 2.0  # LDU either side of the grip's middle where bar and clip must both be
 GRIP_R = 5.5  # LDU: the circle round the bar's line where the clip is and the bar is not
-GRIP_VERSION = 1  # the grips found (``grip_lines``) are kept on disk under this version
+GRIP_VERSION = 2  # the grip search's own code (``grip_lines``): bump when it changes
+GRIP_CLEAR = 3.0  # LDU: a grip has none of the clip at this radius (room for a bar, 4 LDU)
+GRIP_REACH = 8.0  # LDU a grip is looked for either side of a clip primitive's point
+GRIP_TURN = 15.0  # degrees between the directions tried square to a clip primitive's axis
+GRIP_STEP = 1.0  # LDU between the points tried
 GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
@@ -2026,7 +2032,7 @@ def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
             _ring_count(q, c, u, 2.0) == 0
             or _ring_count(q, c, u, GRIP_R) > 0
             or _ring_count(p, c, u, GRIP_R) < GRIP_RING
-            or _ring_count(p, c, u, 3.0) > 0
+            or _ring_count(p, c, u, GRIP_CLEAR) > 0
         ):
             return False
     return True
@@ -2043,19 +2049,35 @@ def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ign
     return int(sol.inside(pts, deep=False).sum())
 
 
+def _grip_key() -> dict[str, object]:
+    """What a stored grip was found under (``grip_lines``): if any of it changes, the stored
+    grip is stale."""
+    from bricksnap.lab import solid
+
+    return {
+        "library": library().stamp,
+        "solid": solid.VERSION,
+        "search": GRIP_VERSION,
+        "numbers": [GRIP_R, GRIP_RING, GRIP_HALF, GRIP_CLEAR, GRIP_REACH, GRIP_TURN, GRIP_STEP],
+    }
+
+
 def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     """Where a clip part grips a bar, in its own frame: one (point on the bar's centre line,
     its direction) per clip, found in its real shape. A grip is closed: at the point and
     ``GRIP_HALF`` to either side along the direction, the clip fills ``GRIP_RING`` of 12
     points on a circle of ``GRIP_R`` round the line (more than half of it) and none of 12 at
-    3 LDU (room for a bar 4 LDU in radius). For each clip primitive, the closed grip nearest
-    its point, on the part's own axes or square to the primitive's axis every 15 degrees
-    (most clip round it first, then square with the part's axes); a part its name calls a
-    clip with no clip primitive (15712), the best closed grip anywhere in its box along its
-    own axes. A clip with no closed grip (the thick U-clip 4085c) has none: it is known by
-    name only. The checker (``_clip_fit``) and the builder's ``clip`` tool both use this. What
-    the search finds is kept on disk (``cache_dir()/grips``), keyed by the part and by what
-    makes a grip: ``GRIP_VERSION``, ``GRIP_R``, ``GRIP_RING`` and ``GRIP_HALF``."""
+    ``GRIP_CLEAR`` (room for a bar 4 LDU in radius). For each clip primitive, the closed grip
+    nearest its point (within ``GRIP_REACH``, every ``GRIP_STEP``), on the part's own axes
+    or square to the primitive's axis every ``GRIP_TURN`` degrees (most clip round it first,
+    then square with the part's axes); a part its name calls a clip with no clip primitive
+    (15712), the best closed grip anywhere in its box along its own axes. A clip with no
+    closed grip (the thick U-clip 4085c) has none: it is known by name only. The checker
+    (``_clip_fit``) and the builder's ``clip`` tool both use this. What the search finds is
+    kept on disk (``cache_dir()/grips``, a file per part) with the key it was found under
+    (``_grip_key``): the library's stamp (as the parts and solids caches are), the solid's
+    version, ``GRIP_VERSION`` and every number the search uses. A stored grip whose key is
+    not today's is searched for again."""
     if key in _GRIPS:
         return _GRIPS[key]
     import json
@@ -2063,13 +2085,15 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     from bricksnap.lab import solid
     from bricksnap.lab.ldraw_lib import cache_dir
 
-    name = re.sub(r"[^a-z0-9._-]", "_", key)  # keyed by what makes a grip, too
-    stored = cache_dir() / "grips" / f"{name}.v{GRIP_VERSION}-{GRIP_R}-{GRIP_RING}-{GRIP_HALF}.json"
+    name = re.sub(r"[^a-z0-9._-]", "_", key)
+    stored = cache_dir() / "grips" / f"{name}.json"
+    want = _grip_key()
     try:
         got = json.loads(stored.read_text())
-        _GRIPS[key] = [(np.array(x, float), np.array(d, float)) for x, d in got]
-        return _GRIPS[key]
-    except (OSError, ValueError, TypeError):
+        if got["key"] == want:
+            _GRIPS[key] = [(np.array(x, float), np.array(d, float)) for x, d in got["grips"]]
+            return _GRIPS[key]
+    except (OSError, ValueError, TypeError, KeyError):
         pass
     part = library().part(key)
     sol = solid.solid(key)
@@ -2082,15 +2106,16 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
         if axis is not None:
             a = axis / np.linalg.norm(axis)
             u, v = _perp(a)
-            dirs += [math.cos(t) * u + math.sin(t) * v for t in np.radians(np.arange(0, 180, 15))]
-            reach = 8.0
+            turns = np.radians(np.arange(0, 180, GRIP_TURN))
+            dirs += [math.cos(t) * u + math.sin(t) * v for t in turns]
+            reach = GRIP_REACH
         else:
             reach = float(np.max(part.bbox_max - part.bbox_min)) / 2
         best = None
         for d in dirs:
             s1, s2 = _perp(d)
-            for p_ in np.arange(-reach, reach + 0.01, 1.0):
-                for q_ in np.arange(-reach, reach + 0.01, 1.0):
+            for p_ in np.arange(-reach, reach + 0.01, GRIP_STEP):
+                for q_ in np.arange(-reach, reach + 0.01, GRIP_STEP):
                     x = pos + p_ * s1 + q_ * s2
                     if _clip_ring(sol, x, d, GRIP_R) < GRIP_RING:
                         continue
@@ -2100,7 +2125,8 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
                     if min(rings) < GRIP_RING:
                         continue
                     if any(
-                        _clip_ring(sol, x + t * d, d, 3.0) for t in (-GRIP_HALF, 0.0, GRIP_HALF)
+                        _clip_ring(sol, x + t * d, d, GRIP_CLEAR)
+                        for t in (-GRIP_HALF, 0.0, GRIP_HALF)
                     ):
                         continue
                     score = (
@@ -2115,7 +2141,8 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     _GRIPS[key] = found
     try:  # the search takes a second or two per part: keep what it found
         stored.parent.mkdir(parents=True, exist_ok=True)
-        stored.write_text(json.dumps([[x.tolist(), d.tolist()] for x, d in found]))
+        grips = [[x.tolist(), d.tolist()] for x, d in found]
+        stored.write_text(json.dumps({"key": want, "grips": grips}))
     except OSError:
         pass
     return found

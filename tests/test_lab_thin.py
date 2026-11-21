@@ -293,6 +293,38 @@ def test_a_grip_is_looked_for_in_the_clip_not_in_its_opening():
     assert len(grip_lines("98460.dat")) == 1
 
 
+def test_a_stored_grip_is_served_only_under_the_key_it_was_found_under(tmp_path, monkeypatch):
+    import json
+
+    from bricksnap.lab import validate
+
+    monkeypatch.setenv("BRICKSNAP_LAB_CACHE", str(tmp_path))
+    monkeypatch.setattr(validate, "_GRIPS", {})
+
+    def grips() -> list:
+        validate._GRIPS.clear()
+        return [[x.round(1).tolist(), d.round(3).tolist()] for x, d in validate.grip_lines(key)]
+
+    key = "60897.dat"
+    real = grips()
+    stored = tmp_path / "grips" / f"{key}.json"
+    found = json.loads(stored.read_text())
+    assert found["grips"] and [d for _, d in real] == [[0.0, 1.0, 0.0]]
+    wrong = [[[0.0, 4.0, 15.0], [1.0, 0.0, 0.0]]]
+
+    stored.write_text(json.dumps({"key": found["key"], "grips": wrong}))
+    assert grips() == wrong  # under today's key the stored grip is used: no search
+    stored.write_text(json.dumps(wrong))  # stored with no key (as before it had one)
+    assert grips() == real
+    for part in ("library", "solid", "search"):  # another library, solid or search code
+        stale = {**found["key"], part: "another"}
+        stored.write_text(json.dumps({"key": stale, "grips": wrong}))
+        assert grips() == real, part
+    stored.write_text(json.dumps({"key": found["key"], "grips": wrong}))
+    monkeypatch.setattr(validate, "GRIP_TURN", 30.0)  # any number of the search changed
+    assert grips() == real
+
+
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
 def test_a_clip_on_a_handle_is_fitted_at_any_angle_about_it(angle):
     text, _, _ = tube_on_handle(-angle)  # turned up from straight out
