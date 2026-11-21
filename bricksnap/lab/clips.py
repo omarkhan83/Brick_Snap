@@ -117,11 +117,26 @@ def bar_axes(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
                         e1[k], e1[a], e1[b] = run[-1], x, y
                         found.append((e0, e1))
                     run = []
-    # neighbours one LDU apart are one bar: keep the middle one of each bunch
+    # neighbours one LDU apart are one bar: the middle of each bunch, its longest reach
+    bunches: list[list[tuple[np.ndarray, np.ndarray]]] = []
+    for e0, e1 in found:
+        mid = (e0 + e1) / 2
+        for b in bunches:
+            f0, f1 = b[0]
+            same_way = abs(float(np.dot(e1 - e0, f1 - f0))) > 0.99 * float(
+                np.linalg.norm(e1 - e0) * np.linalg.norm(f1 - f0)
+            )
+            if same_way and float(np.linalg.norm(mid - (f0 + f1) / 2)) <= 3:
+                b.append((e0, e1))
+                break
+        else:
+            bunches.append([(e0, e1)])
     bars: list[tuple[np.ndarray, np.ndarray]] = []
-    for e0, e1 in sorted(found, key=lambda e: -float(np.linalg.norm(e[1] - e[0]))):
-        if all(float(np.linalg.norm((e0 + e1) / 2 - (f0 + f1) / 2)) > 3 for f0, f1 in bars):
-            bars.append((e0, e1))
+    for b in bunches:
+        d = (b[0][1] - b[0][0]) / float(np.linalg.norm(b[0][1] - b[0][0]))
+        centre = np.mean([(e0 + e1) / 2 for e0, e1 in b], axis=0)
+        ts = [float(np.dot(e - centre, d)) for e0, e1 in b for e in (e0, e1)]
+        bars.append((centre + min(ts) * d, centre + max(ts) * d))
     _AXES[key] = bars
     return bars
 

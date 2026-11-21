@@ -51,7 +51,7 @@ last, with the facts it answered and their mismatches with the brief, or null), 
 "first_no", "built_without_brief" and "ended_without_critique". ``summary`` is the checker's
 one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
 joints known by name only, whose fit it has not measured (hinges, ball joints: counted as
-joined without proof). Since 20 November studs, pins, axles, bars, wheels and clips on bars
+joined without proof). Since 20 November studs, pins, axles, bars, wheels and most clips on bars
 are tested for fit and not counted there; numbers stored by earlier runs are kept as they were;
 ``moves`` is the report's MOVEMENT section, one sentence per joint ("'lid' (lid-hinge, lines
 9, 10): swings from 0 to 90 degrees with nothing in the way"), empty when nothing moves

@@ -241,14 +241,15 @@ NEW_STEP_7 = (
 
 OLD_CHECK_TOOL = (
     'Read the warnings and the "not checked" joints too: the checker measures the fit of '
-    "studs, pins, axles, bars, wheels and clips on bars, but counts hinges and ball joints as "
-    "joined without proof, so make sure each of those is a real joint.\n"
+    "studs, pins, axles, bars, wheels and most clips on bars, but counts hinges, ball joints and "
+    'the clips it cannot measure as joined without proof (it lists them as "not checked"), so '
+    "make sure each of those is a real joint.\n"
 )
 NEW_CHECK_TOOL = (
     'Read the warnings and the "not checked" joints too: the checker measures the fit of '
-    "studs (sideways ones included), pins, axles, bars, wheels and clips on bars, but not of a "
-    'ball joint or a hinge (they are listed as "not checked"), so make each of those a real '
-    "fit.\n"
+    "studs (sideways ones included), pins, axles, bars, wheels and most clips on bars, but not "
+    'of a ball joint, a hinge or a clip it cannot measure (they are listed as "not checked"), so '
+    "make each of those a real fit.\n"
 )
 
 PANELS = (

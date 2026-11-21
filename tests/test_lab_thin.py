@@ -561,6 +561,13 @@ def test_the_strut_tool_builds_the_strut_built_by_hand(work):
     assert clips_fitted(r) == 2 and tubes_fitted(r) == 2 and not r.problems, r.text()
 
 
+def test_the_clip_tool_finds_the_handle_of_a_bar_tube(work):
+    # 23443's handle has no primitive: the tool finds it in the part's shape, as the checker
+    (work / "model.ldr").write_text("1 7 0 -6 0 1 0 0 0 1 0 0 0 1 23443.dat\n")
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 1, "angle": 90})
+    assert "lines 1 and 2: tested for fit" in said, said
+
+
 def two_handles(apart: float, side: float = 0.0) -> str:
     """Two 2540 handles on 2 x 4 bricks facing each other, their bars ``apart`` LDU across and
     the second ``side`` LDU along its bar (the review's cases)."""
