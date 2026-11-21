@@ -1064,6 +1064,11 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         where = _where_args(args)
         if args.get("angle") is not None:  # guide mode's place (``art.place_tool``)
+            if _config(folder).get("guide") is not True:
+                raise ValueError(
+                    "place takes no angle here: turn is in quarter turns (0 to 3). A part "
+                    "turned to another angle is written by hand with add."
+                )
             angle = args["angle"]
             if isinstance(angle, bool) or not isinstance(angle, int | float):
                 raise ValueError("angle must be a number of degrees.")

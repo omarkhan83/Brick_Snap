@@ -256,3 +256,8 @@ Left:
   a pair's lines only where the library's own assembly of those two parts (3937c01 for 3937
   with 3938, and the like) puts them on one line, and measure other pairs against that pose
   turned about that line; a pair with no assembly stays known by name.
+- **A turned part's corner in its neighbour passes.** A 1 x 2 plate turned 30 to 60 degrees on
+  a jumper's stud into a 1 x 2 x 2 brick beside it shares a piece 1.5 to 1.8 LDU deep with it
+  (real shapes), and the check says "Slight overlap ... no problems": the rough bodies share
+  under 400 LDU^3, so the real shapes are never asked. `place` with an angle now says in its
+  reply that the part runs into its neighbour; the overlap rule itself is unchanged.

@@ -46,9 +46,11 @@ axis-aligned studs).
 ``angle`` (degrees, optional) turns the new part further about the stud it sits on (or the
 stud of its own that hangs it), clockwise seen from its top as ``turn`` is (90 is one more
 quarter turn): for a part held by exactly one stud only (a 1 x 2 plate on a jumper's centre
-stud turned 45 degrees). Placed without the angle, the part and that line must join by one
-stud (the checker's stud test), else it is refused in plain words; on the ground it is
-refused (use turn). The matrix is then not whole numbers.
+stud turned 45 degrees). Placed without the angle, the part must join the whole model by one
+stud (the checker's stud test, every part it reaches), else it is refused in plain words; on
+the ground it is refused (use turn). The matrix is then not whole numbers. When the turned
+part's real shape reaches into another part at all, the note says so in plain words (the
+checker passes such a corner as touching or a slight overlap).
 When another quarter turn would join more studs between the new part and the parts it lands
 on (every part of the model it touches, not only that line; counted by the checker's own stud
 test, both ways), the note ends with one sentence saying so ("Turn 2
@@ -104,9 +106,7 @@ def sockets(part: Part, real: bool = True) -> list[Socket]:
 
         up = np.array([0.0, -1.0, 0.0])
         _REAL_SOCKETS[part.name] = [
-            s
-            for s in _sockets(part)
-            if not solid.stud_middle_blocked(part.name, s.pos, up)
+            s for s in _sockets(part) if not solid.stud_middle_blocked(part.name, s.pos, up)
         ]
     return [Socket(s.pos.copy(), s.kind) for s in _REAL_SOCKETS[part.name]]
 
@@ -326,18 +326,18 @@ def place(
             "Say where: stud (a stud of that line), under_socket (a socket of that line), or "
             "line 0 with x and z for the ground."
         )
-    from bricksnap.lab.validate import Placed, Report, parse
+    from bricksnap.lab.validate import Report, parse
 
-    target_placed = Placed(line, 16, t_pos, t_m, t_name, t_name, target, 0, np.linalg.inv(t_m))
+    others = parse(text, lib, Report())
     new_info = (new_name, new)
     if angle is not None:
-        held = _caught([target_placed], new_info, *reversed(pose(q)))
+        held = _caught(others, new_info, *reversed(pose(q)))
         if held != 1:
             raise PlaceError(
                 f"angle is for a part held by exactly one stud (a part turned on one stud); "
-                f"placed so, {new_name} and line {line} join by {held} studs, and a part on "
-                "two or more studs cannot turn on them. Use turn, or seat it on a single "
-                "stud (a jumper plate's centre stud) first."
+                f"placed so, {new_name} joins the model by {held} studs, and a part on two or "
+                "more studs cannot turn on them. Use turn, or seat it on a single stud (a "
+                "jumper plate's centre stud) with nothing else under it first."
             )
         a = math.radians(angle)
         spin = np.array([[math.cos(a), 0, math.sin(a)], [0, 1, 0], [-math.sin(a), 0, math.cos(a)]])
@@ -348,9 +348,11 @@ def place(
     m = _clean(m)
     note += " " + _where(new, pos, m)
     if angle is not None:
-        return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
+        return Placement(
+            ldraw_line(colour, pos, m, new_name), note + _touching(others, new_name, pos, m), pos, m
+        )
     better = _better_turn(
-        parse(text, lib, Report()),
+        others,
         new_info,
         [(k, *pose(np.linalg.matrix_power(QUARTER, k))) for k in range(4)],
         turn,
@@ -378,6 +380,32 @@ def _caught(others: list, new: tuple, pos: np.ndarray, m: np.ndarray) -> int:  #
             continue
         n += sum(h.ok for h in _stud_hits(a, b)) + sum(h.ok for h in _stud_hits(b, a))
     return n
+
+
+def _touching(others: list, name: str, pos: np.ndarray, m: np.ndarray) -> str:  # type: ignore[type-arg]
+    """For a part turned by an angle: a sentence for each part its real shape reaches into
+    (``solid.interference``), however thinly, else "". The checker passes a piece under 1.5
+    LDU thick as touching, and one a little thicker whose rough bodies share under 400 LDU^3
+    as a slight overlap; a turned part's corner often goes just that far."""
+    from bricksnap.lab import solid
+    from bricksnap.lab.validate import Placed, _world_bbox
+
+    me = Placed(0, 16, pos, m, name, name, library().part(name), 0, np.linalg.inv(m))
+    lo, hi = _world_bbox(me, 0.0)
+    out = ""
+    for a in others:
+        alo, ahi = _world_bbox(a, 0.0)
+        if (alo > hi).any() or (ahi < lo).any():
+            continue
+        depth, vol, _ = solid.interference((name, pos, m), (a.key, a.pos, a.m))
+        if vol > 0 and depth > 0:
+            out += (
+                f" Turned so, it runs into line {a.line} ({a.key}): their real shapes share a "
+                f"piece about {fmt(round(2 * depth, 1))} LDU thick. The check may call that only "
+                "a slight overlap (or nothing, under 1.5 LDU), but the parts cannot both be "
+                "there: turn it less, or the other way, or move that part."
+            )
+    return out
 
 
 def _better_turn(others: list, new: tuple, poses: list, turn: int, sideways: bool) -> str:  # type: ignore[type-arg]

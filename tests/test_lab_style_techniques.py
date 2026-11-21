@@ -790,7 +790,10 @@ def test_place_turns_a_part_on_one_stud_by_an_angle():
 @pytest.mark.parametrize(
     "where, words",
     [
-        (dict(line=1, stud=b(-10, -10)), "join by 2 studs"),  # a 1 x 2 plate on two studs
+        (
+            dict(line=1, stud=b(-10, -10)),
+            "joins the model by 2 studs",
+        ),  # a 1 x 2 plate on two studs
         (dict(line=0, x=0, z=0), "On the ground, use turn"),
     ],
 )
@@ -820,6 +823,35 @@ def test_the_place_tool_passes_the_angle_on(tmp_path):
     assert "turned -45 degrees about that stud" in reply, reply
     bad = tools._place(folder, {**args, "angle": "a lot"})[0]["text"]
     assert "angle must be a number of degrees" in bad
+    # with the guide off the tool does not offer it, and the handler refuses it
+    (folder / "config.json").write_text(json.dumps({"mode": "tools"}))
+    off = tools._place(folder, args)[0]["text"]
+    assert "place takes no angle here" in off, off
+
+
+JUMPERS_SIDE_BY_SIDE = [  # a plate across both jumpers' studs sits on two studs
+    "1 7 0 -8 0 1 0 0 0 1 0 0 0 1 3036.dat",
+    "1 7 0 -16 10 1 0 0 0 1 0 0 0 1 3794b.dat",
+    "1 7 0 -16 30 1 0 0 0 1 0 0 0 1 3794b.dat",
+]
+
+
+def test_an_angle_is_refused_for_a_part_on_one_stud_of_each_of_two_lines():
+    t = "\n".join(JUMPERS_SIDE_BY_SIDE)
+    plain = place(t, "3023b.dat", 4, 2, stud=1, turn=3)  # along z, over both jumpers
+    links = [x for x in check(t + "\n" + plain.line).links if x.held == 4]
+    assert sorted(x.holder for x in links) == [2, 3]  # one stud of each
+    with pytest.raises(PlaceError, match="joins the model by 2 studs"):
+        place(t, "3023b.dat", 4, 2, stud=1, turn=3, angle=20)
+
+
+@pytest.mark.parametrize("wz, degrees", [(30, 30), (30, 45), (-10, 30)])
+def test_a_part_turned_into_its_neighbour_is_told_it_runs_into_it(wz, degrees):
+    wall = f"1 1 0 -56 {wz} 1 0 0 0 1 0 0 0 1 3245c.dat"  # a 1 x 2 x 2 brick beside
+    t = "\n".join([*JUMPERS_SIDE_BY_SIDE[:2], wall])
+    note = place(t, "3023b.dat", 4, 2, stud=1, angle=degrees).note
+    assert "it runs into line 3 (3245c.dat)" in note, note
+    assert "runs into" not in place(t, "3023b.dat", 4, 2, stud=1, angle=0).note
 
 
 def test_place_offers_every_socket_a_library_assembly_seats_a_stud_in():
