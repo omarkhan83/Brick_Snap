@@ -210,6 +210,8 @@ Left:
   `CLIP_TOL` are removed (the grip ring decided every case; the official sets, the 18 models,
   the free builds and the mutation runs are the same without them); `BAR_BOX` is pinned by a
   clip on 6190's bar, the bar tube's wall by 11090's clip end, its depth by 20612's middle.
-- A builder tool that puts a clip on a handle at a given angle (the tests' `frame` and
-  `handle_middle` do it in a few lines).
+- Done since: the builder's `clip` and `strut` tools (guide mode, `bricksnap/lab/clips.py`).
+  `clip` places parts whose clip primitive the checker measures; 15712 (no primitive) and the
+  thick U-clip 4085c it cannot place. `strut` uses 11090 and a Bar 3L or 4L only (23443 has
+  a handle, not a clip: a strut on 23443 needs clip plates, placed with `clip`).
 - Hinge halves, finger hinges, ball joints and turntables stay known by name only.
