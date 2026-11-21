@@ -139,19 +139,17 @@ What it reports, each item naming the line number, the part and its position:
     the library draws with no primitive for its bore, gets one from its real shape:
     ``_tube_hollows``) and a stud in a Technic pin hole;
   - a clip on a bar or a handle (``_clip_fit``): the bar (a handle's, ``_handle_bars``, or a
-    bar part's long axis, ``_bar_lines``) through the clip's grip: at the bar's point nearest
-    the clip primitive's point, running along the primitive's axis or square to it, as
-    ``CLIP_GRIP`` says per primitive (within ``CLIP_DEG`` degrees); for an "along" clip on a
-    bar the library does
-    not draw (23443's handle) the primitive's own axis; for a clip with no primitive (15712)
-    the first place along the bar inside the clip's box where the grip holds. There the bar
-    must be bar-thick and the clip round it (``_grip_holds``) at the grip's middle and
-    ``GRIP_HALF`` either side, which also keeps the grip off the bar's end. Any angle about
-    the bar's line is a fit;
+    bar part's long axis, ``_bar_lines``) along the clip's grip (``grip_lines``, found per
+    clip in the part's real shape, with or without a clip primitive) within ``CLIP_DEG``
+    degrees, and at the bar's point nearest the grip the grip holds (``_grip_holds``): the
+    bar bar-thick, the clip closed round it (``GRIP_RING`` of 12 points on a circle of
+    ``GRIP_R``, more than half; none at 3 LDU) there and ``GRIP_HALF`` either side, which
+    also keeps the grip off the bar's end. On a bar the library does not draw (23443's
+    handle) the grip's own line is measured. Any angle about the bar's line is a fit;
   each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
-  KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip whose
-  primitive is not in ``CLIP_GRIP`` (clip2, the thick U-clip of 4085c; clip9, clip10, clip14)
-  or whose bar has no line it can find, hinge halves, finger hinges, ball and socket, a
+  KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip with no closed
+  grip (the thick U-clip 4085c) or not round its bar, hinge halves, finger hinges, ball and
+  socket, a
   turntable outside a
   proven module, a wheel or tyre whose line comes from its shape or that has none, an axle
   or pin the library does not draw as one (or that misses the measure), a tyre touching a
@@ -1730,28 +1728,11 @@ JOINT_ROOM = {  # LDU round a receptacle's line (the hole, the clip) where its j
     "bar handle": 6.0,  # round the handle's bar (``_handle_bars``), when the clip has no primitive
 }
 CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
-# a clip tested for fit: per clip primitive, whether the bar it grips runs along the
-# primitive's axis or square to it (measured on the clip-on-bar and clip-on-handle pairs of
-# the official sets, and for the rest found in the library's clip parts' own shapes: where a
-# bar's ring is clip all round)
-CLIP_GRIP = {
-    "clip1": "along",
-    "clip4": "along",
-    "clip5": "along",
-    "clip7": "along",
-    "clip12": "along",
-    "clip13": "along",
-    "clip15": "along",
-    "clip16": "along",
-    "clip3": "across",
-    "clip6": "across",
-    "clip8": "across",
-    "clip11": "across",
-}  # clip2 (a thick U-clip, 4085c), clip9, clip10 and clip14 grip too loosely to say: by name
 CLIP_DEG = 5.0  # degrees the bar may lean from the grip's direction
 GRIP_HALF = 2.0  # LDU either side of the grip's middle where bar and clip must both be
 GRIP_R = 5.5  # LDU: the circle round the bar's line where the clip is and the bar is not
-GRIP_RING = 6  # of 12 points on that circle the clip must fill
+GRIP_VERSION = 1  # the grips found (``grip_lines``) are kept on disk under this version
+GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
 BAR_CORE = 4  # of 12 points 2 LDU round the line the bar must fill (a bar end may be hollow)
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
@@ -2045,55 +2026,126 @@ def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
     return True
 
 
+_GRIPS: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {}
+
+
+def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ignore[no-untyped-def]
+    """``_ring_count`` on a part's own solid, in its own frame."""
+    u, v = _perp(d)
+    ang = np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    pts = x + r * (np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * v)
+    return int(sol.inside(pts, deep=False).sum())
+
+
+def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Where a clip part grips a bar, in its own frame: one (point on the bar's centre line,
+    its direction) per clip, found in its real shape. A grip is closed: at the point and
+    ``GRIP_HALF`` to either side along the direction, the clip fills ``GRIP_RING`` of 12
+    points on a circle of ``GRIP_R`` round the line (more than half of it) and none of 12 at
+    3 LDU (room for a bar 4 LDU in radius). For each clip primitive, the closed grip nearest
+    its point, on the part's own axes or square to the primitive's axis every 15 degrees
+    (most clip round it first, then square with the part's axes); a part its name calls a
+    clip with no clip primitive (15712), the best closed grip anywhere in its box along its
+    own axes. A clip with no closed grip (the thick U-clip 4085c) has none: it is known by
+    name only. The checker (``_clip_fit``) and the builder's ``clip`` tool both use this."""
+    if key in _GRIPS:
+        return _GRIPS[key]
+    import json
+
+    from bricksnap.lab import solid
+    from bricksnap.lab.ldraw_lib import cache_dir
+
+    name = re.sub(r"[^a-z0-9._-]", "_", key)  # keyed by what makes a grip, too
+    stored = cache_dir() / "grips" / f"{name}.v{GRIP_VERSION}-{GRIP_R}-{GRIP_RING}-{GRIP_HALF}.json"
+    try:
+        got = json.loads(stored.read_text())
+        _GRIPS[key] = [(np.array(x, float), np.array(d, float)) for x, d in got]
+        return _GRIPS[key]
+    except (OSError, ValueError, TypeError):
+        pass
+    part = library().part(key)
+    sol = solid.solid(key)
+    seeds = [(c.pos, c.axis) for c in part.others if c.kind == "clip"]
+    if not seeds and "clip" in part.name_joint_words():
+        seeds = [((part.bbox_min + part.bbox_max) / 2, None)]
+    found = []
+    for pos, axis in seeds:
+        dirs = [np.eye(3)[k] for k in range(3)]
+        if axis is not None:
+            a = axis / np.linalg.norm(axis)
+            u, v = _perp(a)
+            dirs += [math.cos(t) * u + math.sin(t) * v for t in np.radians(np.arange(0, 180, 15))]
+            reach = 8.0
+        else:
+            reach = float(np.max(part.bbox_max - part.bbox_min)) / 2
+        best = None
+        for d in dirs:
+            s1, s2 = _perp(d)
+            for p_ in np.arange(-reach, reach + 0.01, 1.0):
+                for q_ in np.arange(-reach, reach + 0.01, 1.0):
+                    x = pos + p_ * s1 + q_ * s2
+                    if _clip_ring(sol, x, d, GRIP_R) < GRIP_RING:
+                        continue
+                    rings = [
+                        _clip_ring(sol, x + t * d, d, GRIP_R) for t in (-GRIP_HALF, 0.0, GRIP_HALF)
+                    ]
+                    if min(rings) < GRIP_RING:
+                        continue
+                    if any(
+                        _clip_ring(sol, x + t * d, d, 3.0) for t in (-GRIP_HALF, 0.0, GRIP_HALF)
+                    ):
+                        continue
+                    score = (
+                        sum(rings),
+                        round(float(np.abs(d).max()), 3),
+                        -float(np.linalg.norm(x - pos)),
+                    )
+                    if best is None or score > best[0]:
+                        best = (score, x, d / np.linalg.norm(d))
+        if best is not None:
+            found.append((best[1], best[2]))
+    _GRIPS[key] = found
+    try:  # the search takes a second or two per part: keep what it found
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_text(json.dumps([[x.tolist(), d.tolist()] for x, d in found]))
+    except OSError:
+        pass
+    return found
+
+
 def _clip_fit(p: Placed, q: Placed) -> float | None:
-    """A clip of p measured on a bar of q: how far the clip primitive's point is from the
-    bar's centre line (0 for a clip the library draws without a primitive); None when it is
-    not a fit. Where the grip is:
-    - a clip primitive in ``CLIP_GRIP`` and a bar of q (``_bar_lines``): the point of the
-      bar's line nearest the primitive's point, at least ``GRIP_HALF`` LDU inside the bar's
-      ends, the line along the primitive's axis (an "along" clip) or square to it (an
-      "across" one) within ``CLIP_DEG`` degrees;
-    - an "along" clip primitive alone (q's bar drawn with no primitive, as 23443's handle):
-      its own axis through its point;
-    - a part its name calls a clip, drawn with no clip primitive (15712), on a bar of q: the
-      first place along the bar, inside the clip's box, where the grip holds;
-    and there the grip must hold (``_grip_holds``). A clip primitive not in ``CLIP_GRIP`` is
-    not measured. Any angle about the bar's line is a fit: that is what a clip is for."""
-    clips = [c for c in p.part.others if c.kind == "clip"]
+    """A clip of p measured on a bar of q: how far the clip's grip (``grip_lines``) is from
+    the bar's centre line, at the bar's point nearest it; None when it is not a fit. For each
+    grip of p: on each bar of q (``_bar_lines``) that runs along the grip's direction within
+    ``CLIP_DEG`` degrees, the bar's point nearest the grip's point; when q has no bar the
+    checker can find (23443's handle), the grip's own line. There the grip must hold
+    (``_grip_holds``: the bar bar-thick, the clip closed round it). Any angle about the bar's
+    line is a fit: that is what a clip is for."""
+    grips = grip_lines(p.key)
+    if not grips:
+        return None
     bars = _bar_lines(q)
-    for c in clips:
-        if c.prim not in CLIP_GRIP:
+    cos = math.cos(math.radians(CLIP_DEG))
+    best = None
+    for gx, gd in grips:
+        o = p.to_world(gx)
+        d = p.m @ gd
+        if not bars:
+            if _grip_holds(p, q, o, d):
+                best = 0.0
             continue
-        how = CLIP_GRIP[c.prim]
-        o = p.to_world(c.pos)
-        a = p.m @ c.axis
         for e0, e1 in bars:
             length = float(np.linalg.norm(e1 - e0))
-            if length < 2 * GRIP_HALF:
+            if length < 1e-6:
                 continue
             u = (e1 - e0) / length
-            t = float(np.dot(o - e0, u))
-            dist = float(np.linalg.norm(o - (e0 + t * u)))
-            if not GRIP_HALF <= t <= length - GRIP_HALF:
+            if abs(float(np.dot(u, d))) < cos:
                 continue
-            cos = min(1.0, abs(float(np.dot(u, a))))
-            off = math.degrees(math.acos(cos) if how == "along" else math.asin(cos))
-            if off <= CLIP_DEG and _grip_holds(p, q, e0 + t * u, u):
-                return dist
-        if how == "along" and not bars and _grip_holds(p, q, o, a):
-            return 0.0
-    if clips or "clip" not in p.part.name_joint_words():
-        return None
-    lo, hi = p.part.bbox_min - 1, p.part.bbox_max + 1
-    for e0, e1 in bars:
-        length = float(np.linalg.norm(e1 - e0))
-        u = (e1 - e0) / max(length, 1e-9)
-        for t in np.arange(GRIP_HALF, length - GRIP_HALF + 0.01, 1.0):
-            x = e0 + t * u
-            local = p.to_local(x[None, :])[0]
-            if np.all(local >= lo) and np.all(local <= hi) and _grip_holds(p, q, x, u):
-                return 0.0
-    return None
+            x = e0 + float(np.dot(o - e0, u)) * u
+            if _grip_holds(p, q, x, u):
+                dist = float(np.linalg.norm(o - x))
+                best = dist if best is None else min(best, dist)
+    return best
 
 
 def _clip_at_bar(a: Placed, b: Placed) -> bool:

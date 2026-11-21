@@ -4,8 +4,8 @@ a builder cannot place by hand: the matrix has to turn a clip's grip onto a bar'
 
 CONTRACT
 - ``clip(text, part, colour, onto, which, angle, slide)``: the LDraw line that puts ``part``
-  (a part with a clip the checker measures: a primitive in ``validate.CLIP_GRIP``) with its
-  grip on bar ``which`` (1 = the first) of line ``onto``'s part (``validate._bar_lines``: a
+  (a part with a clip the checker measures: one with a closed grip, ``validate.grip_lines``)
+  with its grip on bar ``which`` (1 = the first) of line ``onto``'s part (``validate._bar_lines``: a
   handle's bar, or a bar part's long axis), at ``slide`` LDU along the bar from the bar's
   middle, turned ``angle`` degrees about the bar's line. At angle 0 the part points up (away
   from the ground; a bar standing upright: towards -z), and the angle turns it about the bar
@@ -58,62 +58,13 @@ def _frame(a_local, a_world, b_local, b_world) -> np.ndarray:
     return basis(a_world, b_world) @ basis(a_local, b_local).T
 
 
-_GRIPS: dict[str, tuple[np.ndarray, np.ndarray] | None] = {}
-
-
 def grip_line(key: str) -> tuple[np.ndarray, np.ndarray] | None:
-    """Where a clip part grips a bar, in its own frame: (a point on the bar's centre line, its
-    direction), for its first clip primitive in ``CLIP_GRIP``: the place nearest the
-    primitive where a bar 4 LDU in radius would have the clip round it and in none of it
-    (``validate._grip_holds``'s ring test on the part alone); None for a part with no such
-    clip, or none found."""
-    if key in _GRIPS:
-        return _GRIPS[key]
-    from bricksnap.lab import solid
-    from bricksnap.lab.ldraw_lib import library
-    from bricksnap.lab.validate import CLIP_GRIP, GRIP_HALF, GRIP_R, GRIP_RING, _perp
+    """Where a clip part grips a bar, in its own frame (its first grip): the checker's own
+    ``validate.grip_lines``, so the tool places a clip where the checker measures it."""
+    from bricksnap.lab.validate import grip_lines
 
-    found = None
-    part = library().part(key)
-    clips = [c for c in part.others if c.kind == "clip" and c.prim in CLIP_GRIP]
-    if clips:
-        c = clips[0]
-        sol = solid.solid(key)
-
-        def ring(x: np.ndarray, d: np.ndarray, r: float) -> int:
-            u, v = _perp(d)
-            ang = np.linspace(0, 2 * math.pi, 12, endpoint=False)
-            pts = x + r * (np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * v)
-            return int(sol.inside(pts, deep=False).sum())
-
-        a = c.axis / np.linalg.norm(c.axis)
-        u, v = _perp(a)
-        if CLIP_GRIP[c.prim] == "along":
-            dirs = [a]
-        else:
-            dirs = [math.cos(t) * u + math.sin(t) * v for t in np.radians(np.arange(0, 180, 15))]
-        best = None
-        for d in dirs:
-            s1, s2 = _perp(d)
-            for p in np.arange(-8, 8.1, 0.5):
-                for q in np.arange(-8, 8.1, 0.5):
-                    x = c.pos + p * s1 + q * s2
-                    rings = [ring(x + t * d, d, GRIP_R) for t in (-GRIP_HALF, 0.0, GRIP_HALF)]
-                    inner = [ring(x + t * d, d, 3.0) for t in (-GRIP_HALF, 0.0, GRIP_HALF)]
-                    if min(rings) < GRIP_RING or max(inner) > 0:
-                        continue
-                    # most clip round it; then square with the part's own axes; then nearest
-                    score = (
-                        sum(rings),
-                        round(float(np.abs(d).max()), 3),
-                        -float(np.linalg.norm(x - c.pos)),
-                    )
-                    if best is None or score > best[0]:
-                        best = (score, x, d)
-        if best is not None:
-            found = (best[1], best[2] / np.linalg.norm(best[2]))
-    _GRIPS[key] = found
-    return found
+    grips = grip_lines(key)
+    return grips[0] if grips else None
 
 
 def _parse(text: str):  # type: ignore[no-untyped-def]

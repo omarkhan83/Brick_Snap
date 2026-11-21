@@ -224,6 +224,56 @@ def test_a_part_wider_than_a_bar_has_no_bar_line_from_its_box():
     assert clips_fitted(r) == 1, r.text()
 
 
+ON_BRICK = "1 7 0 -24 0 1 0 0 0 1 0 0 0 1 3005.dat\n"
+CLIP_61252 = "1 14 0 -32 0 1 0 0 0 1 0 0 0 1 61252.dat\n"
+CLIP_60897 = "1 14 0 -32 0 1 0 0 0 1 0 0 0 1 60897.dat\n"
+
+
+@pytest.mark.parametrize(
+    "clip, bar",
+    [
+        # the review's cases: a bar in an inside corner of the clip's part, not in its grip
+        (CLIP_61252, "1 4 30 -35.5 -9.5 0 -1 0 1 0 0 0 0 1 87994.dat"),
+        (CLIP_60897, "1 4 -8.5 -75 -13.5 1 0 0 0 1 0 0 0 1 87994.dat"),
+        (CLIP_60897, "1 4 8.5 -75 -13.5 1 0 0 0 1 0 0 0 1 87994.dat"),
+    ],
+)
+def test_a_bar_in_a_corner_beside_a_clip_is_not_in_its_grip(clip, bar):
+    # a closed grip has the clip round more than half the bar (GRIP_RING 7 of 12); an inside
+    # corner gives half (6), and the bar there is not held by the clip
+    r = check(ON_BRICK + clip + bar + "\n")
+    assert clips_fitted(r) == 0, r.text()
+
+
+@pytest.mark.parametrize(
+    "clip, bar",
+    [
+        (CLIP_61252, "1 4 0 -30 -76 0 0 1 1 0 0 0 1 0 87994.dat"),  # end-on into the mouth
+        (CLIP_61252, "1 4 25.7 -29.5 -35.4 0 -0.866 0.5 1 0 0 0 0.5 0.866 87994.dat"),  # 30 deg
+        (
+            "1 14 0 -32 0 1 0 0 0 1 0 0 0 1 15712.dat\n",
+            "1 4 0 -94 0 1 0 0 0 1 0 0 0 1 87994.dat",  # standing end-on in a tile clip
+        ),
+    ],
+)
+def test_a_bar_across_a_clips_grip_is_not_fitted(clip, bar):
+    # the grip has one direction (``grip_lines``, for clips with or without a primitive): a bar
+    # end-on into the clip's mouth or 30 degrees across it is not along it
+    r = check(ON_BRICK + clip + bar + "\n")
+    assert clips_fitted(r) == 0, r.text()
+
+
+def test_a_thick_u_clip_has_no_closed_grip_and_is_known_by_name():
+    from bricksnap.lab.validate import grip_lines
+
+    assert grip_lines("4085c.dat") == []
+    assert [d.round(3).tolist() for _, d in grip_lines("60897.dat")] == [[0.0, 1.0, 0.0]]
+    # 15712 has no clip primitive: its grip is found in its shape, along its own z
+    assert [d.round(3).tolist() for _, d in grip_lines("15712.dat")] == [[0.0, 0.0, 1.0]]
+    # a roadsign's C-clip is round the bar at 7 points of 12 (the least a closed grip has)
+    assert len(grip_lines("30258.dat")) == 1
+
+
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
 def test_a_clip_on_a_handle_is_fitted_at_any_angle_about_it(angle):
     text, _, _ = tube_on_handle(-angle)  # turned up from straight out
