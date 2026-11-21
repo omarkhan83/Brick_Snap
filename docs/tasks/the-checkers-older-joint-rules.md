@@ -223,6 +223,11 @@ clips is told (`clip_loads`: the parts reach the ground only through N clips, an
 cannot judge whether clips will carry this much; three official models trip it, 75075, 31066
 and 40379, and it was kept on purpose as a warning for every model: not a false alarm to fix); `strut` refuses what would not close and its advice closes it;
 `clip` reports what the checker finds; the sentences say "most clips on bars".
+Every limit is pinned or gone: each was loosened in turn and the tests run. Pinned now:
+`GRIP_R` both ways (98460's clip opening below), the bar tube's wall ring (24122: at 6 its pin
+hole counts, at 6.5 its tubes do not). Removed, changing no set, fit, free build or mutation:
+the clip-part and bar-tube exclusions in `_bar_lines`, the bar-tube line in `_joint_clash`,
+the bore's "wall within 2 LDU of the end".
 Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review-work/thin/`):
 - Two C-clips from opposite sides on the same 8 LDU of bar pass, though their real shapes share
   2 LDU.

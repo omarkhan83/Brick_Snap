@@ -880,8 +880,8 @@ def _tube_hollows(p: Placed) -> list[_Hollow]:
     """The bore of a part its name calls a "Bar Tube" (23443 with a handle, 11090 with a clip:
     the library draws no primitive for it), found in its real shape: along each of its own
     axes, through the middle of its box, from an end inwards while the axis is empty and a
-    wall stands round it (6 of 8 points 5 LDU out solid), from within 2 LDU of the end to the
-    first solid on the axis; at least ``BAR_DEPTH`` deep. A bar in it is judged as in any
+    wall stands round it (6 of 8 points ``BAR_RING`` out solid), from where the wall starts to
+    the first solid on the axis; at least ``BAR_DEPTH`` deep. A bar in it is judged as in any
     hollow (``_bar_fits``)."""
     if "bar tube" not in p.part.description.lower():
         return []
@@ -900,15 +900,13 @@ def _tube_hollows(p: Placed) -> list[_Hollow]:
                 while (step < 0 and t > lo[k]) or (step > 0 and t < hi[k]):
                     x = mid.copy()
                     x[k] = t
-                    ring = x + 5.0 * (_RING[:, 0:1] * u + _RING[:, 1:2] * v)
+                    ring = x + BAR_RING * (_RING[:, 0:1] * u + _RING[:, 1:2] * v)
                     empty = not sol.inside(x[None, :], deep=False).any()
                     wall = int(sol.inside(ring, deep=False).sum()) >= 6
                     if not empty or (not wall and inside):
                         break
                     if wall:
                         inside.append(t)
-                    elif abs(t - start) > 2:
-                        break
                     t += step
                 if inside and abs(inside[-1] - inside[0]) >= BAR_DEPTH:
                     a, b = mid.copy(), mid.copy()
@@ -1977,16 +1975,13 @@ def _handle_bars(p: Placed) -> list[tuple[np.ndarray, np.ndarray]]:
 def _bar_lines(q: Placed) -> list[tuple[np.ndarray, np.ndarray]]:
     """The bars of q a clip can hold, as segments (world): its handles' bars
     (``_handle_bars``), else, for a part its name calls a bar (a bar, an antenna, a lever)
-    with no clip of its own and a box no more than ``BAR_BOX`` LDU across, its box's long
-    axis from end to end."""
+    with a box no more than ``BAR_BOX`` LDU across, its box's long axis from end to end. A
+    clip or a bar tube on such a part is no reason to leave its bar out: the grip is still
+    tested on its real shape (``_grip_holds``)."""
     bars = _handle_bars(q)
     if bars:
         return bars
-    if any(c.kind == "clip" for c in q.part.others):
-        return []
     if not any(_NAME_END.get(w) == "bar+" for w in q.part.name_joint_words()):
-        return []
-    if "bar tube" in q.part.description.lower():
         return []
     lo, hi = q.part.bbox_min, q.part.bbox_max
     span = hi - lo
@@ -2245,8 +2240,6 @@ def _joint_clash(a: Placed, b: Placed, words: list[str]) -> bool:
     shapes of parts made to go together share that much (an arm's shoulder on its torso)."""
     from bricksnap.lab import solid
 
-    if "bar in a clip" in words and any(_bar_in(p, q, []) for p, q in ((a, b), (b, a))):
-        return False  # a bar in a bar tube's bore: ``_bar_in`` has measured what else they share
     if words == ["tyre on a wheel"] and _tyre_room_is_all(a, b):
         return False  # whatever they share is in the tyre, so in its room
     room = _joint_room(a, b, words)

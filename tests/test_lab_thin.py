@@ -140,6 +140,16 @@ def test_a_bar_tubes_bore_is_at_least_bar_depth_deep():
     assert tube_bores("20612.dat") == [([20.0, 2.7, 0.0], [13.0, 2.7, 0.0])]
 
 
+def test_a_bar_tubes_wall_is_looked_for_just_outside_a_bar():
+    # 24122 has a bar tube at each end (along x) and a pin hole across its middle (along z):
+    # the wall is looked for BAR_RING (5) out, just outside a bar (4); at 6 the pin hole would
+    # count as bores, at 6.5 the tubes would not
+    assert tube_bores("24122.dat") == [
+        ([20.0, 0.0, 0.0], [10.5, 0.0, 0.0]),
+        ([-20.0, 0.0, 0.0], [-10.0, 0.0, 0.0]),
+    ]
+
+
 # ---- a clip on a bar: its limits ------------------------------------------------------------
 
 CLIP = "1 72 0 -8 0 1 0 0 0 1 0 0 0 1 60897.dat\n"  # its grip: through (0, -4, -20), along y
@@ -273,6 +283,14 @@ def test_a_thick_u_clip_has_no_closed_grip_and_is_known_by_name():
     assert [d.round(3).tolist() for _, d in grip_lines("15712.dat")] == [[0.0, 0.0, 1.0]]
     # a roadsign's C-clip is round the bar at 7 points of 12 (the least a closed grip has)
     assert len(grip_lines("30258.dat")) == 1
+
+
+def test_a_grip_is_looked_for_in_the_clip_not_in_its_opening():
+    from bricksnap.lab.validate import grip_lines
+
+    # 98460's clip (a fence's) is empty out to 4.75 LDU round its line and solid from 5: the
+    # circle of GRIP_R (5.5) is in the clip; one at 4.75 would be in the opening and find no grip
+    assert len(grip_lines("98460.dat")) == 1
 
 
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
