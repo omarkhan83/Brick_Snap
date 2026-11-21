@@ -26,8 +26,12 @@ of that kind nearest that size (``guide.playbook``; a kind is also read from a w
 "car" or "house"), saying which it chose and why; with ``{}`` the kinds, one line each; with
 ``{"table": true}`` the parts by job. And ``place``, for a part whose studs no longer point
 up or down once placed (a plate on side studs), adds its studs in the model's coordinates,
-numbered, with the way each points and whether it is taken. With the guide off, every tool
-list and every reply is exactly what it was before guide mode existed.
+numbered, with the way each points and whether it is taken. And ``check`` (``_CHECK_GUIDE``:
+its description says so in one more sentence) ends its reply, not submit's, with
+``looks.section``: HOW IT LOOKS, advice measured against official sets, after the checker's
+report (also in the attempt's report file); it never adds a problem, and a model it cannot
+measure simply has no such section. With the guide off, every tool list and every reply is
+exactly what it was before guide mode existed.
 
 What moves (``joints``, ``modules``, ``movement``): ``modules`` lists the proven moving modules
 (with one name: the module's card and a picture of it at rest and opened); ``place_module``
@@ -495,11 +499,20 @@ _PLAYBOOK = {
 }
 
 
+_CHECK_GUIDE = {
+    **_CHECK,
+    "description": _CHECK["description"]
+    + " Its reply ends with a HOW IT LOOKS section: how the model looks, measured against "
+    "official sets (plate seams on the sides, parts built sideways, colour, open Technic "
+    "holes, plain bricks, clips and bars); it is advice, never a problem.",
+}
+
+
 def tools_for(folder: Path) -> list[dict[str, Any]]:
     cfg = _config(folder)
     base = BLIND_TOOLS if cfg.get("mode") == "blind" else TOOLS
     if cfg.get("guide") is True and base is TOOLS:
-        base = [*base, _PLAYBOOK]
+        base = [_CHECK_GUIDE if t is _CHECK else t for t in base] + [_PLAYBOOK]
     if _references(folder):
         base = [*base, _REFERENCE]
     return base
@@ -977,7 +990,9 @@ def _model_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     return [_text(_numbered(_model(folder)))]
 
 
-def _check_text(folder: Path, text: str, label: str) -> list[dict[str, Any]]:
+def _check_text(
+    folder: Path, text: str, label: str, looks: bool = False
+) -> list[dict[str, Any]]:
     from bricksnap.lab import picture
     from bricksnap.lab.validate import check
 
@@ -1001,6 +1016,8 @@ def _check_text(folder: Path, text: str, label: str) -> list[dict[str, Any]]:
     body = report.text()
     left = limit - n
     body = f"Attempt {n} ({label}). Checks left after this one: {left}.\n\n" + body
+    if looks and cfg.get("guide") is True:
+        body += _looks_section(report)
     (adir / f"attempt-{n:03d}-report.txt").write_text(body + "\n", encoding="utf-8")
     blocks = [_text(body)]
     png = adir / f"attempt-{n:03d}.png"
@@ -1012,6 +1029,18 @@ def _check_text(folder: Path, text: str, label: str) -> list[dict[str, Any]]:
     except picture.PictureError as e:
         blocks.append(_text(f"(No picture: {e})"))
     return blocks
+
+
+def _looks_section(report: Any) -> str:
+    """Guide mode: the HOW IT LOOKS section after the checker's report (advice only), or
+    nothing when the model cannot be measured."""
+    from bricksnap.lab import looks
+
+    try:
+        got = looks.section(looks.measure(report))
+    except Exception:  # advice only: never let it break a check
+        return ""
+    return "\n\n" + got if got else ""
 
 
 def start_model(folder: Path, text: str) -> str:
@@ -1045,7 +1074,7 @@ def _check(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     text = _model(folder)
     if not text.strip():
         return _error("the model is empty: add parts with place or add first.")
-    return _check_text(folder, text, "the model as built")
+    return _check_text(folder, text, "the model as built", looks=True)
 
 
 def _look(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:

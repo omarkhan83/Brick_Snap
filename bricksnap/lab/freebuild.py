@@ -52,6 +52,17 @@ fit and not counted there; numbers stored by earlier runs are kept as they were;
 9, 10): swings from 0 to 90 degrees with nothing in the way"), empty when nothing moves
 (``read_movement``).
 
+A run entry with a model also has ``"looks"``: how the model looks (``looks.record``: the
+numbers, not the sentences), measured when the run is kept, outside the builder's session and
+whether the run had the guide or not, so runs stay comparable; null when it could not be
+measured (no library) and missing in runs kept before it existed. ``describe`` gives the
+current run's ``looks`` and ``looks_lines`` (``looks.page_lines``: three or four short
+sentences with the official range; empty when the run has no record). With
+``measure_missing=True`` (the web page's request) a current run with a model but no record is
+measured then from its model.ldr (``remembered_looks``), kept in memory for the process by the
+file's path, size and modification time, never written to project.json; when measuring fails
+the lines are simply empty.
+
 Functions
 - ``is_free(folder)``: whether a project folder is a free-build project (never raises).
 - ``create(projects_dir, words, name=..., parts=..., reference=..., model=..., folder=...,
@@ -521,6 +532,7 @@ def keep_model(
         "pictures": problem is None,
         "picture_problem": problem,
         **_guide_fields(rec),
+        "looks": measure_looks(text),
     }
     _write(dest / "record.json", json.dumps(entry, indent=1) + "\n")
     _use(folder, n)
@@ -539,6 +551,14 @@ def _guide_fields(record: dict[str, Any]) -> dict[str, Any]:
         "guide": guide if isinstance(guide, bool) else None,
         "playbook": playbook if isinstance(playbook, str) else None,
     }
+
+
+def measure_looks(text: str) -> dict[str, Any] | None:
+    """How the model looks (``looks.record``), or None when it cannot be measured."""
+    from bricksnap.lab import looks
+
+    got = looks.measure_text(text)
+    return looks.record(got) if got is not None else None
 
 
 def check_text(text: str) -> str:
@@ -747,13 +767,16 @@ def turn_frames(folder: Path) -> list[str]:
     return out
 
 
-def describe(folder: Path) -> dict[str, Any]:
+def describe(folder: Path, measure_missing: bool = False) -> dict[str, Any]:
     """What a page or the command line shows about a free-build project."""
     meta = read_meta(folder)
     runs = [r for r in meta.get("runs") or [] if isinstance(r, dict)]
     current = meta.get("current")
     now = next((r for r in runs if r.get("n") == current), None) or {}
     pics = folder / PICTURES_DIR
+    rec = now.get("looks") if isinstance(now.get("looks"), dict) else None
+    if rec is None and measure_missing and now.get("has_model"):
+        rec = remembered_looks(folder / "model.ldr")
     return {
         "kind": KIND,
         "experimental": True,
@@ -769,6 +792,8 @@ def describe(folder: Path) -> dict[str, Any]:
         "problems": now.get("problems"),
         "unchecked": now.get("unchecked"),
         "moves": list(now.get("moves") or []),
+        "looks": rec,
+        "looks_lines": _looks_lines(rec),
         "current_run": current,
         "runs": runs,
         "notes": _read(folder / "notes.txt").strip(),
@@ -781,6 +806,32 @@ def describe(folder: Path) -> dict[str, Any]:
         "files": [f for f in ("model.ldr", "parts.csv", "report.txt") if (folder / f).is_file()],
         "created": meta.get("created"),
     }
+
+
+_LOOKS_SEEN: dict[tuple[str, int, int], dict[str, Any] | None] = {}
+
+
+def remembered_looks(model: Path) -> dict[str, Any] | None:
+    """How a model kept before runs had a ``looks`` record looks, measured once per process
+    for each version of the file (its path, size and modification time); None when it cannot
+    be read or measured. Nothing is written."""
+    try:
+        st = model.stat()
+        key = (str(model.resolve()), st.st_size, st.st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _LOOKS_SEEN:
+        try:
+            _LOOKS_SEEN[key] = measure_looks(model.read_text(encoding="utf-8", errors="replace"))
+        except Exception:  # advice only: a model that cannot be measured shows nothing
+            _LOOKS_SEEN[key] = None
+    return _LOOKS_SEEN[key]
+
+
+def _looks_lines(rec: Any) -> list[str]:
+    from bricksnap.lab import looks
+
+    return looks.page_lines(rec) if isinstance(rec, dict) else []
 
 
 # ---- progress ----------------------------------------------------------------------------

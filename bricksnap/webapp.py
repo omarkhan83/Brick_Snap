@@ -338,7 +338,11 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   ``guide`` true, false or null when not known, ``playbook`` the title of the playbook the
   builder asked for or null), ``guide`` (whether the project's runs have it), ``turntable`` (the
   addresses of the twelve views round the model), ``sheet``, ``picture_problem``, ``files``
-  (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``.
+  (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``, and
+  ``looks_lines`` (``freebuild.describe``: how the current run looks against official sets,
+  three or four sentences; a run kept before runs had the record is measured when the page
+  asks, in memory only, never written), which the page
+  shows under the checker's verdict as "How it looks".
 - The page ``/p/<project>`` of a free build is ``viewer/free.html`` (with ``free.js``), not
   the 3D viewer, which cannot draw these parts; ``project-files.json`` is not found for it.
 - Files: for a free build, ``files/`` serves only model.ldr, parts.csv, report.txt,
@@ -1061,7 +1065,7 @@ class App:
         info = self.free_summary(folder)
         about: dict[str, Any]
         try:
-            about = freebuild.describe(folder)
+            about = freebuild.describe(folder, measure_missing=True)
         except freebuild.FreeBuildError as e:
             about = {"runs": [], "turntable": [], "files": []}
             info["problem"] = str(e)
@@ -1121,6 +1125,7 @@ class App:
             turntable=[u for u in (url(rel) for rel in about.get("turntable", [])) if u],
             sheet=url(str(about.get("sheet") or "")),
             moves=list(about.get("moves") or []),
+            looks_lines=[str(x) for x in about.get("looks_lines") or []],
             opened=url(str(about.get("opened") or "")),
             picture_problem=about.get("picture_problem"),
             files={rel: url(rel) for rel in about.get("files", [])},

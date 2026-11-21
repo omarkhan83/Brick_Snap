@@ -130,6 +130,9 @@ function showChecker() {
   const opened = typeof info.opened === 'string' ? info.opened : '';
   $('openedLink').hidden = !opened;
   if (opened) $('openedLink').href = opened;
+  const looks = Array.isArray(info.looks_lines) ? info.looks_lines.map(String) : [];
+  $('looks').replaceChildren(...looks.map((text) => el('li', { text })));
+  $('looksBox').hidden = !looks.length;
 }
 
 // ---- the AI's notes: paragraphs, "- " lists and **bold**, all as text ----
