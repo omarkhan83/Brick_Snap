@@ -620,6 +620,13 @@ def test_the_strut_tool_refuses_bars_that_are_not_parallel(work):
     assert said.startswith("ERROR:") and "20 degrees apart" in said and model(work) == text
 
 
+def test_the_strut_tool_refuses_a_bar_past_the_bores_stop(work):
+    # bars 90 apart: bores 30 apart, a Bar 3L would be 15 into each, past the stop at 10
+    (work / "model.ldr").write_text(two_handles(90))
+    said = use(work, "strut", {"onto": [2, 4], "colour": 4})
+    assert said.startswith("ERROR:") and "30.0 LDU apart" in said, said
+
+
 @pytest.mark.parametrize("apart, bar", [(100, "Bar 3L"), (113, "Bar 3L"), (120, "Bar 4L")])
 def test_the_strut_tools_range_is_the_checkers(work, apart, bar):
     # bores 40, 53 and 60 apart: a bar in each by 10, 3.5 and 10 (BORE_IN), each fitted
@@ -666,8 +673,8 @@ def test_a_table_on_clip_held_legs_is_told_a_clip_holds_no_load():
     # twelve 2 x 4 bricks on four clips: 236,800 LDU^3 each, more than LOAD_PER_GRIP (one
     # 2 x 4 brick, 76,800); three bricks (64,000 each) and the plate alone are not told
     r = check(table(12))
-    assert len(loads(r)) == 1 and "17 only by clips that carry more than a strut" in r.summary()
-    assert "a clip holds a strut or a rail, not a load" in r.text()
+    assert len(loads(r)) == 1 and "17 only by clips, carrying more than a strut" in r.summary()
+    assert "the checker cannot judge whether clips will carry this much" in r.text()
     assert not loads(check(table(3))) and not loads(check(table(0)))
 
 

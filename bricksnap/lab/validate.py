@@ -173,7 +173,10 @@ What it reports, each item naming the line number, the part and its position:
   real move onto studs are kept. Parts that reach the ground only through clip grips tested
   for fit and carry more than a strut, a rail, an aerial or a mirror (``clip_loads``: more
   than ``LOAD_PER_GRIP`` per clip, or held out on one clip beyond ``LOAD_ONE_GRIP``) get a
-  warning naming them and a word in the summary: a clip holds a strut or a rail, not a load.
+  warning naming them and a word in the summary: a clip holds a strut or a rail, and the
+  checker cannot judge whether clips will carry more. Three official models trip it (75075,
+  31066, 40379: their designers carry weight on several clips); it was kept on purpose, for
+  every model, as a warning that never becomes a problem: it is not a false alarm to fix.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -352,7 +355,7 @@ class Report:
                 notes.append(f"{len(held.lines)} of them only by joints the checker cannot confirm")
             if loads:
                 c = sum(len(i.lines) for i in loads)
-                notes.append(f"{c} only by clips that carry more than a strut")
+                notes.append(f"{c} only by clips, carrying more than a strut")
             tail = (
                 f"no problems: every part is held ({'; '.join(notes)}), nothing overlaps, and "
                 "it stands."
@@ -1742,7 +1745,6 @@ GRIP_HALF = 2.0  # LDU either side of the grip's middle where bar and clip must 
 GRIP_R = 5.5  # LDU: the circle round the bar's line where the clip is and the bar is not
 GRIP_VERSION = 1  # the grips found (``grip_lines``) are kept on disk under this version
 GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
-BAR_CORE = 4  # of 12 points 2 LDU round the line the bar must fill (a bar end may be hollow)
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
 JOINT_SNUG_VOL = 1000.0  # LDU^3: and less than this much in all
@@ -2019,14 +2021,14 @@ def _could_grip(p: Placed, q: Placed) -> bool:
 
 def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
     """Does a clip of p grip a bar of q whose centre line runs through x along u (world)? At x
-    and ``GRIP_HALF`` to either side, q is bar-thick (its real shape fills ``BAR_CORE`` of 12
-    points 2 LDU round the line and none of 12 at ``GRIP_R``) and p is round it (``GRIP_RING``
-    of 12 points at ``GRIP_R``, none at 3 LDU: a bar pushed into the clip's body is not in its
-    grip)."""
+    and ``GRIP_HALF`` to either side, q is bar-thick (its real shape is there, at some of 12
+    points 2 LDU round the line, a bar end may be hollow, and at none of 12 at ``GRIP_R``)
+    and p is round it (``GRIP_RING`` of 12 points at ``GRIP_R``, none at 3 LDU: a bar pushed
+    into the clip's body is not in its grip)."""
     for dt in (-GRIP_HALF, 0.0, GRIP_HALF):
         c = x + dt * u
         if (
-            _ring_count(q, c, u, 2.0) < BAR_CORE
+            _ring_count(q, c, u, 2.0) == 0
             or _ring_count(q, c, u, GRIP_R) > 0
             or _ring_count(p, c, u, GRIP_R) < GRIP_RING
             or _ring_count(p, c, u, 3.0) > 0
@@ -2056,7 +2058,9 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     (most clip round it first, then square with the part's axes); a part its name calls a
     clip with no clip primitive (15712), the best closed grip anywhere in its box along its
     own axes. A clip with no closed grip (the thick U-clip 4085c) has none: it is known by
-    name only. The checker (``_clip_fit``) and the builder's ``clip`` tool both use this."""
+    name only. The checker (``_clip_fit``) and the builder's ``clip`` tool both use this. What
+    the search finds is kept on disk (``cache_dir()/grips``), keyed by the part and by what
+    makes a grip: ``GRIP_VERSION``, ``GRIP_R``, ``GRIP_RING`` and ``GRIP_HALF``."""
     if key in _GRIPS:
         return _GRIPS[key]
     import json
@@ -2814,9 +2818,9 @@ def clip_loads(report: Report) -> None:
                     "held by clips",
                     lines,
                     f"{_lines(lines).capitalize()} reach the ground only through "
-                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}, and carry more "
-                    "than a strut or a rail: a clip holds a strut or a rail, not a load. Hold "
-                    "them with studs or a pin.",
+                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. A clip holds a "
+                    "strut or a rail; the checker cannot judge whether clips will carry this "
+                    "much. If it has to bear weight, hold it with studs or a pin.",
                 )
             )
 
