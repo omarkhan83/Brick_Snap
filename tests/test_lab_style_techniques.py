@@ -622,17 +622,38 @@ def test_parts_the_guide_names_that_cannot_go_on_a_stud(part):
         place(base(), part, 0, 1, stud=1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="place puts Wing 2 x 4 Right with Chamfer (41769b) 1 LDU off the stud grid: "
-    "Part.socket_phase takes its cells from its 39.25 LDU box (whole studs within 1 LDU) "
-    "instead of its top studs, so its sockets are at x 11 and -9",
-)
-def test_place_puts_a_wedge_plate_on_the_stud_grid():
-    t = on(base(), "41769b.dat", 4, 1, stud=b(-10, 30))
-    for k in range(1, 5):
+# parts whose box is whole studs only to within 1 LDU, or whose box a hinge or tab makes
+# longer, and whose cells once came from the box: each was 0.5 to 16 LDU off its own studs
+OFF_BY_THE_BOX = [
+    "24866", "30169", "30286", "3545", "3565", "41769b", "47432", "47452", "47454", "509",
+    "54383", "67638", "70880", "753", "78444", "85863",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("part", OFF_BY_THE_BOX)
+def test_a_parts_cells_line_up_with_its_own_top_studs(part):
+    p = _part(part + ".dat")
+    top = p.top_studs()[0].pos
+    for got, stud in zip(p.socket_phase(), (top[0], top[2]), strict=True):
+        off = abs(got - stud) % 20
+        off = min(off, 20 - off)
+        assert off <= 0.5 or abs(off - 10) <= 1, (part, p.socket_phase(), top)
+
+
+@pytest.mark.parametrize("part", ["15573.dat", "3794b.dat", "87580.dat", "34103.dat"])
+def test_a_jumper_plates_cells_stay_half_a_stud_from_its_stud(part):
+    p = _part(part)
+    lo = p.bbox_min
+    assert p.socket_phase() == ((lo[0] + 10) % 20, (lo[2] + 10) % 20)
+
+
+@pytest.mark.parametrize("wing", ["41769b", "3545", "54383", "78444"])
+def test_place_puts_a_wing_on_the_stud_grid(wing):
+    t = on(base(), wing + ".dat", 4, 1, stud=b(-10, 30))
+    for k in range(1, len(numbered_studs(_part(wing + ".dat"))) + 1):
         x, _, z = stud_world(t, 2, k)
         assert (x + 10) % 20 == pytest.approx(0, abs=0.01), (k, x)
+        assert (z + 10) % 20 == pytest.approx(0, abs=0.01), (k, z)
 
 
 def test_every_part_the_builders_guide_names_is_in_the_library():

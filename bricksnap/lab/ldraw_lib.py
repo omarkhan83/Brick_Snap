@@ -80,6 +80,7 @@ import numpy as np
 
 CACHE_VERSION = 8
 GRID = 2.0  # column spacing in LDU
+HALF_STUD_TOL = 1.0  # LDU: top studs this near half a stud from the box's cells
 
 MALE_STUD = re.compile(
     r"^(stud|studa|stud2|stud2a|stud6|stud6a|stud9|stud10|stud13|stud15|stud17|stud17a|"
@@ -261,17 +262,24 @@ class Part:
 
     def socket_phase(self) -> tuple[float, float]:
         """x and z (mod 20) of the centres of this part's stud cells in its own frame: from
-        its body's bounding box when its sides are whole studs (a jumper plate's one stud is
-        between two cells), else from its top studs, else from the box anyway."""
+        its top studs when it has any, else from its body's bounding box. Along an axis where
+        the box's sides are whole studs and its cells are half a stud (within
+        ``HALF_STUD_TOL``) from the top studs, the box stands: a jumper plate's one stud is
+        between two cells. A box that is whole studs only to within 1 LDU (a wing whose cut
+        edge stops 0.75 LDU short, a brick with a hinge sticking out) does not move the
+        cells off the studs."""
         span = self.bbox_max - self.bbox_min
         whole = all(abs(v / 20 - round(v / 20)) < 0.05 and v > 1 for v in (span[0], span[2]))
+        box = [float((self.bbox_min[k] + 10) % 20) for k in (0, 2)]
         top = self.top_studs()
-        if top and not whole:
-            px, pz = float(top[0].pos[0] % 20), float(top[0].pos[2] % 20)
-        else:
-            px = float((self.bbox_min[0] + 10) % 20)
-            pz = float((self.bbox_min[2] + 10) % 20)
-        return (round(px * 2) / 2 % 20, round(pz * 2) / 2 % 20)
+        phase = list(box)
+        if top:
+            for i, k in enumerate((0, 2)):
+                t = float(top[0].pos[k] % 20)
+                d = abs(t - box[i]) % 20
+                half = abs(min(d, 20 - d) - 10) <= HALF_STUD_TOL
+                phase[i] = box[i] if whole and half else t
+        return (round(phase[0] * 2) / 2 % 20, round(phase[1] * 2) / 2 % 20)
 
     def has_sockets(self) -> bool:
         """True when a stud can go in anywhere underneath (see ``place.sockets``)."""
