@@ -128,28 +128,21 @@ class Solid:
         return self.lo, self.lo + np.array(self.full.shape) * self.h
 
 
-def interference(
+def _shared(
     a: tuple[str, np.ndarray, np.ndarray],
     b: tuple[str, np.ndarray, np.ndarray],
-    lib: Library | None = None,
-    apart: tuple[np.ndarray, np.ndarray, float] | None = None,
-) -> tuple[float, float, float]:
-    """How far the real solids of two placed parts go into each other.
-
-    ``a`` and ``b`` are (key, position, rotation matrix) as on a part line. Returns
-    ``(depth, volume, needed)``: ``depth`` is how far the deepest shared voxel is from the
-    nearest voxel that is not shared (half the thickness of the thickest shared piece, in
-    LDU), ``volume`` the shared volume (LDU^3), and ``needed`` the depth at which the two
-    really are in each other's way (see the contract: ``in_the_way``). ``apart``, (p, q, r):
-    shared voxels inside the cylinder of radius r round the segment from p to q (world),
-    between its two ends, are left out."""
+    lib: Library | None,
+) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """The voxels two placed parts' real solids share: (their indices in the sampled grid,
+    their centres in the world, that grid's cell, the depth ``needed``); empty when none."""
+    none = np.zeros((0, 3), dtype=np.int64), np.zeros((0, 3))
     sa, sb = solid(a[0], lib), solid(b[0], lib)
     if sa.full.size and sb.full.size and sb.full.size * sa.h**3 < sa.full.size * sb.h**3:
         a, b, sa, sb = b, a, sb, sa  # sample the smaller grid
     ha, hb = sa.h, sb.h
     needed = ((ha + hb) / 2 + REAL_MARGIN) / 2
     if not sa.full.size or not sb.full.size:
-        return 0.0, 0.0, needed
+        return (*none, ha, needed)
     inv_a = np.linalg.inv(a[2])
     blo, bhi = sb.box()
     corners = np.array(
@@ -162,22 +155,55 @@ def interference(
     i1 = np.clip(np.ceil((local.max(0) - sa.lo) / ha).astype(np.int64) + 1, 0, shape)
     sub = sa.full[i0[0] : i1[0], i0[1] : i1[1], i0[2] : i1[2]]
     if not sub.any():
-        return 0.0, 0.0, needed
+        return (*none, ha, needed)
     idx = np.argwhere(sub)
     pts = sa.lo + (idx + i0 + 0.5) * ha
     w = pts @ a[2].T + a[1]
     inb = sb.inside((w - b[1]) @ np.linalg.inv(b[2]).T, deep=False)
     if not inb.any():
+        return (*none, ha, needed)
+    return idx[inb], w[inb], ha, needed
+
+
+def shared_points(
+    a: tuple[str, np.ndarray, np.ndarray],
+    b: tuple[str, np.ndarray, np.ndarray],
+    lib: Library | None = None,
+) -> np.ndarray:
+    """The world centres of the voxels two placed parts' real solids share (0.5 LDU cells)."""
+    return _shared(a, b, lib)[1]
+
+
+def interference(
+    a: tuple[str, np.ndarray, np.ndarray],
+    b: tuple[str, np.ndarray, np.ndarray],
+    lib: Library | None = None,
+    apart: tuple[np.ndarray, np.ndarray, float] | list | None = None,
+) -> tuple[float, float, float]:
+    """How far the real solids of two placed parts go into each other.
+
+    ``a`` and ``b`` are (key, position, rotation matrix) as on a part line. Returns
+    ``(depth, volume, needed)``: ``depth`` is how far the deepest shared voxel is from the
+    nearest voxel that is not shared (half the thickness of the thickest shared piece, in
+    LDU), ``volume`` the shared volume (LDU^3), and ``needed`` the depth at which the two
+    really are in each other's way (see the contract: ``in_the_way``). ``apart``, (p, q, r):
+    shared voxels inside the cylinder of radius r round the segment from p to q (world),
+    between its two ends, are left out; a list of such cylinders leaves out what is inside
+    any of them."""
+    hit, w, ha, needed = _shared(a, b, lib)
+    if not len(hit):
         return 0.0, 0.0, needed
     from scipy import ndimage
 
-    hit = idx[inb]
-    if apart is not None:
-        p0, p1, r = apart
-        seg = np.asarray(p1, dtype=float) - p0
-        ww = w[inb] - p0
-        t = ww @ seg / max(float(seg @ seg), 1e-12)
-        far = (t < 0) | (t > 1) | (np.linalg.norm(ww - np.outer(t, seg), axis=1) > r)
+    cylinders = [] if apart is None else apart if isinstance(apart, list) else [apart]
+    if cylinders:
+        wh = w
+        far = np.ones(len(hit), dtype=bool)
+        for p0, p1, r in cylinders:
+            seg = np.asarray(p1, dtype=float) - p0
+            ww = wh - p0
+            t = ww @ seg / max(float(seg @ seg), 1e-12)
+            far &= (t < 0) | (t > 1) | (np.linalg.norm(ww - np.outer(t, seg), axis=1) > r)
         hit = hit[far]
         if not len(hit):
             return 0.0, 0.0, needed
@@ -192,7 +218,7 @@ def in_the_way(
     a: tuple[str, np.ndarray, np.ndarray],
     b: tuple[str, np.ndarray, np.ndarray],
     lib: Library | None = None,
-    apart: tuple[np.ndarray, np.ndarray, float] | None = None,
+    apart: tuple[np.ndarray, np.ndarray, float] | list | None = None,
 ) -> bool:
     """True when two placed parts' real solids go into each other deeper than touching or
     a seated stud does (see the contract)."""
@@ -299,8 +325,8 @@ def _crossings(tris: np.ndarray, axis: int, lo: np.ndarray, h: float, shape: tup
     det = (B[:, v] - C[:, v]) * (A[:, u] - C[:, u]) + (C[:, u] - B[:, u]) * (A[:, v] - C[:, v])
     ok = np.abs(det) > 1e-12
     A, B, C, det = A[ok], B[ok], C[ok], det[ok]
-    if not len(A):
-        return np.zeros((nu, nv, nw), dtype=bool)
+    if not len(A):  # no triangle faces this axis: nothing is inside by these rays
+        return np.zeros(tuple(shape), dtype=bool)  # in x, y, z order, as below
     tu = np.stack([A[:, u], B[:, u], C[:, u]], 1)
     tv = np.stack([A[:, v], B[:, v], C[:, v]], 1)
     # centre of voxel i along an axis: lo + (i + 0.5) * h

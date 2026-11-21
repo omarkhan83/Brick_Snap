@@ -257,6 +257,19 @@ def unchecked_words(report) -> list[str]:
     return [i.text for i in report.unchecked if i.kind == "joint"]
 
 
+@pytest.mark.parametrize("key", ["343.dat", "932.dat", "993.dat"])
+def test_a_solid_with_no_triangle_facing_an_axis_is_built(key):
+    # these parts have no triangle facing one of the three axes: the rays along it see nothing,
+    # and that empty answer must still come back in x, y, z order
+    from bricksnap.lab import solid
+
+    s = solid.build_solid(solid.triangles(key))
+    assert s.full.shape == s.deep.shape and s.full.ndim == 3 and s.full.any()
+    up = np.eye(3)
+    d, _, _ = solid.interference((key, np.zeros(3), up), (key, np.array([0.0, 0, 2]), up))
+    assert d >= 0
+
+
 def test_real_shapes_tell_touching_from_overlapping():
     from bricksnap.lab import solid
 
@@ -670,6 +683,181 @@ def test_a_bar_drawn_as_a_tube_is_a_bar():
     ]
     r = check("\n".join(text))
     assert r.ok and joined_by_bar(r, [2, 3]), r.text()
+
+
+# ---- a named joint excuses only what it needs (the review's cases): each fails if its limit
+# loosens ----------------------------------------------------------------------------------------
+
+
+def joint_between(report, lines, words: str) -> bool:
+    return any(i.kind == "joint" and i.lines == lines and words in i.text for i in report.unchecked)
+
+
+def overlap_between(report, lines) -> bool:
+    return any(i.kind == "overlap" and i.lines == lines for i in report.problems)
+
+
+TURN_Z = "-1 0 0 0 1 0 0 0 -1"
+
+
+def clip_under_handle(dy: float) -> str:
+    # a 1 x 1 clip plate on the ground; a plate with a handle turned so its bar lies in the clip
+    return "\n".join(
+        [line(15, 0, -8, 0, "11476.dat"), line(4, 0, -10.5 + dy, -40, "2540.dat", TURN_Z)]
+    )
+
+
+@pytest.mark.parametrize("dy, held", [(0, True), (-7, True), (-8, False), (-12, False)])
+def test_a_clip_holds_a_handle_only_at_its_bar(dy, held):
+    # the clip's point is 0.5 LDU from the bar at dy 0, 7.5 at dy -7 (CLIP_REACH), 8.5 at -8
+    r = check(clip_under_handle(dy))
+    assert joint_between(r, [1, 2], "bar in a clip") == held, r.text()
+    assert (not r.problems) == held, r.text()
+
+
+@pytest.mark.parametrize("dx, clash", [(2, True), (10, True), (40, False)])
+def test_two_bar_tubes_in_one_another_are_an_overlap(dx, clash):
+    # each has a tube for a bar and a handle: being joinable does not excuse sharing the tube
+    r = check(line(4, 0, -6, 0, "23443.dat") + "\n" + line(1, dx, -6, 0, "23443.dat"))
+    assert overlap_between(r, [1, 2]) == clash, r.text()
+    if clash:
+        assert "more than their bar in a clip joint needs" in r.text()
+
+
+@pytest.mark.parametrize("z, clash", [(20, False), (18, True)])
+def test_a_pin_pushed_too_far_brings_its_brick_into_the_other(z, clash):
+    # a brick with a pin, its pin in a Technic brick's hole: home at z 20; at z 18 the bricks
+    # share a 2 LDU wall outside the hole's room (JOINT_ROOM "pin hole", 8 LDU)
+    r = check(line(7, 0, -24, 0, "3700.dat") + "\n" + line(4, 0, -24, z, "2458.dat"))
+    assert overlap_between(r, [1, 2]) == clash, r.text()
+    assert (not r.problems) == (not clash), r.text()
+    if clash:
+        assert "more than their Technic pin joint needs" in r.text()
+
+
+WHEEL_PIN_PLATE = line(72, 0, -30, 0, "4488.dat")  # its pins end at x 34 and -34
+
+
+def wheel_at(x: float, m: str = "0 0 -1 0 1 0 1 0 0", tyre_dx: float | None = 6) -> str:
+    lines = [WHEEL_PIN_PLATE, line(71, x, -25, 0, "6014b.dat", m)]
+    if tyre_dx is not None:
+        lines.append(line(0, x + tyre_dx, -25, 0, "6015.dat", m))
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("x, held", [(30, True), (36, True), (37, False), (40, False)])
+def test_a_wheel_must_be_on_its_pin(x, held):
+    # the wheel's 7.5 LDU hole must share all but WHEEL_PLAY (2 LDU) with the pin: 5.5 at x 36
+    r = check(wheel_at(x, tyre_dx=None))
+    assert joint_between(r, [1, 2], "wheel pin") == held, r.text()
+    assert (not any(i.kind == "loose" for i in r.problems)) == held, r.text()
+    # with its tyre the wheel is judged the same; the tyre itself need only be round the
+    # pin's line (WHEEL_IN), so a wheel slid off with its tyre still hangs on the tyre
+    r = check(wheel_at(x))
+    assert joint_between(r, [1, 2], "wheel pin") == held, r.text()
+
+
+def test_a_wheel_turned_across_its_pin_is_an_overlap():
+    r = check(wheel_at(30, UP))
+    assert not joint_between(r, [1, 2], "wheel pin")
+    assert overlap_between(r, [1, 2]), r.text()
+
+
+@pytest.mark.parametrize("dx, on", [(6, True), (10, True), (18, False)])
+def test_a_tyre_is_on_its_wheel_only_round_it(dx, on):
+    r = check(wheel_at(30, tyre_dx=dx))
+    assert joint_between(r, [2, 3], "tyre on a wheel") == on, r.text()
+
+
+@pytest.mark.parametrize("dx, clash", [(10, True), (20, True), (40, False)])
+def test_two_wheels_with_tyres_are_not_a_tyre_on_a_wheel(dx, clash):
+    # 66727c01 is a wheel and its tyre in one part: two of them are not a tyre on a wheel
+    turned = "0 0 -1 0 1 0 1 0 0"
+    r = check(
+        line(0, 0, -20, 0, "66727c01.dat", turned)
+        + "\n"
+        + line(0, dx, -20, 0, "66727c01.dat", turned)
+    )
+    assert not joint_between(r, [1, 2], "tyre on a wheel"), r.text()
+    assert overlap_between(r, [1, 2]) == clash, r.text()
+
+
+BAR_ON_A_BRICK = [line(7, 0, -8, 0, "3036.dat"), line(14, 0, -32, 0, "3003.dat")]
+
+
+@pytest.mark.parametrize("sunk", [2, 4, 6])
+def test_a_bar_sunk_into_a_solid_top_is_told_it_is_inside(sunk):
+    r = check("\n".join([*BAR_ON_A_BRICK, line(1, 0, -92 + sunk, 0, "87994.dat")]))
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    assert f"It is sunk {sunk} LDU into line 2 (3003.dat" in loose, loose
+    assert f"move line 3 by (0 -{sunk} 0), to 0 -92 0" in loose, loose
+    assert "no part under it" not in loose and "rests on" not in loose
+
+
+@pytest.mark.parametrize("sunk", [0, 1])
+def test_a_bar_on_a_solid_top_is_not_called_sunk(sunk):
+    r = check("\n".join([*BAR_ON_A_BRICK, line(1, 0, -92 + sunk, 0, "87994.dat")]))
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    assert "sunk" not in loose, loose
+
+
+@pytest.mark.parametrize("sunk", [2, 4, 6])
+def test_a_bar_sunk_into_an_end_wall_is_told_the_way_out(sunk):
+    # a bar lying along x, its end pushed into the end of a 2 x 4 brick (which ends at x 40)
+    turned = "0 1 0 -1 0 0 0 0 1"  # the bar's own y (its length) along world x
+    text = [line(7, 0, -8, 0, "3036.dat"), line(14, 0, -32, 0, "3001.dat")]
+    r = check("\n".join([*text, line(1, 40 - sunk, -20, 0, "87994.dat", turned)]))
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    assert f"It is sunk {sunk} LDU into line 2 (3001.dat" in loose, loose
+    assert f"move line 3 by ({sunk} 0 0), to 40 -20 0" in loose, loose
+
+
+def test_words_that_name_a_move_onto_studs_are_kept():
+    # a plate floating over a held bar: the older words already say how to put it on studs
+    text = [line(7, 0, -8, 0, "3036.dat"), line(14, 10, -16, 10, "85861.dat")]
+    text += [line(1, 10, -72, 10, "87994.dat"), line(4, 10, -69, 0, "3023b.dat")]
+    loose = next(i.text for i in check("\n".join(text)).problems if i.kind == "loose")
+    assert "Fix: move it down by" in loose and "sunk" not in loose, loose
+
+
+def test_a_part_with_a_pin_is_never_told_it_is_sunk():
+    # a Technic pin pushed 4 LDU down into a brick's top: pins go into things by design
+    r = check("\n".join([*BAR_ON_A_BRICK, line(1, 0, -48, 0, "3673.dat", "1 0 0 0 0 1 0 -1 0")]))
+    assert not any("sunk" in i.text for i in r.problems), r.text()
+
+
+def test_a_turntable_shares_what_it_needs():
+    # Technic Turntable Type 2, top on base, as the library assembles it (50163)
+    text = [line(72, 0, -9, 0, "48452.dat"), line(0, 0, -9, 0, "48168.dat")]
+    r = check("\n".join(text))
+    assert not r.problems and joint_between(r, [1, 2], "turntable"), r.text()
+
+
+def test_a_wheel_without_a_hole_has_its_line_from_its_shape():
+    # 30027a's box is a 20 LDU cube, so its box gives no axis; its shape is round about z
+    from bricksnap.lab.validate import _body_axis
+
+    found = _body_axis("30027a.dat")
+    assert found is not None and found[1] == 2 and abs(found[3] - 10) < 0.6
+    assert _body_axis("3001.dat") is None
+    # as the library assembles it, its tyre is on it; slid 8 LDU along the axis it is not
+    tyre = "1 256 0 -18 {} 1 0 0 0 1 0 0 0 1 30028b.dat"
+    r = check("\n".join([line(4, 0, -18, 0, "30027a.dat"), tyre.format(0)]))
+    assert not r.problems and joint_between(r, [1, 2], "tyre on a wheel"), r.text()
+    r = check("\n".join([line(4, 0, -18, 0, "30027a.dat"), tyre.format(8)]))
+    assert not joint_between(r, [1, 2], "tyre on a wheel"), r.text()
+
+
+@pytest.mark.parametrize("x, held", [(36, True), (38, False)])
+def test_a_wheel_with_no_hole_must_be_on_half_its_width(x, held):
+    # 30027a (20 LDU wide, no hole primitive) on a 4488 pin that ends at x 34: its hub is taken
+    # as half its width, so the pin must be in 10 - WHEEL_PLAY = 8 LDU: 8 at x 36, 6 at x 38
+    t = (
+        line(72, 0, -30, 0, "4488.dat")
+        + "\n"
+        + line(4, x, -25, 0, "30027a.dat", "0 0 -1 0 1 0 1 0 0")
+    )
+    assert joint_between(check(t), [1, 2], "wheel pin") == held
 
 
 def test_report_text_sections():

@@ -26,8 +26,9 @@ Which parts count
    when some third part is joined by studs (the checker's own links) to both of them, from
    above or from below. Counted: seams, uncovered seams, and uncovered seams per 100 parts.
 5. Hanging sections. The model as a graph: parts joined by the checker's stud links, by the
-   joints it lists as "not checked", and (so that official sets are not split by the
-   checker's false alarms) by any pair it names in a stud or overlap problem. Parts with no
+   joints it lists as "not checked" (a proven moving module, which the checker lists as one
+   line naming all its parts, joins each of them to its first part, the anchor), and (so
+   that official sets are not split by the checker's false alarms) by any pair it names in a stud or overlap problem. Parts with no
    path to a part on the ground are left out and counted. A part whose removal splits the
    rest into pieces holds a hanging section: what would come away is every piece but the
    largest. Reported: how many parts hold one, the largest section (parts), and how many
@@ -305,6 +306,13 @@ def measure(path: str) -> dict:
                 a, b = i.lines
                 adj[a].add(b)
                 adj[b].add(a)
+            elif "are the module" in i.text:
+                # a proven moving module: its joints are folded into one line naming all its
+                # parts, which hold together as the module designs them: each is joined to
+                # the module's anchor, its first line (a chain would add false holders)
+                for b in i.lines[1:]:
+                    adj[i.lines[0]].add(b)
+                    adj[b].add(i.lines[0])
     GROUND = 0
     adj[GROUND] = set(r.grounded)
     for g in r.grounded:

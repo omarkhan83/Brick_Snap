@@ -39,8 +39,40 @@ What it reports, each item naming the line number, the part and its position:
 - Joints the geometry cannot confirm: when a part joins by clips, bars, pins, axles, hinges,
   ball joints or wheel pins (from its primitives or its name) and touches another part with
   no stud connection between them, the pair is listed as "not checked" and counts as joined
-  when deciding what is loose. An axle or a bar handle counts along its whole length
-  (``Connector.points``), other connectors at their own place. An axle the library draws
+  when deciding what is loose. An axle counts along its whole length (``Connector.points``),
+  a bar handle along its bar (``_handle_bars``: a handle is drawn with a primitive at each
+  end of its bar, and the bar runs through the middle of each one's reach), other connectors
+  at their own place. A named joint excuses only what the joint needs (``_joint_clash``):
+  the pair's real shapes are measured as any overlap is, leaving out the joint's room
+  (``JOINT_ROOM``: a cylinder round each receptacle's line, 2 LDU past its ends: a pin hole,
+  an axle hole, a wheel hole, a clip, a hinge, a ball socket, never the pin or axle that goes
+  in; round a handle's bar; for a wheel known only by name round its round axis; for a tyre
+  on a wheel the tyre's own round box; for a turntable the round box of each half). Outside
+  the room (everywhere, for a joint known only by name) they may still share a piece less
+  than ``JOINT_SNUG_DEPTH`` deep and ``JOINT_SNUG_VOL`` LDU^3 in all, as the library's shapes
+  of parts made to go together do (a giant torso's arm on its pin shares 1 LDU deep and
+  about 250 LDU^3). More than that is an overlap problem saying so: two bar tubes 2 LDU
+  apart, a brick with a pin pushed 2 LDU too far into a Technic brick, a wheel pushed through
+  its tyre, two wheels-with-tyres 10 LDU apart. A clip joins a handle only within
+  ``CLIP_REACH`` LDU of its bar (a clip 12 LDU above a handle is loose).
+  A wheel's line (``_wheel_lines``) is its wheel, axle or pin hole if one is at least
+  ``HOLE_SHORT`` LDU long, else its round axis (``_round_axis``): from its box when two sides
+  are equal, else from its real shape when that is a body of revolution about one of the
+  part's axes (``_body_axis``: spokes and all; 364 of the library's 382 wheels and tyres).
+  A wheel pin joins a wheel only on that line, parallel within ``AXLE_DEG`` and within
+  ``AXLE_LDU``, and in as far as the shorter of the pin and the hole (half the wheel's width
+  when the line is its round axis) less ``WHEEL_PLAY`` (``_wheel_on_pin``; the library's own
+  motorcycle 30187c01 has its wheel 1.5 LDU short). A tyre sits on a wheel only on the
+  wheel's round axis (or a hole off it), over all but ``TYRE_PLAY`` LDU of the narrower one's
+  width; two parts that are each a wheel with its tyre are not a tyre on a wheel
+  (``_tyre_on_wheel``). A wheel with no line at all (18 of the library's knobbly tyres and
+  odd wheels) is judged as before, by nearness. A tyre need only be round the pin's line by
+  ``WHEEL_IN``, so a wheel slid off its pin with its tyre still round the pin hangs on the
+  tyre (a stated limit). The clip's room takes in most of a 1 x 1 clip plate, so a handle
+  pressed into a small clip plate is not caught; the clip, bar-handle, wheel-hole, tyre and
+  turntable rooms are upper bounds that no test pins down (loosened, no test fails). The
+  library's assemblies (its shortcuts) that name such a joint are a standing guard
+  (``tests/test_lab_assemblies.py``). An axle the library draws
   with axle-hole primitives (``ldraw_lib``) joins only when its line runs along a hole of
   the other part (parallel within ``AXLE_DEG`` degrees, within ``AXLE_LDU`` LDU, the hole's
   reach and the axle's length sharing ``AXLE_IN`` LDU): an axle through a wheel turned
@@ -83,7 +115,17 @@ What it reports, each item naming the line number, the part and its position:
 - What is loose: groups of parts with no path of connections to a part on the ground
   (y = 0 at its lowest point, within ``GROUND_TOL``), each with what is below it and how far;
   groups that stand on the ground but are not joined to the rest (a warning); parts below the
-  ground; no part on the ground at all.
+  ground; no part on the ground at all. A single small loose part (filled body no more than
+  ``SUNK_SMALL`` LDU^3) whose words would only be "There is no part under it", "It rests on
+  ... but no stud goes into it" or "lowering it would not hold it either", and whose real
+  shape goes into a held part (not loose) by no more than ``WAY_OUT`` LDU, says so instead:
+  "It is sunk N LDU into line M: it is inside that part, not on it", with the move along one
+  of the six axes that takes it out (``_way_out``). It is looked for only against the
+  ``SUNK_NEAR`` held neighbours whose filled bodies it overlaps most, with no joint, bar or
+  stud problem between them and no pin, axle or hole in either (those go into one another
+  by design: the library may only lack the joint), for the first ``SUNK_LOOKS`` such parts
+  of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
+  real move onto studs are kept.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -142,6 +184,11 @@ IGNORE_OVERLAP = 100.0
 SEAT_TOL = 1.0
 GRID_TOL = 1.5
 GROUND_TOL = 1.5
+SUNK_SMALL = 10000.0  # LDU^3 (filled body): a part this small may be told it is sunk
+SUNK_LOOKS = 8  # loose parts per check that are looked at for being sunk into another
+SUNK_NEAR = 2  # held neighbours (most shared filled volume first) each is measured against
+WAY_TRIES = 4  # real-shape measurements spent on finding that way out
+WAY_OUT = 8  # LDU: how far the checker looks for the way out of a part sunk into another
 DETAIL_PARTS = 40  # up to this many parts, the report says what holds each one
 MAX_PROBLEMS = 40
 MAX_OTHERS = 25
@@ -1205,8 +1252,15 @@ def _ends(p: Placed, q: Placed, region: np.ndarray | None) -> set[str]:
         end = _GEO_END.get(c.kind)
         if end is None:
             continue
-        # an axle or a handle along its whole length; other connectors at their own place
-        w = p.to_world(c.points() if c.kind in ("axle", "bar handle") else c.pos[None, :])
+        # an axle along its whole length, a handle along its bar (not along the primitive's
+        # own axis, which is across the bar); other connectors at their own place
+        if c.kind == "bar handle":
+            w = np.concatenate(
+                [np.linspace(e0, e1, 9) for e0, e1 in _handle_bars(p)]
+                or [p.to_world(c.pos[None, :])]
+            )
+        else:
+            w = p.to_world(c.points() if c.kind == "axle" else c.pos[None, :])
         if region is not None:
             gap = np.maximum(np.maximum(region[0] - w, w - region[1]), 0)
             if float(np.linalg.norm(gap, axis=1).min()) <= 8:
@@ -1243,6 +1297,16 @@ def _joint_words(a: Placed, b: Placed, region: np.ndarray | None) -> list[str]:
                 _axle_in_hole(p, q) for p, q in ((a, b), (b, a)) if x in _ends(p, q, region)
             ):
                 continue
+            if x == "wheel+" and not any(
+                _wheel_on_pin(p, q) for p, q in ((a, b), (b, a)) if x in _ends(p, q, region)
+            ):
+                continue  # a wheel pin must be in the wheel's hole, on its line
+            if x == "tyre" and not any(
+                _tyre_on_wheel(p, q) for p, q in ((a, b), (b, a)) if x in _ends(p, q, region)
+            ):
+                continue  # a tyre must sit round its wheel, on its line
+            if x == "bar+" and not _clip_at_bar(a, b):
+                continue  # a clip must be at a handle's bar, not just near the handle
             word = _END_WORDS[x.rstrip("+-")]
             if word not in found:
                 found.append(word)
@@ -1278,6 +1342,331 @@ def _axle_in_hole(p: Placed, q: Placed) -> bool:
             if min(hi, ha[1]) - max(lo, ha[0]) >= AXLE_IN:
                 return True
     return False
+
+
+# ---- what a named joint needs, and nothing more ---------------------------------------------
+
+JOINT_ROOM = {  # LDU round a receptacle's line (the hole, the clip) where its joint may share
+    "pin hole": 8.0,
+    "axle hole": 7.0,
+    "wheel hole": 8.0,
+    "clip": 11.5,  # a clip primitive's point is up to 7.3 from its bar, plus the bar's 4
+    "hinge": 10.0,
+    "ball socket": 9.0,
+    "bar handle": 6.0,  # round the handle's bar (``_handle_bars``), when the clip has no primitive
+}
+CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
+JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
+JOINT_SNUG_VOL = 1000.0  # LDU^3: and less than this much in all
+WHEEL_IN = 2.0  # LDU a tyre and its wheel must share along their axis
+HOLE_SHORT = 4.0  # LDU: a hole primitive shorter than this does not give a wheel's line
+BODY_ROUND = 0.8  # seen along its axis, a body of revolution fills this share of its rim
+BODY_OUT = 0.12  # and has no more than this share of its shadow outside that circle
+BODY_SIDES = 2.0  # LDU: and its outline's two sides differ by no more than this
+TYRE_PLAY = 6.0  # LDU a tyre may sit off its wheel along their axis
+WHEEL_PLAY = 2.0  # LDU a wheel may sit short of home on its pin (official 30187c01: 1.5)
+
+
+def _round_axis(p: Placed) -> tuple[np.ndarray, np.ndarray, tuple[float, float], float] | None:
+    """A round part's axis from its box (two equal sides are its diameter, the third its
+    width), else from its real shape (``_body_axis``): the centre (world), the direction
+    (world), its reach along it from the centre, and its radius; None when neither says."""
+    span = p.part.bbox_max - p.part.bbox_min
+    for k in range(3):
+        o = [j for j in range(3) if j != k]
+        if abs(span[o[0]] - span[o[1]]) <= 0.6 and abs(span[k] - span[o[0]]) > 0.6:
+            centre = p.to_world((p.part.bbox_min + p.part.bbox_max) / 2)
+            d = p.m @ np.eye(3)[k]
+            return centre, d, (-span[k] / 2, span[k] / 2), float(span[o[0]] / 2)
+    body = _body_axis(p.key)
+    if body is None:
+        return None
+    centre, k, reach, radius = body
+    return p.to_world(centre), p.m @ np.eye(3)[k], reach, radius
+
+
+_BODY_AXES: dict[str, tuple[np.ndarray, int, tuple[float, float], float] | None] = {}
+
+
+def _body_axis(key: str) -> tuple[np.ndarray, int, tuple[float, float], float] | None:
+    """The axis of a part whose real shape is a body of revolution about one of its own axes
+    (a wheel, a tyre, whatever its box, spokes and all): seen along that axis its outline's
+    two sides are within ``BODY_SIDES`` LDU, its shadow covers ``BODY_ROUND`` of the 2 LDU
+    rim of the circle they inscribe and has no more than ``BODY_OUT`` of itself outside it.
+    (centre, the axis 0/1/2, reach from the centre, radius), local; None when no axis is
+    round."""
+    if key in _BODY_AXES:
+        return _BODY_AXES[key]
+    from bricksnap.lab import solid
+
+    found = None
+    sol = solid.solid(key)
+    if sol.full.size and sol.full.any():
+        idx = [
+            np.nonzero(sol.full.any(axis=tuple(j for j in range(3) if j != k)))[0] for k in range(3)
+        ]
+        lo = np.array([sol.lo[k] + i.min() * sol.h for k, i in enumerate(idx)])
+        hi = np.array([sol.lo[k] + (i.max() + 1) * sol.h for k, i in enumerate(idx)])
+        best = 0.0
+        for k in range(3):
+            u, v = [j for j in range(3) if j != k]
+            su, sv = hi[u] - lo[u], hi[v] - lo[v]
+            if abs(su - sv) > BODY_SIDES:
+                continue
+            shadow = sol.full.any(axis=k)  # seen along k: indexed (u, v)
+            cu, cv, r = (lo[u] + hi[u]) / 2, (lo[v] + hi[v]) / 2, min(su, sv) / 2
+            gu = sol.lo[u] + (np.arange(shadow.shape[0]) + 0.5) * sol.h - cu
+            gv = sol.lo[v] + (np.arange(shadow.shape[1]) + 0.5) * sol.h - cv
+            dist = np.hypot(gu[:, None], gv[None, :])
+            ring = (dist <= r) & (dist >= r - 2)
+            rim = float((shadow & ring).sum()) / max(1, int(ring.sum()))
+            outside = float((shadow & (dist > r + 0.5)).sum()) / max(1, int(shadow.sum()))
+            if rim >= BODY_ROUND and outside <= BODY_OUT and rim > best:
+                centre = (lo + hi) / 2
+                best = rim
+                found = (centre, k, (float(lo[k] - centre[k]), float(hi[k] - centre[k])), float(r))
+    _BODY_AXES[key] = found
+    return found
+
+
+def _lines_meet(
+    o1: np.ndarray,
+    d1: np.ndarray,
+    r1: tuple[float, float],
+    o2: np.ndarray,
+    d2: np.ndarray,
+    r2: tuple[float, float],
+    need: float,
+) -> bool:
+    """Do two lines (a point, a unit direction, a reach along it) run along each other:
+    parallel within ``AXLE_DEG``, within ``AXLE_LDU``, their reaches sharing ``need`` LDU?
+    (The test an axle in a hole and a wheel on its pin both use.)"""
+    if abs(float(np.dot(d1, d2))) < math.cos(math.radians(AXLE_DEG)):
+        return False
+    w = o2 - o1
+    t = float(np.dot(w, d1))
+    if float(np.linalg.norm(w - t * d1)) > AXLE_LDU:
+        return False
+    a1 = sorted(r1)
+    a2 = sorted(t + float(np.dot(d2, d1)) * np.array(r2))
+    return min(a1[1], a2[1]) - max(a1[0], a2[0]) >= need
+
+
+def _wheel_lines(
+    p: Placed, whole: bool = False
+) -> list[tuple[np.ndarray, np.ndarray, tuple[float, float]]]:
+    """The lines a wheel turns about: its wheel holes (or axle or pin holes) at least
+    ``HOLE_SHORT`` LDU long, else the axis of its round box or body (``_round_axis``). With
+    ``whole`` (a tyre on it), a hole on the round axis reaches the wheel's whole width."""
+    holes = [
+        (p.to_world(c.pos), p.m @ c.axis, c.along)
+        for c in p.part.others
+        if c.kind in ("wheel hole", "axle hole", "pin hole")
+        and abs(c.along[1] - c.along[0]) >= HOLE_SHORT
+    ]
+    ax = _round_axis(p) if whole or not holes else None
+    if ax is None:
+        return holes
+    if not whole:
+        return [(ax[0], ax[1], ax[2])]
+    return [(ax[0], ax[1], ax[2])] + [
+        h for h in holes if not _lines_meet(h[0], h[1], h[2], ax[0], ax[1], ax[2], 0.0)
+    ]
+
+
+def _wheel_on_pin(p: Placed, q: Placed) -> bool:
+    deep = not ("tyre" in q.part.name_joint_words() and not _both_wheel_and_tyre(q))
+    return _wheel_pin_in(p, q, deep)
+
+
+def _wheel_pin_in(p: Placed, q: Placed, deep: bool) -> bool:
+    """Is a wheel pin of p in q's wheel: on the line of its hole (or of its round box), and in
+    as far as the shorter of the pin and the hole (or half the wheel's width, for a wheel drawn
+    with no hole) less ``WHEEL_PLAY``
+    (``_lines_meet``)? A tyre on the wheel need only be round the pin's line, sharing
+    ``WHEEL_IN`` LDU of it (``deep`` False): the pin is in the wheel, not in the tyre."""
+    pins = [c for c in p.part.others if c.kind == "wheel pin"]
+    if not pins:
+        return True  # a pin known only by name: nothing to measure
+    # a wheel drawn with no hole primitive (or only a short one): its hub is taken as half
+    # its width; a wheel with no line at all is judged as before, by nearness
+    lines = _wheel_lines(q)
+    if not lines:
+        return True
+    hub = (
+        1.0
+        if any(
+            c.kind in ("wheel hole", "axle hole", "pin hole")
+            and abs(c.along[1] - c.along[0]) >= HOLE_SHORT
+            for c in q.part.others
+        )
+        else 0.5
+    )
+    return any(
+        _lines_meet(
+            p.to_world(c.pos),
+            p.m @ c.axis,
+            c.along,
+            o,
+            d,
+            r,
+            min(abs(c.along[1] - c.along[0]), abs(r[1] - r[0]) * hub) - WHEEL_PLAY
+            if deep
+            else WHEEL_IN,
+        )
+        for c in pins
+        for o, d, r in lines
+    )
+
+
+def _both_wheel_and_tyre(p: Placed) -> bool:
+    words = p.part.name_joint_words()
+    return "tyre" in words and ("wheel" in words or "wheels" in words)
+
+
+def _tyre_on_wheel(p: Placed, q: Placed) -> bool:
+    """Is the tyre p round the wheel q: their round axes on one line (``_lines_meet``), the
+    tyre over all but ``TYRE_PLAY`` LDU of the narrower one's width, less 0.5 LDU for the
+    real shape's cells (at least ``WHEEL_IN``)?
+    Two parts that are each a wheel with its tyre do not make a tyre on a wheel."""
+    if _both_wheel_and_tyre(p) and _both_wheel_and_tyre(q):
+        return False
+    ax = _round_axis(p)
+    lines = _wheel_lines(q, whole=True)
+    if ax is None or not lines:
+        return True  # nothing to measure: judged as before, by nearness
+    width = abs(ax[2][1] - ax[2][0])
+    return any(
+        _lines_meet(
+            ax[0],
+            ax[1],
+            ax[2],
+            o,
+            d,
+            r,
+            max(WHEEL_IN, min(width, abs(r[1] - r[0])) - TYRE_PLAY - 0.5),
+        )
+        for o, d, r in lines
+    )
+
+
+def _handle_bars(p: Placed) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The bars of a part's handles, world: a handle is drawn with a handle primitive at each
+    end of its bar, and the bar runs through the middle of each one's reach (its
+    "attachment"); each primitive is paired with its nearest one."""
+    ends = [
+        p.to_world(c.pos + c.axis * (sum(c.along) / 2))
+        for c in p.part.others
+        if c.kind == "bar handle"
+    ]
+    bars = []
+    used: set[int] = set()
+    for i, e in enumerate(ends):
+        if i in used:
+            continue
+        others = [j for j in range(len(ends)) if j != i and j not in used]
+        if not others:
+            bars.append((e, e))  # a single attachment: its own point
+            continue
+        j = min(others, key=lambda k: float(np.linalg.norm(ends[k] - e)))
+        used |= {i, j}
+        bars.append((e, ends[j]))
+    return bars
+
+
+def _clip_at_bar(a: Placed, b: Placed) -> bool:
+    """Where one part has a clip primitive and the other a handle (``_handle_bars``), a
+    clip primitive must be within ``CLIP_REACH`` LDU of the handle's bar, between its ends
+    (a clip primitive's own point is up to 7.3 LDU from the bar it holds in the official
+    sets measured). Otherwise there is nothing to measure."""
+    for clip, bar in ((a, b), (b, a)):
+        clips = [clip.to_world(c.pos) for c in clip.part.others if c.kind == "clip"]
+        bars = _handle_bars(bar)
+        if not clips or not bars:
+            continue
+        for e0, e1 in bars:
+            d = e1 - e0
+            n = float(np.linalg.norm(d))
+            for c in clips:
+                t = float(np.clip(np.dot(c - e0, d) / (n * n), 0.0, 1.0)) if n > 1e-9 else 0.0
+                if float(np.linalg.norm(c - (e0 + t * d))) <= CLIP_REACH:
+                    return True
+        return False
+    return True
+
+
+def _joint_room(a: Placed, b: Placed, words: list[str]) -> list:
+    """Where a named joint's two parts may share material (``JOINT_ROOM``): round the line of
+    each receptacle of either part (a pin hole, an axle hole, a wheel hole, a clip, a hinge, a
+    ball socket: never round the pin or axle that goes in, which would excuse that whole part),
+    2 LDU past its ends; round a handle's bar; for a wheel known only by name, round its round
+    box's axis; for a tyre on a wheel, the tyre's own round box."""
+    room: list = []
+    for p in (a, b):
+        for e0, e1 in _handle_bars(p):
+            d = e1 - e0
+            n = float(np.linalg.norm(d))
+            d = d / n if n > 1e-9 else np.zeros(3)
+            room.append((e0 - 2 * d, e1 + 2 * d, JOINT_ROOM["bar handle"]))
+        for c in p.part.others:
+            r = JOINT_ROOM.get(c.kind)
+            if r is None or c.kind == "bar handle":
+                continue
+            lo, hi = sorted(c.along)
+            room.append(
+                (p.to_world(c.pos + (lo - 2) * c.axis), p.to_world(c.pos + (hi + 2) * c.axis), r)
+            )
+    if "turntable" in words:  # the two halves turn about one axis: room is their round box
+        for p in (a, b):
+            ax = _round_axis(p)
+            if ax is not None and "turntable" in p.part.name_joint_words():
+                lo, hi = ax[2]
+                room.append((ax[0] + (lo - 2) * ax[1], ax[0] + (hi + 2) * ax[1], ax[3] + 1))
+    for p in (a, b):
+        words_p = p.part.name_joint_words()
+        round_ = (
+            "tyre on a wheel" in words and "tyre" in words_p,
+            "wheel pin" in words
+            and ("wheel" in words_p or "wheels" in words_p)
+            and not any(c.kind == "wheel hole" for c in p.part.others),
+        )
+        if any(round_):
+            ax = _round_axis(p)
+            if ax is not None:
+                lo, hi = ax[2]
+                r = ax[3] + 1 if round_[0] else JOINT_ROOM["wheel hole"]
+                room.append((ax[0] + (lo - 2) * ax[1], ax[0] + (hi + 2) * ax[1], r))
+    return room
+
+
+def _tyre_room_is_all(a: Placed, b: Placed) -> bool:
+    """For a tyre on a wheel: does the room (the tyre's round box, ``_joint_room``) hold all
+    of the tyre? Then it holds all they could share, and there is nothing to measure."""
+    return any(
+        "tyre" in p.part.name_joint_words()
+        and not _both_wheel_and_tyre(p)
+        and _round_axis(p) is not None
+        for p in (a, b)
+    )
+
+
+def _joint_clash(a: Placed, b: Placed, words: list[str]) -> bool:
+    """Do two parts joined by a named joint share more than the joint needs? Their real
+    shapes are measured outside the joint's room (``_joint_room``; everywhere when it has
+    none, a joint known only by name) as any overlap is, except that a piece less than
+    ``JOINT_SNUG_DEPTH`` deep and ``JOINT_SNUG_VOL`` in all is allowed: the library's
+    shapes of parts made to go together share that much (an arm's shoulder on its torso)."""
+    from bricksnap.lab import solid
+
+    if words == ["tyre on a wheel"] and _tyre_room_is_all(a, b):
+        return False  # whatever they share is in the tyre, so in its room
+    room = _joint_room(a, b, words)
+    depth, vol, needed = solid.interference(
+        (a.key, a.pos, a.m), (b.key, b.pos, b.m), apart=room or None
+    )
+    if depth < needed - 1e-9:
+        return False
+    return depth >= JOINT_SNUG_DEPTH - 1e-9 or vol > JOINT_SNUG_VOL
 
 
 def _touches(a: Placed, b: Placed) -> bool:
@@ -1421,6 +1810,9 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
     bar_held: dict[int, np.ndarray] = {}  # parts held as a bar in a hollow -> its axis
     pin_holes: dict[tuple[float, ...], int] = {}  # (part, hole) -> the part whose stud is in it
     slight: list[tuple[Placed, Placed, int, str]] = []  # slight overlaps: (a, b, issue, text)
+    # pairs whose filled bodies overlap with no joint or bar between them: where a loose part
+    # may be sunk into a held one (``_sunk_words``)
+    plain_overlaps: dict[tuple[int, int], float] = {}  # -> the filled bodies' shared volume
     for a, b in pairs:
         linked = False
         bar = None  # a bar-in-a-hollow joint between a and b: (its name, the hollow's axis)
@@ -1481,6 +1873,8 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
         v2, box2 = _overlap(b, a)
         vol = max(v1, v2)
         box = box1 if v1 >= v2 else box2
+        if vol < IGNORE_OVERLAP and not linked:
+            plain_overlaps[(a.line, b.line)] = vol  # too little to report; a part may be sunk
         if vol >= IGNORE_OVERLAP and box is not None:
             smaller = max(1.0, min(a.part.volume(), b.part.volume()))
             share = vol / smaller
@@ -1508,6 +1902,18 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                         "overlap",
                         [a.line, b.line],
                         base + " They are the same part twice in the same place: remove one.",
+                    )
+                )
+            elif joint and _joint_clash(a, b, joint):
+                # a named joint does not excuse what else the two share
+                joint_pairs.add((a.line, b.line))
+                report.issues.append(
+                    Issue(
+                        "problem",
+                        "overlap",
+                        [a.line, b.line],
+                        base + f" That is more than their {' or '.join(joint[:2])} joint "
+                        "needs: move one of them so they only touch where they join.",
                     )
                 )
             elif joint:
@@ -1542,10 +1948,12 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                     Issue("warning", "overlap", [a.line, b.line], "Slight overlap: " + base)
                 )
                 slight.append((a, b, len(report.issues) - 1, base))
+                plain_overlaps[(a.line, b.line)] = vol
             elif (
                 min(a.line, b.line),
                 max(a.line, b.line),
             ) not in stud_problem_pairs and _really_overlap(a, b):
+                plain_overlaps[(a.line, b.line)] = vol
                 report.issues.append(
                     Issue(
                         "problem",
@@ -1577,7 +1985,7 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
             joint_pairs.add((a.line, b.line))
         # joints that cannot be checked
         words = [] if linked or (a.line, b.line) in joint_pairs else _joint_words(a, b, None)
-        if words and (_touches(a, b) or _touches(b, a)):
+        if words and (_touches(a, b) or _touches(b, a)) and not _joint_clash(a, b, words):
             report.issues.append(
                 Issue(
                     "not checked",
@@ -1652,10 +2060,35 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
     grounded_comps = [c for c in comps if gset & set(c)]
     loose = [c for c in comps if not gset & set(c)]
     main = max(grounded_comps, key=len) if grounded_comps else None
+    # a single loose part sunk into a held one (a bar pushed into a solid top): say so, and
+    # which way is out, instead of "there is no part under it"
+    loose_lines = {ln for c in loose for ln in c}
+    looked = 0
     for comp in sorted(loose, key=lambda c: c[0]):
-        report.issues.append(
-            Issue("problem", "loose", comp, _loose_text(comp, placed, by_line, bottom_pts, lab))
-        )
+        said = _loose_text(comp, placed, by_line, bottom_pts, lab)
+        small = len(comp) == 1 and by_line[comp[0]].part.volume() <= SUNK_SMALL
+        if small and looked < SUNK_LOOKS and _sunk_may_apply(said):
+            part = by_line[comp[0]]
+            near = sorted(
+                (
+                    (-v, by_line[y if x == part.line else x])
+                    for (x, y), v in plain_overlaps.items()
+                    if part.line in (x, y)
+                    and (y if x == part.line else x) not in loose_lines
+                    and (x, y) not in stud_problem_pairs
+                    and (x, y) not in joint_pairs
+                ),
+                key=lambda t: (t[0], t[1].line),
+            )[:SUNK_NEAR]
+            if near:
+                looked += 1
+            for _, into in near:
+                words = _sunk_words(part, into, lab)
+                if words:
+                    said = said.split(" There is no part under it.")[0].split(" It rests on")[0]
+                    said = said.split(" Its underside is at")[0] + words
+                    break
+        report.issues.append(Issue("problem", "loose", comp, said))
     for comp in grounded_comps:
         if comp is main:
             continue
@@ -1754,6 +2187,76 @@ def held_only_item(
                 "what stands on the ground only through those joints.",
             )
         )
+
+
+_JOINT_KINDS = ("pin", "axle", "pin hole", "axle hole", "wheel pin", "wheel hole", "clip", "hinge")
+
+
+def _sunk_may_apply(said: str) -> bool:
+    """Only where the older words give no move: no part under it, resting on a part with no
+    stud going in, or floating over a part with no studs there (never "move it down by N onto
+    studs ...", which is a real fix)."""
+    return " Fix: move it down by" not in said and (
+        " There is no part under it." in said
+        or "no stud goes into it" in said
+        or "lowering it would not hold it either" in said
+    )
+
+
+def _sunk_words(part: Placed, into: Placed, lab) -> str:  # type: ignore[no-untyped-def]
+    """The words for a loose part sunk into a held one, or "" (``_way_out``). Never for a part
+    with a pin or an axle, or into a part with a hole one could go into: those go into one
+    another by design, and the library may only lack the joint."""
+    for p in (part, into):
+        if any(c.kind in _JOINT_KINDS for c in p.part.others):
+            return ""
+    out = _way_out(part, into)
+    if out is None:
+        return ""
+    move, dist = out
+    return (
+        f" It is sunk {fmt(round(dist, 1))} LDU into {lab(into)}: it is inside that part, not "
+        f"on it. Fix: move line {part.line} by ({_vec(move)}), to {_vec(part.pos + move)}, and "
+        "attach it."
+    )
+
+
+def _way_out(part: Placed, into: Placed) -> tuple[np.ndarray, float] | None:
+    """When the real shapes of ``part`` go into ``into`` (``solid.in_the_way``) by no more than
+    ``WAY_OUT`` LDU: the shortest move along one of the six axes after which they only touch,
+    as (world move, distance); None otherwise. Along each axis the move to try (to 0.5 LDU)
+    takes the part's trailing face (its box) past the far side of the shared voxels, or is
+    the shared piece's thickness; shortest first, each try one real-shape measurement, at
+    most ``WAY_TRIES`` of them."""
+    from bricksnap.lab import solid
+
+    a, b = (part.key, part.pos, part.m), (into.key, into.pos, into.m)
+    if not solid.in_the_way(a, b):
+        return None
+    pts = solid.shared_points(a, b)
+    if not len(pts):
+        return None
+    axes = [UP, -UP] + [np.eye(3)[k] * sgn for k in (0, 2) for sgn in (1.0, -1.0)]
+    lo, hi = part.part.bbox_min, part.part.bbox_max
+    corners = part.to_world(
+        np.array(
+            [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+        )
+    )
+    tries = []
+    for n, ax in enumerate(axes):
+        along = pts @ ax
+        # moved along ax, its trailing face must pass the far side of what they share; when
+        # its box is not its shape, the shared piece's own thickness is the other guess
+        guesses = (along.max() - float((corners @ ax).min()), along.max() - along.min() + 0.5)
+        for rank, guess in enumerate(guesses):
+            dist = float(np.ceil(guess * 2) / 2)
+            if 0 < dist <= WAY_OUT:
+                tries.append((rank, dist, n, ax))
+    for _, dist, _, ax in sorted(tries, key=lambda t: t[:3])[:WAY_TRIES]:
+        if solid.interference((part.key, part.pos + ax * dist, part.m), b)[0] <= 0.5:
+            return ax * dist, float(dist)  # out: what they share is a face, a voxel thick
+    return None
 
 
 def _loose_text(comp, placed, by_line, bottom_pts, lab) -> str:  # type: ignore[no-untyped-def]
