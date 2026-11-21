@@ -170,7 +170,10 @@ What it reports, each item naming the line number, the part and its position:
   stud problem between them and no pin, axle or hole in either (those go into one another
   by design: the library may only lack the joint), for the first ``SUNK_LOOKS`` such parts
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
-  real move onto studs are kept.
+  real move onto studs are kept. Parts that reach the ground only through clip grips tested
+  for fit and carry more than a strut, a rail, an aerial or a mirror (``clip_loads``: more
+  than ``LOAD_PER_GRIP`` per clip, or held out on one clip beyond ``LOAD_ONE_GRIP``) get a
+  warning naming them and a word in the summary: a clip holds a strut or a rail, not a load.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -343,13 +346,19 @@ class Report:
             return head + ": there is nothing to check (no part lines)."
         if not k:
             held = next((i for i in self.unchecked if i.kind == "held by unchecked joints"), None)
-            tail = "no problems: every part is held, nothing overlaps, and it stands."
+            loads = [i for i in self.warnings if i.kind == "held by clips"]
+            notes = []
             if held is not None:
-                m = len(held.lines)
-                tail = (
-                    f"no problems: every part is held ({m} of them only by joints the checker "
-                    "cannot confirm), nothing overlaps, and it stands."
-                )
+                notes.append(f"{len(held.lines)} of them only by joints the checker cannot confirm")
+            if loads:
+                c = sum(len(i.lines) for i in loads)
+                notes.append(f"{c} only by clips that carry more than a strut")
+            tail = (
+                f"no problems: every part is held ({'; '.join(notes)}), nothing overlaps, and "
+                "it stands."
+                if notes
+                else "no problems: every part is held, nothing overlaps, and it stands."
+            )
             extra = []
             if self.warnings:
                 extra.append(
@@ -2734,7 +2743,82 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
         from bricksnap.lab import movement as moves
 
         moves.apply(text, report, lib)
+    clip_loads(report)
     return report
+
+
+LOAD_PER_GRIP = 76800.0  # LDU^3 (filled bodies) a clip may carry: a 2 x 4 brick's
+LOAD_ONE_GRIP = 1_000_000.0  # LDU^4: held out on one clip, volume times its reach from it
+
+
+def clip_loads(report: Report) -> None:
+    """Parts that reach the ground only through clip grips tested for fit, when they are more
+    than a strut, a rail, an aerial or a mirror: a warning of kind "held by clips" naming them,
+    and the summary says so. Group the parts joined by anything but clip grips; a group that
+    is not on the ground that way but is with them hangs on the clips that cross its edge.
+    Its load is the filled volume of its parts that are not thin members (a bar, a bar tube,
+    a clip with a grip: ``_bar_lines``, ``_tube_hollows``, ``grip_lines``). It is too much
+    when each clip carries more than ``LOAD_PER_GRIP`` (a table on clip-held legs), or when
+    one clip holds it and its load times its reach from the clip (to the middle of the load,
+    across) is more than ``LOAD_ONE_GRIP`` (a wing held out on one clip)."""
+    report.issues = [i for i in report.issues if i.kind != "held by clips"]
+    by_line = {p.line: p for p in report.placed}
+    clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
+    if not clip_fits:
+        return
+    joints = [i for i in report.issues if i.kind == "joint" and len(i.lines) == 2]
+
+    def grouped(with_clips: bool) -> _Groups:
+        g = _Groups(list(by_line))
+        for link in report.links:
+            g.join(link.holder, link.held)
+        for i in joints:
+            if with_clips or i not in clip_fits:
+                g.join(i.lines[0], i.lines[1])
+        return g
+
+    ground = set(report.grounded)
+    held = [c for c in grouped(True).groups() if ground & set(c)]
+    for comp in grouped(False).groups():
+        if ground & set(comp) or not any(set(comp) <= set(c) for c in held):
+            continue
+        cross = [i for i in clip_fits if (i.lines[0] in comp) != (i.lines[1] in comp)]
+        load = [
+            by_line[n]
+            for n in comp
+            if not (
+                _bar_lines(by_line[n]) or _tube_hollows(by_line[n]) or grip_lines(by_line[n].key)
+            )
+        ]
+        vol = sum(p.part.volume() for p in load)
+        if not cross or vol <= 0:
+            continue
+        too_much = vol / len(cross) > LOAD_PER_GRIP
+        if len(cross) == 1:
+            i = cross[0]
+            clip = by_line[i.lines[0] if i.lines[0] not in comp else i.lines[1]]
+            mid = (
+                sum(
+                    p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume()
+                    for p in load
+                )
+                / vol
+            )
+            reach = float(np.linalg.norm((mid - clip.pos)[[0, 2]]))
+            too_much = too_much or vol * reach > LOAD_ONE_GRIP
+        if too_much:
+            lines = sorted(comp)
+            report.issues.append(
+                Issue(
+                    "warning",
+                    "held by clips",
+                    lines,
+                    f"{_lines(lines).capitalize()} reach the ground only through "
+                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}, and carry more "
+                    "than a strut or a rail: a clip holds a strut or a rail, not a load. Hold "
+                    "them with studs or a pin.",
+                )
+            )
 
 
 def held_only_item(

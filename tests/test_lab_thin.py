@@ -543,3 +543,58 @@ def test_the_strut_tool_says_what_to_move_when_no_bar_closes_the_gap(work):
     (work / "model.ldr").write_text(text)
     said = use(work, "strut", {"onto": [2, 6], "colour": 15})
     assert said.startswith("ERROR:") and "78.6 LDU apart" in said and "Move one end by 4.6" in said
+
+
+# ---- what a clip may carry -----------------------------------------------------------------
+
+TABLE = """1 7 -10 -60 -50 1 0 0 0 1 0 0 0 1 87994.dat
+1 14 -10 -34 -30 1 0 0 0 1 0 0 0 1 60897.dat
+1 7 -10 -60 50 1 0 0 0 1 0 0 0 1 87994.dat
+1 14 -10 -34 30 -1 0 0 0 1 0 0 0 -1 60897.dat
+1 7 10 -60 -50 1 0 0 0 1 0 0 0 1 87994.dat
+1 14 10 -34 -30 1 0 0 0 1 0 0 0 1 60897.dat
+1 7 10 -60 50 1 0 0 0 1 0 0 0 1 87994.dat
+1 14 10 -34 30 -1 0 0 0 1 0 0 0 -1 60897.dat
+1 1 0 -42 0 0 0 1 0 1 0 -1 0 0 3020.dat
+"""  # the review's table: a 2 x 4 plate on four clip plates, each on a bar leg
+
+
+def table(bricks: int) -> str:
+    return TABLE + "".join(
+        f"1 4 0 {-66 - 24 * k} 0 0 0 1 0 1 0 -1 0 0 3001.dat\n" for k in range(bricks)
+    )
+
+
+WING = """1 7 0 -24 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -48 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -72 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 14 0 -80 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 4 0 -79.5 -50 -1 0 0 0 1 0 0 0 -1 61252.dat
+"""  # the review's wing: a 61252 on a handle, out from a stack of bricks
+
+
+def loads(report) -> list[list[int]]:
+    return [i.lines for i in report.warnings if i.kind == "held by clips"]
+
+
+def test_a_table_on_clip_held_legs_is_told_a_clip_holds_no_load():
+    # twelve 2 x 4 bricks on four clips: 236,800 LDU^3 each, more than LOAD_PER_GRIP (one
+    # 2 x 4 brick, 76,800); three bricks (64,000 each) and the plate alone are not told
+    r = check(table(12))
+    assert len(loads(r)) == 1 and "17 only by clips that carry more than a strut" in r.summary()
+    assert "a clip holds a strut or a rail, not a load" in r.text()
+    assert not loads(check(table(3))) and not loads(check(table(0)))
+
+
+def test_a_wing_held_out_on_one_clip_is_told_and_a_mirror_is_not():
+    # a 1 x 8 plate 110 LDU out from one clip: 25,600 LDU^3 times 110, more than LOAD_ONE_GRIP;
+    # a 1 x 1 plate on the clip plate itself is a mirror, a detail
+    r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
+    assert loads(r) == [[5, 6]], r.text()
+    r = check(WING + "1 1 0 -87.5 -50 1 0 0 0 1 0 0 0 1 3024.dat\n")
+    assert not loads(r), r.text()
+
+
+def test_struts_rails_blades_and_legs_on_clips_are_not_told():
+    for model in (strut_on_23443(), strut_on_11090(), blade_strut(), rail(), leg()):
+        assert not loads(check(model)), check(model).text()
