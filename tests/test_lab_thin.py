@@ -176,6 +176,25 @@ def test_a_thick_stop_in_the_clip_is_not_a_fit():
     assert clips_fitted(r) == 1, r.text()
 
 
+def test_a_bar_with_clips_of_its_own_is_still_a_bar():
+    # Bar 2L with Three Clips (3628) has clip primitives; its name still makes it a bar, and a
+    # clip round that bar is tested for fit (before, its own clips hid its name: "Loose")
+    text = "1 4 0 -24 0 1 0 0 0 1 0 0 0 1 3005.dat\n1 72 0 -32 0 1 0 0 0 1 0 0 0 1 60897.dat\n"
+    r = check(text + "1 4 0 -8 -20 1 0 0 0 1 0 0 0 1 3628.dat\n")
+    assert clips_fitted(r) == 1 and all_fitted(r), r.text()
+
+
+@pytest.mark.parametrize("x, held", [(0, True), (-9, False)])
+def test_a_clip_with_no_primitive_must_be_round_the_bar(x, held):
+    # 15712 (no clip primitive): the grip is where the clip is round the bar (GRIP_RING of 12
+    # points at GRIP_R): the leg 9 LDU to the side passes its box, touching it, not its grip
+    text = leg().splitlines()
+    t = text[-1].split()
+    t[2] = str(float(t[2]) + x)
+    r = check("\n".join([*text[:-1], " ".join(t)]) + "\n")
+    assert (clips_fitted(r) == 1) == held, r.text()
+
+
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
 def test_a_clip_on_a_handle_is_fitted_at_any_angle_about_it(angle):
     text, _, _ = tube_on_handle(-angle)  # turned up from straight out
