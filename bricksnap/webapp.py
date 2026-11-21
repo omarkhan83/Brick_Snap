@@ -326,10 +326,10 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   restore) refuse it with a plain message (``NOT_FOR_FREE``), before anything starts; change
   and use refuse an ordinary project (``FREE_ONLY``).
 - ``GET /api/projects``: a free build's card has ``kind`` "free", ``name``, ``parts``,
-  ``valid`` (the checker found no problems), ``problems``, ``unchecked`` (joints it could
-  not confirm), ``checked`` (its one-line summary), ``picture`` (pictures/card.png),
-  ``updated`` (project.json's time), ``job`` and ``problem``; ``studs`` is null. Ordinary
-  cards gain ``kind`` "model".
+  ``valid`` (the checker found no problems), ``problems``, ``unchecked`` (joints known by
+  name only, whose fit it has not measured), ``checked`` (its one-line summary), ``picture``
+  (pictures/card.png), ``updated`` (project.json's time), ``job`` and ``problem``; ``studs``
+  is null. Ordinary cards gain ``kind`` "model".
 - ``GET /api/p/<project>`` for a free build: the card, plus ``words``, ``parts_wanted``,
   ``reference``, ``kinds``, ``summary``, ``report`` (the checker's full report), ``notes``
   (the AI's closing words, redacted when kept), ``current_run``, ``runs`` (oldest first,
