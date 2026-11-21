@@ -173,12 +173,14 @@ What it reports, each item naming the line number, the part and its position:
   by design: the library may only lack the joint), for the first ``SUNK_LOOKS`` such parts
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
   real move onto studs are kept. Parts that reach the ground only through clip grips tested
-  for fit and carry more than a strut, a rail, an aerial or a mirror (``clip_loads``: more
-  than ``LOAD_PER_GRIP`` per clip, or held out on one clip beyond ``LOAD_ONE_GRIP``) get a
-  warning naming them and a word in the summary: a clip holds a strut or a rail, and the
-  checker cannot judge whether clips will carry more. Three official models trip it (75075,
-  31066, 40379: their designers carry weight on several clips); it was kept on purpose, for
-  every model, as a warning that never becomes a problem: it is not a false alarm to fix.
+  for fit and carry more than a strut, a rail, an aerial, a blade or a mirror
+  (``clip_loads``: the filled volume of all of them more than ``LOAD_PER_GRIP`` per clip,
+  or held out on one clip beyond ``LOAD_ONE_GRIP``) get a warning naming them and a word in
+  the summary: they reach the ground only through N clips, and the checker cannot judge
+  whether clips will carry that much. Two official models trip it (75075 and 31066: their
+  designers carry weight on several clips; 40379 did under the first, stricter limit for one
+  clip); it was kept on purpose, for every model, as a warning that never becomes a problem:
+  it is not a false alarm to fix.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -2772,19 +2774,20 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
 
 
 LOAD_PER_GRIP = 76800.0  # LDU^3 (filled bodies) a clip may carry: a 2 x 4 brick's
-LOAD_ONE_GRIP = 1_000_000.0  # LDU^4: held out on one clip, volume times its reach from it
+LOAD_ONE_GRIP = 2_500_000.0  # LDU^4: held out on one clip, volume times its reach from it
+# (a 1 x 8 tile as a blade, 2.15 million, is not told; a 2 x 6 plate as a wing, 2.83, is)
 
 
 def clip_loads(report: Report) -> None:
     """Parts that reach the ground only through clip grips tested for fit, when they are more
-    than a strut, a rail, an aerial or a mirror: a warning of kind "held by clips" naming them,
-    and the summary says so. Group the parts joined by anything but clip grips; a group that
-    is not on the ground that way but is with them hangs on the clips that cross its edge.
-    Its load is the filled volume of its parts that are not thin members (a bar, a bar tube,
-    a clip with a grip: ``_bar_lines``, ``_tube_hollows``, ``grip_lines``). It is too much
-    when each clip carries more than ``LOAD_PER_GRIP`` (a table on clip-held legs), or when
-    one clip holds it and its load times its reach from the clip (to the middle of the load,
-    across) is more than ``LOAD_ONE_GRIP`` (a wing held out on one clip)."""
+    than a strut, a rail, an aerial, a blade or a mirror: a warning of kind "held by clips"
+    naming them, and the summary says so. Group the parts joined by anything but clip grips;
+    a group that is not on the ground that way but is with them hangs on the clips that cross
+    its edge. Its load is the filled volume of all its parts (a strut or an aerial is light
+    by its own volume). It is too much when each clip carries more than ``LOAD_PER_GRIP`` (a
+    table on clip-held legs), or when one clip holds it and its load times its reach from
+    the clip (to the middle of the load, across) is more than ``LOAD_ONE_GRIP`` (a wing held
+    out on one clip)."""
     report.issues = [i for i in report.issues if i.kind != "held by clips"]
     by_line = {p.line: p for p in report.placed}
     clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
@@ -2807,13 +2810,7 @@ def clip_loads(report: Report) -> None:
         if ground & set(comp) or not any(set(comp) <= set(c) for c in held):
             continue
         cross = [i for i in clip_fits if (i.lines[0] in comp) != (i.lines[1] in comp)]
-        load = [
-            by_line[n]
-            for n in comp
-            if not (
-                _bar_lines(by_line[n]) or _tube_hollows(by_line[n]) or grip_lines(by_line[n].key)
-            )
-        ]
+        load = [by_line[n] for n in comp]
         vol = sum(p.part.volume() for p in load)
         if not cross or vol <= 0:
             continue
@@ -2838,9 +2835,9 @@ def clip_loads(report: Report) -> None:
                     "held by clips",
                     lines,
                     f"{_lines(lines).capitalize()} reach the ground only through "
-                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. A clip holds a "
-                    "strut or a rail; the checker cannot judge whether clips will carry this "
-                    "much. If it has to bear weight, hold it with studs or a pin.",
+                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. The checker "
+                    "cannot judge whether clips will carry this much. If it has to bear "
+                    "weight, hold it with studs or a pin.",
                 )
             )
 

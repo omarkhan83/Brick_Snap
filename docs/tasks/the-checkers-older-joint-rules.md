@@ -220,8 +220,12 @@ Left:
 Fixed on the branch: a clip's grip is closed (7 of 12 points) with one direction, found per
 clip in its shape (`grip_lines`, shared by the checker and the `clip` tool); a load hung on
 clips is told (`clip_loads`: the parts reach the ground only through N clips, and the checker
-cannot judge whether clips will carry this much; three official models trip it, 75075, 31066
-and 40379, and it was kept on purpose as a warning for every model: not a false alarm to fix); `strut` refuses what would not close and its advice closes it;
+cannot judge whether clips will carry this much; official 75075 and 31066 trip it (40379 did
+under the first limit for one clip), and it was kept on purpose as a warning for every model:
+not a false alarm to fix; since the second review every part counts by its own volume, a
+part with a handle too, and the limits are set by cases either side: a 1 x 8 tile blade on
+one clip is not told, a 2 x 6 plate wing is; three bricks on the clip-legged table are not,
+four are); `strut` refuses what would not close and its advice closes it;
 `clip` reports what the checker finds; the sentences say "most clips on bars".
 Every limit is pinned or gone: each was loosened in turn and the tests run. Pinned now:
 `GRIP_R` both ways (98460's clip opening below), the bar tube's wall ring (24122: at 6 its pin

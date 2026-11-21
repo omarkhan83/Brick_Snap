@@ -719,22 +719,66 @@ def loads(report) -> list[list[int]]:
     return [i.lines for i in report.warnings if i.kind == "held by clips"]
 
 
-def test_a_table_on_clip_held_legs_is_told_a_clip_holds_no_load():
-    # twelve 2 x 4 bricks on four clips: 236,800 LDU^3 each, more than LOAD_PER_GRIP (one
-    # 2 x 4 brick, 76,800); three bricks (64,000 each) and the plate alone are not told
-    r = check(table(12))
-    assert len(loads(r)) == 1 and "17 only by clips, carrying more than a strut" in r.summary()
-    assert "the checker cannot judge whether clips will carry this much" in r.text()
+def test_a_table_on_clip_held_legs_is_told_when_each_clip_carries_more_than_a_brick():
+    # four clips carry their own 4 x 4,224, the plate's 25,600 and 76,800 a brick: four
+    # bricks are 87,424 a clip, more than LOAD_PER_GRIP (76,800, one 2 x 4 brick); three are
+    # 68,224 a clip and are not told; twelve are, and the plate alone is not
+    for told in (4, 12):
+        r = check(table(told))
+        assert len(loads(r)) == 1, (told, r.text())
+    assert f"{4 + 1 + 12} only by clips, carrying more than a strut" in r.summary()
+    assert "reach the ground only through 4 clips" in r.text()
+    assert "The checker cannot judge whether clips will carry this much" in r.text()
+    assert "strut or a rail" not in r.text()
     assert not loads(check(table(3))) and not loads(check(table(0)))
 
 
+ARM = """1 7 0 -24 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -48 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -72 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -96 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 14 0 -104 -10 1 0 0 0 1 0 0 0 1 2540.dat
+"""  # the review's: a handle on a stack of bricks
+OUT = "1 4 0 -100 -50 1 0 0 0 -1 0 0 0 -1 61252.dat\n"  # a 61252 on it, pointing out
+UP = "1 4 0 -122 -32 1 0 0 0 0 -1 0 1 0 61252.dat\n"  # pointing up
+
+
+@pytest.mark.parametrize(
+    "held, told",
+    [
+        (OUT + "1 15 30 -92 -50 1 0 0 0 -1 0 0 0 -1 2431.dat", False),  # 1 x 4 tile: 0.77 million
+        (UP + "1 15 50 -122 -40 1 0 0 0 0 -1 0 1 0 3666.dat", False),  # 1 x 6 plate: 1.13
+        (OUT + "1 15 50 -92 -50 1 0 0 0 -1 0 0 0 -1 6636.dat", False),  # 1 x 6 tile: 1.33
+        (OUT + "1 15 70 -92 -50 1 0 0 0 -1 0 0 0 -1 4162.dat", False),  # 1 x 8 tile: 2.15
+        (OUT + "1 15 50 -92 -60 1 0 0 0 -1 0 0 0 -1 3795.dat", True),  # 2 x 6 plate: 2.83
+        (OUT + "1 15 70 -92 -60 1 0 0 0 -1 0 0 0 -1 3034.dat", True),  # 2 x 8 plate: 4.50
+    ],
+)
+def test_a_blade_on_one_clip_is_not_told_and_a_wing_is(held, told):
+    # held out on one clip, volume times reach: rule 8's blades (a 1 x 6 or 1 x 8 tile, a
+    # 1 x 6 plate) are under LOAD_ONE_GRIP (2.5 million LDU^4), a 2-wide plate's wing over it
+    r = check(ARM + held + "\n")
+    assert bool(loads(r)) == told, r.text()
+    assert all_fitted(r) or told, r.text()
+
+
 def test_a_wing_held_out_on_one_clip_is_told_and_a_mirror_is_not():
-    # a 1 x 8 plate 110 LDU out from one clip: 25,600 LDU^3 times 110, more than LOAD_ONE_GRIP;
-    # a 1 x 1 plate on the clip plate itself is a mirror, a detail
+    # a 1 x 8 plate held by its end, its middle 110 LDU out from one clip: more than
+    # LOAD_ONE_GRIP; a 1 x 1 plate on the clip plate itself is a mirror, a detail
     r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
     assert loads(r) == [[5, 6]], r.text()
     r = check(WING + "1 1 0 -87.5 -50 1 0 0 0 1 0 0 0 1 3024.dat\n")
     assert not loads(r), r.text()
+
+
+def test_bricks_with_handles_stacked_on_a_clip_are_a_load():
+    # a part with a handle weighs what it is: four 30236 on one 60897 are 97,305 LDU^3,
+    # more than LOAD_PER_GRIP
+    clip = "1 4 -4 -122 -30 0 1 0 0 0 -1 -1 0 0 60897.dat\n"
+    stack = "".join(
+        f"1 1 {-28 - 24 * k} -132 -30 0 1 0 -1 0 0 0 0 1 30236.dat\n" for k in range(4)
+    )
+    assert loads(check(ARM + clip + stack)) == [[6, 7, 8, 9, 10]]
 
 
 def test_struts_rails_blades_and_legs_on_clips_are_not_told():
