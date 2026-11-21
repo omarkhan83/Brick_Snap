@@ -163,7 +163,7 @@ def _unchecked_pairs(report: Report) -> list[tuple[int, int]]:
     return [
         (i.lines[0], i.lines[1])
         for i in report.issues
-        if i.severity == "not checked" and i.kind == "joint" and len(i.lines) == 2
+        if i.severity in ("not checked", "fit") and i.kind == "joint" and len(i.lines) == 2
     ]
 
 
@@ -969,7 +969,9 @@ def _fold_module_joints(report: Report, verdicts: list[Verdict]) -> None:
             inside = [
                 i
                 for i in report.issues
-                if i.severity == "not checked" and i.kind == "joint" and set(i.lines) <= own
+                if i.severity in ("not checked", "fit")
+                and i.kind == "joint"
+                and set(i.lines) <= own
             ]
             if not inside:
                 continue

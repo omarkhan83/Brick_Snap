@@ -1,6 +1,6 @@
 # The free-build checker still takes some joints on trust that it could test
-- status: in-progress
-- owner: Alec-42 (since 2026-11-20)
+- status: open
+- owner: nobody
 - stage: 4
 
 On 20 November the checker stopped calling official techniques wrong (215 false problems on six
@@ -156,3 +156,29 @@ apart: joints tested for fit (they hold a part the way a stud does) and joints k
 kind in "held only by joints the checker cannot confirm". The words the builder and the page show
 about this ("parts joined by clips, bars, pins and axles are counted as joined without proof") change
 with it.
+
+Done on branch `wip/Alec-42-joints-tested-for-fit` (not yet on main):
+- Joints tested for fit (severity "fit", listed under HOW IT HOLDS TOGETHER, counted as
+  confirmed): a wheel on a wheel pin (in a hole of at least 4 LDU, or on a round box's axis
+  with half the width as hub), a tyre on a wheel (both round boxes), an axle drawn as one in a
+  hole, a Technic pin in a pin hole (new: on the hole's line, in all but 2 LDU of the shorter
+  of pin and hole; a full pin's undrawn half from its box), a bar in a hollow, a stud in a pin
+  hole. Everything else is known by name only and stays in NOT CHECKED, reworded. A wheel off
+  its pin does not count through its tyre (the tyre's contact with the pin is name only).
+- The plane now reads "every part is held, nothing overlaps, and it stands; all 4 joints move
+  freely. (1 warning, 3 joints not checked)": its Technic pins qualify; the 3 left are its
+  tyres touching their wheel pins.
+- Problems unchanged everywhere (six sets 18, 18 models 226, every free build and attempt).
+  The builder's instructions, the check tool, the command line and the pages say the same
+  claim; the guide-off prompt and tools pins are updated.
+
+Left:
+- `HOLE_SHORT` (4 LDU) and the stud's "2 LDU of the hole's reach" are not pinned by a test that
+  fails when they loosen (a stud 2.5 LDU out no longer reaches the brick at all, so the stud's
+  own reach is what binds); the body-of-revolution constants no longer affect what is tested
+  for fit.
+- A wheel or tyre whose line comes only from its real shape (32247, 30027a) is accepted but
+  known by name only; a full pin through two parts is tested in one of them by its drawn half
+  and in the other by its box.
+- A proven module's own line ("the joints inside it ... counted as joined") still sits in the
+  NOT CHECKED section under the new heading, as before.

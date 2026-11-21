@@ -36,10 +36,11 @@ What it reports, each item naming the line number, the part and its position:
   that reaches into B in any other way is a problem, with the reason: off B's grid (by how
   much, and where to move B to), not pressed home (the gap), pushed in too far, or into B's
   side or top.
-- Joints the geometry cannot confirm: when a part joins by clips, bars, pins, axles, hinges,
-  ball joints or wheel pins (from its primitives or its name) and touches another part with
-  no stud connection between them, the pair is listed as "not checked" and counts as joined
-  when deciding what is loose. An axle counts along its whole length (``Connector.points``),
+- Joints other than studs: when a part joins by clips, bars, pins, axles, hinges, ball
+  joints or wheel pins (from its primitives or its name) and touches another part with no
+  stud connection between them, the pair counts as joined when deciding what is loose, and
+  is listed as tested for fit or known by name only (see "Two kinds of joint" below). An
+  axle counts along its whole length (``Connector.points``),
   a bar handle along its bar (``_handle_bars``: a handle is drawn with a primitive at each
   end of its bar, and the bar runs through the middle of each one's reach), other connectors
   at their own place. A named joint excuses only what the joint needs (``_joint_clash``):
@@ -112,6 +113,35 @@ What it reports, each item naming the line number, the part and its position:
     its base within ``AXLE_LDU`` LDU of it and within 2 LDU of the hole's reach. A pin hole
     takes one stud: a second stud in the same hole (from its other end) is a stud problem.
   A bar or a stud on no such axis is checked as before (a stud problem, an overlap, loose).
+- Two kinds of joint (other than studs). A joint TESTED FOR FIT is one whose position the
+  checker has measured: the one part is in the other where and as far as it should be (the
+  same kind of test a stud gets; grip is judged for neither). Each is an item of severity
+  "fit" (``Report.fits``, lines [the part that holds, the part held], text "line N (part)
+  is held ..."), not in NOT CHECKED: (``_fit_of``, ``_fit_issue``)
+  - a wheel on a wheel pin: the pin on the wheel's line (a hole of at least ``HOLE_SHORT``,
+    else the axis of its round box: two sides within ``BOX_ROUND``) and in as far as the
+    shorter of pin and hole (half the wheel's width on a box's axis) less ``WHEEL_PLAY``
+    (``_wheel_pin_fit``); never a tyre on the pin (the pin is in the wheel, not its tyre),
+    and never a wheel whose line comes only from its real shape (``_body_axis``: good enough
+    to accept the joint, not to measure its fit);
+  - a tyre on a wheel: the tyre's round box on the wheel's (or on a hole of it at least
+    ``HOLE_SHORT`` long), over all but ``TYRE_PLAY`` of the narrower width (``_tyre_fit``);
+  - an axle the library draws with axle-hole primitives, along an axle or pin hole, the two
+    sharing ``AXLE_IN`` (``_axle_fit``);
+  - a Technic pin in a pin hole: on the hole's line and in as far as the shorter of the pin
+    half and the hole (a through hole drawn at each face is one hole) less ``PIN_PLAY``
+    (``_pin_fit``; a full pin's other half, which the library does not draw as a pin, is
+    taken from its box: ``_pin_halves``);
+  - a bar in a hollow (``_bar_fits``, as above) and a stud in a Technic pin hole;
+  each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
+  KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip on a bar or
+  handle (by reach), hinge halves, finger hinges, ball and socket, a turntable outside a
+  proven module, a wheel or tyre whose line comes from its shape or that has none, an axle
+  or pin the library does not draw as one (or that misses the measure), a tyre touching a
+  wheel pin, and anything judged by nearness. A joint tested for fit holds a part as a stud
+  link does: it is listed under HOW IT HOLDS TOGETHER ("line 2 is held on the wheel pin of
+  line 1 (in 12 LDU, 6 asked)") and counts as confirmed in ``held_only_item``; the report
+  then says once that fit is tested and grip is not (``FIT_NOTE``).
 - What is loose: groups of parts with no path of connections to a part on the ground
   (y = 0 at its lowest point, within ``GROUND_TOL``), each with what is below it and how far;
   groups that stand on the ground but are not joined to the rest (a warning); parts below the
@@ -143,9 +173,10 @@ What it reports, each item naming the line number, the part and its position:
   only through joints the checker cannot confirm, "every part is held (N of them only by
   joints the checker cannot confirm)"); with joints it also says how many move freely, and
   how many problems are about movement.
-- The NOT CHECKED section lists the joints (the first ``MAX_OTHERS``, then a count of the
-  rest by kind) and then, never cut, the line naming the parts held only through them
-  (``held_only_item``). Stud links count as confirmed; so do the joints inside a proven
+- The NOT CHECKED section lists the joints known by name only (the first ``MAX_OTHERS``,
+  then a count of the rest by kind) and then, never cut, the line naming the parts held only
+  through them (``held_only_item``); "N joints not checked" counts them alone. Stud links
+  and joints tested for fit count as confirmed; so do the joints inside a proven
   module: a joint line that names the module, whose parts ``modules.verify`` accepts as the
   module's parts in the module's places, and whose movement verdict is not a problem
   (``movement.apply`` puts the item again with those modules' parts joined). A module that
@@ -154,16 +185,17 @@ What it reports, each item naming the line number, the part and its position:
 
 Rough by design (and the report says so once): the filled body misses walls thinner than
 about 2 LDU and treats side holes as solid (an overlap it misses is not looked for on the
-real shapes); interference thinner than 1.5 LDU is not reported; joints other than studs
-are never confirmed (a bar's grip in its hollow is not judged); whether a connection is
-strong (one stud or eight) is listed but not judged.
+real shapes); interference thinner than 1.5 LDU is not reported; joints known by name only
+are never confirmed, and no joint's grip is judged (a bar's in its hollow, a pin's in its
+hole, a stud's in its socket); whether a connection is strong (one stud or eight) is listed
+but not judged.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -196,8 +228,12 @@ UP = np.array([0.0, -1.0, 0.0])
 
 ROUGH_NOTE = (
     "(The overlap check is rough: it fills each part's hollow underside, so arches, overhangs "
-    "and parts that go into one another can give false alarms; joints other than studs are "
+    "and parts that go into one another can give false alarms; joints known by name only are "
     "never confirmed.)"
+)
+FIT_NOTE = (
+    "(Joints tested for fit are measured, as studs are, for where and how far one part goes "
+    "into the other; how firmly any joint grips is not judged.)"
 )
 
 
@@ -234,7 +270,7 @@ class Placed:
 
 @dataclass
 class Issue:
-    severity: str  # "problem", "warning", "not checked"
+    severity: str  # "problem", "warning", "not checked", "fit" (a joint tested for fit)
     kind: str
     lines: list[int]
     text: str
@@ -273,6 +309,11 @@ class Report:
     @property
     def unchecked(self) -> list[Issue]:
         return [i for i in self.issues if i.severity == "not checked"]
+
+    @property
+    def fits(self) -> list[Issue]:
+        """The joints tested for fit (see the contract): they hold a part as a stud does."""
+        return [i for i in self.issues if i.severity == "fit"]
 
     @property
     def ok(self) -> bool:
@@ -352,13 +393,14 @@ class Report:
         if joints or held_only:
             out.append("")
             out.append(
-                "NOT CHECKED (joints the checker cannot confirm; make sure each is a real one):"
+                "NOT CHECKED (joints known by name only: the checker has not measured the fit; "
+                "make sure each is a real one):"
             )
             out.extend(f"- {x.text}" for x in joints[:MAX_OTHERS])
             if len(joints) > MAX_OTHERS:
                 kinds: dict[str, int] = {}
                 for x in joints[MAX_OTHERS:]:
-                    m = re.search(r": a (.+?) joint, which|join by a (.+?), which", x.text)
+                    m = re.search(r": a (.+?) joint, known|join by a (.+?), known", x.text)
                     word = (m.group(1) or m.group(2)).split(" or ")[0] if m else "other"
                     kinds[word] = kinds.get(word, 0) + 1
                 what = ", ".join(
@@ -382,17 +424,24 @@ class Report:
             by_held: dict[int, list[Link]] = {}
             for link in self.links:
                 by_held.setdefault(link.held, []).append(link)
+            fit_held: dict[int, list[str]] = {}  # joints tested for fit: what follows "is held"
+            for x in self.fits:
+                fit_held.setdefault(x.lines[1], []).append(x.text.split(" is held ", 1)[1])
             if len(self.placed) <= DETAIL_PARTS:
                 for p in self.placed:
                     held = by_held.get(p.line, [])
-                    if not held:
+                    if not held and p.line not in fit_held:
                         continue
                     desc = "; ".join(
-                        f"{len(x.studs)} stud{'s' if len(x.studs) != 1 else ''} of line "
-                        f"{x.holder}" + (f" ({x.how})" if x.how != "on top" else "")
-                        for x in held
+                        [
+                            "by "
+                            + f"{len(x.studs)} stud{'s' if len(x.studs) != 1 else ''} of line "
+                            f"{x.holder}" + (f" ({x.how})" if x.how != "on top" else "")
+                            for x in held
+                        ]
+                        + fit_held.get(p.line, [])
                     )
-                    out.append(f"- line {p.line} is held by {desc}")
+                    out.append(f"- line {p.line} is held {desc}")
             else:
                 held_parts = len(by_held)
                 studs = sum(len(x.studs) for x in self.links)
@@ -415,11 +464,27 @@ class Report:
                         f"- held by a single stud ({len(single)} parts; fine for a detail, weak "
                         f"for anything that carries others): lines {shown}{more}"
                     )
+                if self.fits:
+                    shown_fits = [x.text for x in self.fits[:MAX_OTHERS]]
+                    more = (
+                        f"; and {len(self.fits) - MAX_OTHERS} more"
+                        if len(self.fits) > MAX_OTHERS
+                        else ""
+                    )
+                    out.append(
+                        f"- held on joints tested for fit ({len(self.fits)}): "
+                        + "; ".join(shown_fits)
+                        + more
+                    )
             if self.stand_text:
                 out.append("- " + self.stand_text)
         if self.placed and (self.problems or self.warnings):
             out.append("")
             out.append(ROUGH_NOTE)
+        if self.fits:
+            if not (self.placed and (self.problems or self.warnings)):
+                out.append("")
+            out.append(FIT_NOTE)
         return "\n".join(out)
 
 
@@ -898,14 +963,17 @@ def _bar_goes_on(bar: Placed, other: Placed, ends: np.ndarray) -> bool:
     return False
 
 
-def _held_bar(a: Placed, b: Placed, held: dict[int, np.ndarray]) -> tuple[str, np.ndarray] | None:
-    """A bar of b in a hollow of a, or of a in b (see ``_bar_in``); the bar's line and the
-    hollow's axis go into ``held``."""
+def _held_bar(
+    a: Placed, b: Placed, held: dict[int, np.ndarray]
+) -> tuple[str, np.ndarray, int, int] | None:
+    """A bar of b in a hollow of a, or of a in b (see ``_bar_in``): its name, the hollow's
+    axis, the hollow's line and the bar's line; the bar's line and the hollow's axis go into
+    ``held``."""
     for holder, bar in ((a, b), (b, a)):
         got = _bar_in(holder, bar)
         if got is not None:
             held[bar.line] = got[1]
-            return got
+            return (*got, holder.line, bar.line)
     return None
 
 
@@ -1344,6 +1412,222 @@ def _axle_in_hole(p: Placed, q: Placed) -> bool:
     return False
 
 
+# ---- joints tested for fit -------------------------------------------------------------------
+
+PIN_PLAY = 2.0  # LDU a Technic pin may stop short of the shorter of itself and its hole (75892: 2)
+
+
+def _share_on_line(
+    o1: np.ndarray,
+    d1: np.ndarray,
+    r1: tuple[float, float],
+    o2: np.ndarray,
+    d2: np.ndarray,
+    r2: tuple[float, float],
+) -> float | None:
+    """How much two lines' reaches share when they run along each other (parallel within
+    ``AXLE_DEG``, within ``AXLE_LDU``: the test of ``_lines_meet``); None when they do not."""
+    if abs(float(np.dot(d1, d2))) < math.cos(math.radians(AXLE_DEG)):
+        return None
+    w = o2 - o1
+    t = float(np.dot(w, d1))
+    if float(np.linalg.norm(w - t * d1)) > AXLE_LDU:
+        return None
+    a1 = sorted(r1)
+    a2 = sorted(t + float(np.dot(d2, d1)) * np.array(r2))
+    return min(a1[1], a2[1]) - max(a1[0], a2[0])
+
+
+def _wheel_pin_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
+    """A wheel pin of p measured in q's wheel (the deep test of ``_wheel_pin_in``): in a hole
+    at least ``HOLE_SHORT`` long, else on the axis of a round box (``_box_axis``) with half
+    the wheel's width as its hub: (how far it is in, how far it must be); None when it is
+    not, or nothing can be measured: a pin known by name, a wheel whose line comes only from
+    its real shape (``_body_axis``: good enough to accept the joint, not to measure its fit),
+    or q a tyre (the pin is in the wheel, not in its tyre)."""
+    pins = [c for c in p.part.others if c.kind == "wheel pin"]
+    if not pins or ("tyre" in q.part.name_joint_words() and not _both_wheel_and_tyre(q)):
+        return None
+    lines, hub = _measured_holes(q), 1.0
+    box = _box_axis(q)
+    if not lines and box is not None:  # no hole: its box's axis, with half its width as hub
+        lines, hub = [(box[0], box[1], box[2])], 0.5
+    best = None
+    for c in pins:
+        for o, d, r in lines:
+            got = _share_on_line(p.to_world(c.pos), p.m @ c.axis, c.along, o, d, r)
+            need = min(abs(c.along[1] - c.along[0]), abs(r[1] - r[0]) * hub) - WHEEL_PLAY
+            if got is not None and got >= need and (best is None or got - need > best[0] - best[1]):
+                best = (got, need)
+    return best
+
+
+def _measured_holes(q: Placed) -> list[tuple[np.ndarray, np.ndarray, tuple[float, float]]]:
+    """q's wheel, axle and pin holes at least ``HOLE_SHORT`` long, as lines (world)."""
+    return [
+        (q.to_world(c.pos), q.m @ c.axis, c.along)
+        for c in q.part.others
+        if c.kind in ("wheel hole", "axle hole", "pin hole")
+        and abs(c.along[1] - c.along[0]) >= HOLE_SHORT
+    ]
+
+
+def _tyre_fit(tyre: Placed, wheel: Placed) -> tuple[float, float] | None:
+    """A tyre measured round its wheel (``_tyre_on_wheel``), both axes from their boxes (the
+    wheel's from a hole at least ``HOLE_SHORT`` long when its box is not round): (how much of
+    the wheel's width it covers, how much it must); None when it does not, or when an axis
+    comes only from the real shape (``_body_axis``: good enough to accept the joint, not to
+    measure its fit)."""
+    words = tyre.part.name_joint_words()
+    if "tyre" not in words or _both_wheel_and_tyre(tyre):
+        return None
+    ax = _box_axis(tyre)
+    box = _box_axis(wheel)
+    lines = [(box[0], box[1], box[2])] if box is not None else _measured_holes(wheel)
+    if ax is None or not lines:
+        return None
+    width = abs(ax[2][1] - ax[2][0])
+    best = None
+    for o, d, r in lines:
+        got = _share_on_line(ax[0], ax[1], ax[2], o, d, r)
+        need = max(WHEEL_IN, min(width, abs(r[1] - r[0])) - TYRE_PLAY - 0.5)
+        if got is not None and got >= need and (best is None or got > best[0]):
+            best = (got, need)
+    return best
+
+
+def _axle_fit(p: Placed, q: Placed) -> float | None:
+    """An axle of p measured along a hole of q (``_axle_in_hole``: only an axle the library
+    draws with axle-hole primitives is measured): how far it is in; None otherwise."""
+    drawn = [c for c in p.part.others if c.kind == "axle"]
+    if not drawn or any(not AXLE_HOLE_PRIM.match(c.prim) for c in drawn):
+        return None
+    best = None
+    for c in drawn:
+        for h in q.part.others:
+            if h.kind not in ("axle hole", "pin hole"):
+                continue
+            got = _share_on_line(
+                p.to_world(c.pos), p.m @ c.axis, c.along, q.to_world(h.pos), q.m @ h.axis, h.along
+            )
+            if got is not None and got >= AXLE_IN and (best is None or got > best):
+                best = got
+    return best
+
+
+def _pin_halves(p: Placed) -> list:
+    """The Technic pin halves of p as connectors. The library draws a full pin (3673, 2780)
+    with a pin primitive for one half only: a part with one pin connector, no axle, no wider
+    than a pin across (a 16 LDU box) and reaching 8 LDU or more on the other side gets that
+    other half too, as long as it reaches (a 3/4 pin's other half is 10 LDU)."""
+    pins = [c for c in p.part.others if c.kind == "pin"]
+    if len(pins) != 1 or any(c.kind == "axle" for c in p.part.others):
+        return pins
+    c = pins[0]
+    lo, hi = sorted(c.along)
+    corners = np.array(
+        [
+            [x, y, z]
+            for x in (p.part.bbox_min[0], p.part.bbox_max[0])
+            for y in (p.part.bbox_min[1], p.part.bbox_max[1])
+            for z in (p.part.bbox_min[2], p.part.bbox_max[2])
+        ]
+    )
+    along = (corners - c.pos) @ c.axis
+    across = np.linalg.norm((corners - c.pos) - np.outer(along, c.axis), axis=1)
+    reach = min(float(along.max()), hi - lo)
+    if reach >= 8 and lo < 0 <= hi + 1e-9 and float(across.max()) <= 12:
+        return [c, replace(c, along=(0.0, reach))]
+    return pins
+
+
+def _pin_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
+    """A Technic pin of p measured in a pin hole of q: on the hole's line (parallel within
+    ``AXLE_DEG``, within ``AXLE_LDU``) and in as far as the shorter of the pin and the hole
+    (a through hole drawn at each face is one hole, end to end: ``_hollows``) less
+    ``PIN_PLAY``: (how far it is in, how far it must be); None otherwise. A pin the library
+    draws with one primitive for one half (a full Technic pin) is measured for that half."""
+    holes = _hollows(q, [c for c in q.part.others if c.kind == "pin hole"])
+    best = None
+    for c in _pin_halves(p):
+        for h in holes:
+            length = float(np.linalg.norm(h.p1 - h.p0))
+            if length < 1e-9:
+                continue
+            got = _share_on_line(
+                p.to_world(c.pos),
+                p.m @ c.axis,
+                c.along,
+                h.p0,
+                (h.p1 - h.p0) / length,
+                (0.0, length),
+            )
+            need = min(abs(c.along[1] - c.along[0]), length) - PIN_PLAY
+            if got is not None and got >= need and (best is None or got > best[0]):
+                best = (got, need)
+    return best
+
+
+def _fit_issue(fit: tuple[int, int, str], by_line: dict[int, Placed]) -> Issue:
+    """The report's item for a joint tested for fit: lines [the one that holds, the one held];
+    its text is "line N (part) is held ..." (``Report.text`` lists what follows "is held"
+    under HOW IT HOLDS TOGETHER)."""
+    holder, held, how = fit
+    p = by_line[held]
+    return Issue("fit", "joint", [holder, held], f"line {held} ({p.key}) is held {how}")
+
+
+def _fit_of(a: Placed, b: Placed, words: list[str]) -> tuple[int, int, str] | None:
+    """Is a named joint between a and b one the checker has measured, a part in the other
+    where and as far as it should be (see the contract: "tested for fit")? Then (the line
+    that holds, the line held, the words after "is held"); None for a joint known by name
+    only."""
+    for word in words:
+        for p, q in ((a, b), (b, a)):
+            if word == "wheel pin":
+                got = _wheel_pin_fit(p, q)
+                if got is not None:
+                    return (
+                        p.line,
+                        q.line,
+                        (
+                            f"on the wheel pin of line {p.line} (in {fmt(round(got[0], 1))} LDU, "
+                            f"{fmt(round(got[1], 1))} asked)"
+                        ),
+                    )
+            elif word == "tyre on a wheel":
+                got = _tyre_fit(p, q)
+                if got is not None:
+                    return (
+                        q.line,
+                        p.line,
+                        (
+                            f"round the wheel line {q.line} (over {fmt(round(got[0], 1))} LDU, "
+                            f"{fmt(round(got[1], 1))} asked)"
+                        ),
+                    )
+            elif word == "axle":
+                got_a = _axle_fit(p, q)
+                if got_a is not None:
+                    return (
+                        p.line,
+                        q.line,
+                        (f"on the axle of line {p.line} (in {fmt(round(got_a, 1))} LDU)"),
+                    )
+            elif word == "Technic pin":
+                got = _pin_fit(p, q)
+                if got is not None:
+                    return (
+                        p.line,
+                        q.line,
+                        (
+                            f"on the Technic pin of line {p.line} (in {fmt(round(got[0], 1))} LDU, "
+                            f"{fmt(round(got[1], 1))} asked)"
+                        ),
+                    )
+    return None
+
+
 # ---- what a named joint needs, and nothing more ---------------------------------------------
 
 JOINT_ROOM = {  # LDU round a receptacle's line (the hole, the clip) where its joint may share
@@ -1359,6 +1643,7 @@ CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
 JOINT_SNUG_VOL = 1000.0  # LDU^3: and less than this much in all
 WHEEL_IN = 2.0  # LDU a tyre and its wheel must share along their axis
+BOX_ROUND = 0.6  # LDU: a round part's box has two sides this nearly equal (its diameter)
 HOLE_SHORT = 4.0  # LDU: a hole primitive shorter than this does not give a wheel's line
 BODY_ROUND = 0.8  # seen along its axis, a body of revolution fills this share of its rim
 BODY_OUT = 0.12  # and has no more than this share of its shadow outside that circle
@@ -1371,18 +1656,27 @@ def _round_axis(p: Placed) -> tuple[np.ndarray, np.ndarray, tuple[float, float],
     """A round part's axis from its box (two equal sides are its diameter, the third its
     width), else from its real shape (``_body_axis``): the centre (world), the direction
     (world), its reach along it from the centre, and its radius; None when neither says."""
-    span = p.part.bbox_max - p.part.bbox_min
-    for k in range(3):
-        o = [j for j in range(3) if j != k]
-        if abs(span[o[0]] - span[o[1]]) <= 0.6 and abs(span[k] - span[o[0]]) > 0.6:
-            centre = p.to_world((p.part.bbox_min + p.part.bbox_max) / 2)
-            d = p.m @ np.eye(3)[k]
-            return centre, d, (-span[k] / 2, span[k] / 2), float(span[o[0]] / 2)
+    box = _box_axis(p)
+    if box is not None:
+        return box
     body = _body_axis(p.key)
     if body is None:
         return None
     centre, k, reach, radius = body
     return p.to_world(centre), p.m @ np.eye(3)[k], reach, radius
+
+
+def _box_axis(p: Placed) -> tuple[np.ndarray, np.ndarray, tuple[float, float], float] | None:
+    """A round part's axis from its box alone: two sides equal within ``BOX_ROUND`` LDU are
+    its diameter, the third (differing by more) its width; as ``_round_axis``."""
+    span = p.part.bbox_max - p.part.bbox_min
+    for k in range(3):
+        o = [j for j in range(3) if j != k]
+        if abs(span[o[0]] - span[o[1]]) <= BOX_ROUND and abs(span[k] - span[o[0]]) > BOX_ROUND:
+            centre = p.to_world((p.part.bbox_min + p.part.bbox_max) / 2)
+            d = p.m @ np.eye(3)[k]
+            return centre, d, (-span[k] / 2, span[k] / 2), float(span[o[0]] / 2)
+    return None
 
 
 _BODY_AXES: dict[str, tuple[np.ndarray, int, tuple[float, float], float] | None] = {}
@@ -1836,7 +2130,7 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                         bad.append(h)
                         continue
                 if h.joint is not None and bar is None:
-                    bar = h.joint
+                    bar = (*h.joint, holder.line, held.line)
                     if h.joint[0] != "stud in a pin hole":
                         bar_held[held.line] = h.joint[1]
             if good:
@@ -1917,14 +2211,18 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                     )
                 )
             elif joint:
+                fit = _fit_of(a, b, joint)
                 report.issues.append(
-                    Issue(
+                    _fit_issue(fit, by_line)
+                    if fit is not None
+                    else Issue(
                         "not checked",
                         "joint",
                         [a.line, b.line],
-                        f"{short(a)} and {short(b)}: a {' or '.join(joint[:3])} joint, which the "
-                        f"checker cannot confirm (they share about {int(round(vol, -1))} LDU^3 "
-                        "where one goes into the other). Counted as joined.",
+                        f"{short(a)} and {short(b)}: a {' or '.join(joint[:3])} joint, known by "
+                        f"name only: the checker has not measured the fit (they share about "
+                        f"{int(round(vol, -1))} LDU^3 where one goes into the other). Counted "
+                        "as joined.",
                     )
                 )
                 groups.join(a.line, b.line)
@@ -1966,34 +2264,31 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
             # a bar in a hollow where the rough bodies do not overlap (a thin bar)
             bar = _held_bar(a, b, bar_held)
         if bar is not None and (a.line, b.line) not in joint_pairs:
-            report.issues.append(
-                Issue(
-                    "not checked",
-                    "joint",
-                    [a.line, b.line],
-                    f"{short(a)} and {short(b)}: a {bar[0]} joint, which the checker cannot "
-                    + (
-                        "confirm (the stud points along the hole's axis). "
-                        if bar[0].startswith("stud")
-                        else "confirm (the bar is on the hollow's axis, in far enough and no "
-                        "thicker than a bar). "
-                    )
-                    + "Counted as joined.",
+            holder_ln, held_ln = bar[2], bar[3]
+            if bar[0].startswith("stud"):
+                how = f"by a stud of line {holder_ln} in its Technic pin hole (on the hole's axis)"
+            else:
+                how = (
+                    f"as a {bar[0]} of line {holder_ln} (on the hollow's axis, in far enough and "
+                    "no thicker than a bar)"
                 )
-            )
+            report.issues.append(_fit_issue((holder_ln, held_ln, how), by_line))
             groups.join(a.line, b.line)
             joint_pairs.add((a.line, b.line))
         # joints that cannot be checked
         words = [] if linked or (a.line, b.line) in joint_pairs else _joint_words(a, b, None)
         if words and (_touches(a, b) or _touches(b, a)) and not _joint_clash(a, b, words):
+            fit = _fit_of(a, b, words)
             report.issues.append(
-                Issue(
+                _fit_issue(fit, by_line)
+                if fit is not None
+                else Issue(
                     "not checked",
                     "joint",
                     [a.line, b.line],
                     f"{short(a)} and {short(b)} touch where they can join by a "
-                    f"{' or '.join(words[:3])}, which the checker cannot confirm. Counted as "
-                    "joined.",
+                    f"{' or '.join(words[:3])}, known by name only: the checker has not "
+                    "measured the fit. Counted as joined.",
                 )
             )
             groups.join(a.line, b.line)
@@ -2165,6 +2460,8 @@ def held_only_item(
     groups = _Groups([p.line for p in report.placed])
     for link in report.links:
         groups.join(link.holder, link.held)
+    for fit in report.fits:  # a joint tested for fit holds as a stud does
+        groups.join(fit.lines[0], fit.lines[1])
     for own in proven or []:
         for ln in own[1:]:
             if ln in groups.parent and own[0] in groups.parent:

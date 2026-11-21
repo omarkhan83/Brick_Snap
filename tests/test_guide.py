@@ -22,8 +22,8 @@ STUDY_GUIDE = ROOT / "docs" / "research" / "2026-11-19-how-real-sets-are-built" 
 # What the builder is given with the guide off, as it was before the switch existed: the
 # baseline of the with-and-without comparison. If you change prompt.md or a tool on purpose,
 # update these, knowing that guide-off runs before and after the change are no longer alike.
-BASELINE_PROMPT_SHA256 = "0a3efb0ccbf8c006922380c1826bb69785e3f0640378c81b03bc7a433beab067"
-BASELINE_TOOLS_SHA256 = "377358e22a97dfd121ff2ada8e1151176af023afb738f0c669a5f62e4900ecac"
+BASELINE_PROMPT_SHA256 = "e4867827a7a772606055c451c584abc956c9dd2bfcc9b7156e4631a571171976"
+BASELINE_TOOLS_SHA256 = "8dc1908cb16d8c22df42c33d43360aac5d7a6736f1b96aeb8bc341147c364ae4"
 
 needs_library = pytest.mark.skipif(
     not ldraw_lib.zip_path().is_file(), reason="needs the LDraw parts library"
@@ -136,7 +136,7 @@ def test_the_guide_mode_instructions():
     assert guide.rules() in text and "# Panels" in text
     assert "Build from the ground up" not in text and "a sturdy core" not in text
     assert "call playbook once" in text and "which playbook you followed" in text
-    assert "a clip on a bar, a ball joint, a click hinge" in text
+    assert "not of a clip on a bar, a ball joint or a hinge" in text
     assert "lifts off" in text and "hinged doors" in text
     # one method: the rules and Panels come after the working order, before what moves
     assert text.index("7. Stop when") < text.index("# How set designers build")

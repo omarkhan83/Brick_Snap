@@ -45,7 +45,9 @@ A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" |
 guide: true or false, or null for an imported model whose run did not say), "playbook" (the
 title of the playbook the builder asked for last, or null)}``. ``summary`` is the checker's
 one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
-joints it could not confirm (clips, bars, pins, axles: counted as joined without proof);
+joints known by name only, whose fit it has not measured (clips, hinges, ball joints: counted
+as joined without proof). Since 20 November studs, pins, axles, bars and wheels are tested for
+fit and not counted there; numbers stored by earlier runs are kept as they were;
 ``moves`` is the report's MOVEMENT section, one sentence per joint ("'lid' (lid-hinge, lines
 9, 10): swings from 0 to 90 degrees with nothing in the way"), empty when nothing moves
 (``read_movement``).

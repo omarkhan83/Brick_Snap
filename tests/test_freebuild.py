@@ -806,7 +806,7 @@ def test_browser_home_form_consent_and_a_running_build(
         assert page.locator("#freeConfirm").is_visible()
         assert tab.text("#freeQuote") == f"“a sunflower in a pot {MARKUP}”"
         assert "pictures of “Pawn” from five sides" in tab.text("#freeSends")
-        assert "clips, bars, pins and axles" in tab.text("#freeCaveat")
+        assert "clips, hinges and ball joints" in tab.text("#freeCaveat")
         assert page.locator("#freeStart").is_disabled()
         page.check("#freeUnderstood")
         page.fill("#freeWords", "a sunflower in a pot")  # a change takes the agreement back
