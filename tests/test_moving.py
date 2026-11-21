@@ -911,7 +911,9 @@ def test_prompt_has_the_method_for_what_moves():
         "points DOWN",
     ):
         assert kept in text
-    assert len(text) < 1.15 * 9251  # main's prompt is 9251 characters
+    # main's prompt was 9251 characters; the fuller colour list of 20 November (the style
+    # study) added about 320
+    assert len(text) < 1.2 * 9251
 
 
 # ---- the free-build project ------------------------------------------------------------------

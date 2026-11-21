@@ -45,6 +45,89 @@ CLEAN_REPORT = (
 )
 
 
+def _sample_critique() -> dict[str, Any]:
+    from bricksnap.lab import style
+
+    answers = []
+    for key, question in style.questions():
+        no = key in ("thin", "glass")
+        note = (
+            "the stems are bars, but the leaves still hang on thick clips"
+            if key == "thin"
+            else "there is no glass on a plant; it stays"
+            if key == "glass"
+            else ""
+        )
+        answers.append(
+            {"key": key, "question": question, "answer": "no" if no else "yes", "note": note}
+        )
+    return {
+        "answers": answers,
+        "facts": {
+            "parts": 58,
+            "parts_wanted": 80,
+            "size": {"wide": 8.0, "long": 8.0, "high_bricks": 9.3},
+            "colours": [
+                {"code": 288, "name": "Dark Green", "share": 0.41},
+                {"code": 70, "name": "Reddish Brown", "share": 0.3},
+                {"code": 191, "name": "Bright Light Orange", "share": 0.2},
+            ],
+            "glass": [],
+            "body_colours": 3,
+            "not_in_brief": [{"code": 70, "name": "Reddish Brown", "share": 0.3}],
+            "brief_unused": [],
+        },
+        "changed_after": False,
+        "unexplained": [],
+        "mismatches": [
+            "The brief said: Dark Green 60%, Bright Light Orange 30%, Dark Brown under 10%, "
+            "Trans Black. The model, by bulk: Dark Green 41%, Reddish Brown 30%, Bright Light "
+            "Orange 20%."
+        ],
+    }
+
+
+# What a guided run's record holds (lab.art.record), as a session made with the guide leaves it.
+SAMPLE_BRIEF = {
+    "scale": "a pot 6 studs across; the flower head forced it",
+    "colours": [
+        {
+            "code": 288,
+            "job": "stems and leaves",
+            "share": "60%",
+            "name": "Dark Green",
+            "value": "#00451A",
+        },
+        {
+            "code": 191,
+            "job": "petals",
+            "share": "30%",
+            "name": "Bright Light Orange",
+            "value": "#FCAC00",
+        },
+        {
+            "code": 308,
+            "job": "the centre",
+            "share": "under 10%",
+            "name": "Dark Brown",
+            "value": "#352100",
+        },
+        {"code": 10375, "job": "none", "share": "", "name": "Trans Black", "value": "#212121"},
+    ],
+    "pattern": "green below, orange above, a dark centre",
+    "shapes": [
+        {"shape": "the round head", "part": "petals on clips round a hub"},
+        {"shape": "the drooping leaves", "part": "curved slopes on clip plates"},
+        {"shape": "the pot", "part": "a tiled drum of round plates"},
+    ],
+    "sideways": "the pot's rim panels",
+    "thin": "the stem, a bar",
+    "studs": "a patch in the centre, for seeds",
+    "glass": "no glass; it stands on its pot",
+}
+SAMPLE_CRITIQUE = _sample_critique()
+
+
 def never_start(*args: Any, **kwargs: Any) -> Any:
     raise AssertionError("a test tried to start a real AI session")
 
@@ -208,6 +291,26 @@ class FakeLab:
             "guide": kw.get("guide", False),
             "playbook": "Plant, 100 parts" if kw.get("guide") else None,
         }
+        if kw.get("guide"):  # what lab.art.record adds to a guided session's record
+            record.update(
+                art=True,
+                brief=SAMPLE_BRIEF,
+                briefs=[
+                    {"n": 1, "brief": SAMPLE_BRIEF, "reason": None, "parts_before": 0},
+                    {
+                        "n": 2,
+                        "brief": SAMPLE_BRIEF,
+                        "reason": "orange petals read better than yellow",
+                        "parts_before": 30,
+                    },
+                ],
+                critiques=2,
+                first_no=["thin", "glass", "stance"],
+                ended_without_critique=False,
+                built_without_brief=False,
+                critique=SAMPLE_CRITIQUE,
+                handed_in_without_critique=False,
+            )
         if not self.no_model:
             (out / "final.ldr").write_text(self.model, "utf-8")
             (out / "final-report.txt").write_text(self.report, "utf-8")
@@ -280,6 +383,7 @@ def test_build_change_and_restore(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert call["start"] is None and call["change_of"] is None
     assert call["out"] == folder / "runs" / "0001" / "work"
     assert call["max_turns"] == freebuild.MAX_TURNS and call["timeout"] == freebuild.TIMEOUT_S
+    assert call["max_checks"] == freebuild.MAX_CHECKS  # 40 parts: the least a session gets
     assert entry["n"] == 1 and entry["kind"] == "first" and entry["clean"] is True
     assert "The builder is looking for parts: curved slope 2 x 2" in lines
     assert "It placed a part (1 so far)" in lines
@@ -304,6 +408,19 @@ def test_build_change_and_restore(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert len(freebuild.describe(folder)["runs"]) == 2
     with pytest.raises(freebuild.FreeBuildError, match="no run 7"):
         freebuild.restore(folder, 7)
+
+
+def test_a_big_model_gets_more_turns_checks_and_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLab()
+    monkeypatch.setattr(lab_run, "build", fake)
+    folder = freebuild.create(tmp_path, "a Cessna 172", parts=600)
+    freebuild.build(folder)
+    call = fake.calls[0]
+    assert (call["max_turns"], call["max_checks"], call["timeout"]) == (210, 75, 3 * 3600)
+    assert "parts" not in call  # told only in guide mode
+    assert call["task"].endswith("About 600 parts.")
 
 
 def test_a_failed_run_keeps_what_it_made(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -333,8 +450,12 @@ def test_no_pictures_never_loses_the_model(tmp_path: Path, pictures: FakePicture
 def test_create_checks_its_input(tmp_path: Path) -> None:
     with pytest.raises(freebuild.FreeBuildError, match="Say what to build"):
         freebuild.create(tmp_path, " \n ")
-    with pytest.raises(freebuild.FreeBuildError, match="20 to 300"):
-        freebuild.create(tmp_path, "a cat", parts=500)
+    with pytest.raises(freebuild.FreeBuildError, match="20 to 600"):
+        freebuild.create(tmp_path, "a cat", parts=601)
+    assert (
+        freebuild.read_meta(freebuild.create(tmp_path, "a big plane", parts=600))["parts_wanted"]
+        == 600
+    )
     a = freebuild.create(tmp_path, "A cat. Orange.", name="x" * 200)
     b = freebuild.create(tmp_path, "A cat. Orange.")
     assert len(freebuild.read_meta(a)["name"]) == freebuild.MAX_NAME
@@ -400,7 +521,9 @@ def test_make_command(
     code, out, err = _cli(capsys, "make", "a fire truck", "--name", "Truck", "--dir", str(projects))
     assert code == 0, err
     assert "sends the words you typed to the AI provider" in out
-    assert "one AI run" in out and "ten to twenty minutes" in out and "experimental" in out
+    assert "one AI run" in out and "experimental" in out
+    assert "A model of about 80 parts usually takes 5 to 15 minutes and is stopped at 90" in out
+    assert "$2 to $6 of your Claude subscription" in out
     assert "  It placed a part (1 so far)" in out and "no problems" in out
     assert "someone@example.com" not in out and fake.calls[0]["task"].endswith("About 80 parts.")
     truck = projects / "truck"
@@ -564,9 +687,10 @@ def test_a_symlink_out_of_a_free_build_is_not_served(running: Running, projects:
         ({"words": "   "}, "Say in words"),
         ({"words": 5}, "Say in words"),
         ({"words": "x" * 2001}, "too long"),
-        ({"words": "a cat", "parts": 10}, "20 to 300"),
-        ({"words": "a cat", "parts": True}, "20 to 300"),
-        ({"words": "a cat", "parts": "80"}, "20 to 300"),
+        ({"words": "a cat", "parts": 10}, "20 to 600"),
+        ({"words": "a cat", "parts": 601}, "20 to 600"),
+        ({"words": "a cat", "parts": True}, "20 to 600"),
+        ({"words": "a cat", "parts": "80"}, "20 to 600"),
         ({"words": "a cat", "name": 4}, "must be text"),
         ({"words": "a cat", "reference": "car"}, "built by the AI from parts"),
         ({"words": "a cat", "reference": 3}, "Choose the model"),
@@ -989,6 +1113,24 @@ def test_the_guide_is_remembered_and_kept_by_a_change(
     ]
     record = json.loads((folder / "runs" / "0002" / "record.json").read_text())
     assert record["guide"] is True and record["playbook"] == "Plant, 100 parts"
+    assert record["art"] is True and record["brief"] == SAMPLE_BRIEF
+    assert record["brief_story"] == {
+        "versions": 2,
+        "carried_from": None,
+        "carried": False,
+        "parts_before": 0,
+        "last_reason": "orange petals read better than yellow",
+    }
+    assert record["critique"] == SAMPLE_CRITIQUE and record["critiques"] == 2
+    assert record["first_no"] == ["thin", "glass", "stance"]
+    assert record["built_without_brief"] is False and record["ended_without_critique"] is False
+    assert about["brief"] == SAMPLE_BRIEF and about["critique"] == SAMPLE_CRITIQUE
+    # the change was given the first build's brief to build to, and told the model's size
+    assert fake.calls[-1]["brief"] == SAMPLE_BRIEF and fake.calls[-1]["brief_run"] == 1
+    assert fake.calls[-1]["parts"] == 20 and fake.calls[1]["parts"] == 80  # 2 parts: held to 20
+    assert freebuild.describe(usual)["brief"] is None and freebuild.describe(usual)["art"] is None
+    assert "brief" not in json.loads((usual / "runs" / "0001" / "record.json").read_text())
+    assert "parts" not in fake.calls[0] or not fake.calls[0].get("guide")
     # a project made before the choice existed has it off; an imported run does not know
     meta = freebuild.read_meta(usual)
     del meta["guide"]
@@ -1041,11 +1183,19 @@ def test_a_free_build_with_the_guide_over_the_web(
     info = running.get_json("/api/p/sunflower")
     assert info["guide"] is True
     assert info["runs"][0]["guide"] is True and info["runs"][0]["playbook"] == "Plant, 100 parts"
+    assert info["brief"] == SAMPLE_BRIEF and info["critique"] == SAMPLE_CRITIQUE
+    assert info["art"] is True and info["brief_story"]["versions"] == 2
+    assert info["first_no"] == ["thin", "glass", "stance"] and info["critiques"] == 2
+    assert info["ended_without_critique"] is False and info["built_without_brief"] is False
+    said = freebuild.time_and_cost(80)
+    assert any(said in line for line in job["progress"])
     status, data = running.post("/api/p/sunflower/change", {"words": "taller", **AGREED})
     assert running.wait(data["job"])["state"] == "done" and fake.calls[1]["guide"] is True
     status, data = running.post("/api/free", {"words": "a boat", "name": "Boat", **AGREED})
     assert running.wait(data["job"])["state"] == "done" and fake.calls[2]["guide"] is False
-    assert running.get_json("/api/p/boat")["guide"] is False
+    boat = running.get_json("/api/p/boat")
+    assert boat["guide"] is False and boat["brief"] is None and boat["critique"] is None
+    assert boat["art"] is None and boat["ended_without_critique"] is None
 
 
 @pytest.mark.browser
@@ -1066,11 +1216,21 @@ def test_browser_the_guide_box_and_what_the_page_says(
         box = page.locator("#freeGuide")
         assert box.is_visible() and not box.is_checked()
         label = page.locator("label:has(#freeGuide)").text_content() or ""
-        assert "Build it the way set designers do (experimental)" in label
-        assert "a core first, sides built flat and pressed on" in label
+        assert "Design it first, then build it the way set designers do (experimental)" in label
+        hint = page.locator("label:has(#freeGuide) + .hint").text_content() or ""
+        assert "art direction" in hint and "judges its own pictures" in hint
+        page.locator("#freeParts").fill("400")
+        hint400 = tab.text("#freePartsHint")
+        assert freebuild.time_and_cost(400) in hint400 and "an estimate" in hint400
+        assert "largest" not in hint400 and "206" not in hint400
+        assert "big models take longer and use more of your subscription" in hint400
+        page.locator("#freeParts").fill("80")
+        assert tab.text("#freePartsHint").endswith(freebuild.time_and_cost(80))
         box.check()
         page.click("#freeGo")
-        assert "built the way set designers do" in tab.text("#freeWhat")
+        assert "designed first and built the way set designers do" in tab.text("#freeWhat")
+        assert freebuild.time_and_cost(80) in tab.text("#freeTime")
+        assert "is stopped at 90 minutes" in tab.text("#freeTime")
         page.check("#freeUnderstood")
         box.uncheck()  # a change takes the agreement back
         assert not page.locator("#freeUnderstood").is_checked()
@@ -1100,10 +1260,58 @@ def test_browser_the_guide_box_and_what_the_page_says(
         page = page_tab.page
         page.wait_for_selector("#runs li")
         assert page.locator("#guideNote").is_visible()
-        assert "Built the way set designers do" in page_tab.text("#guideNote")
+        assert "Designed first, then built the way set designers do" in page_tab.text("#guideNote")
         run_text = page_tab.text("#runs .rguide")
         assert run_text == "Built the way set designers do; playbook it asked for: Plant, 100 parts"
+        # pictures first: the art direction below them, then the notes, then the critique
+        assert page.locator("#artCard").is_visible() and page.locator("#critiqueCard").is_visible()
+        art_box = page.locator("#artCard").bounding_box()
+        turn_box = page.locator("#turnBox").bounding_box()
+        notes_box = page.locator("#notesCard").bounding_box()
+        critique_box = page.locator("#critiqueCard").bounding_box()
+        assert art_box and turn_box and notes_box and critique_box
+        assert turn_box["y"] + turn_box["height"] <= art_box["y"]
+        assert art_box["y"] + art_box["height"] <= notes_box["y"]
+        assert notes_box["y"] + notes_box["height"] <= critique_box["y"]
+        assert turn_box["y"] < 400  # the pictures are on the first screen
+        assert page_tab.text("#artTitle") == "The AI's art direction"
+        assert page_tab.text("#artSays") == (
+            "Written before the first part: the look it then built to. Changed once; the last "
+            "reason: “orange petals read better than yellow”. This is the last version."
+        )
+        terms = page.locator("#artBrief dt").all_text_contents()
+        assert terms == ["Scale", "Colours", "Pattern"]  # the rest behind "more"
+        assert (
+            page.locator("#artMore").is_visible() and not page.locator("#artBriefMore").is_visible()
+        )
+        page.locator("#artMore summary").click()
+        more = page.locator("#artBriefMore dt").all_text_contents()
+        assert more == ["Shapes", "Built sideways", "Kept thin", "Studs", "Glass and stance"]
+        flags = page.locator("#critiqueFlags li").all_text_contents()
+        assert flags[0].startswith("Its first critique said no to 3 questions; it was sent back")
+        assert flags[1].startswith("The brief said: Dark Green 60%")
+        assert "Colours by bulk: Dark Green 41%, Reddish Brown 30%" in page_tab.text("#facts")
+        assert page.locator("#artBrief .swatch").count() == 4
+        colour = page.locator("#artBrief .swatch").first.evaluate(
+            "e => getComputedStyle(e).backgroundColor"
+        )
+        assert colour == "rgb(0, 69, 26)"
+        assert "Dark Green (288): stems and leaves, 60%" in page_tab.text("#artBrief")
+        assert page_tab.text("#critiqueTitle") == "Its own critique"
+        assert page_tab.text("#critiqueSays") == "8 yes, 2 no."
+        items = page.locator("#critique li")
+        assert items.count() == 10
+        assert [items.nth(k).get_attribute("class") for k in range(3)] == ["no", "no", "yes"]
+        assert "Is everything thin that is thin on the real thing?" in (
+            items.nth(0).text_content() or ""
+        )
+        assert "the leaves still hang on thick clips" in (items.nth(0).text_content() or "")
         shot(page_tab, "project-guide")
+        page.locator("#artCard").screenshot(path=str(ARTIFACTS / "free-art-direction.png"))
+        page.locator("#critiqueCard").screenshot(path=str(ARTIFACTS / "free-critique.png"))
+        page.fill("#askText", "make the pot blue")
+        page.click("#askBtn")
+        assert freebuild.time_and_cost(58) in page_tab.text("#changeTime")  # its own size
         page_tab.assert_clean()
     finally:
         page_tab.close()
@@ -1111,6 +1319,9 @@ def test_browser_the_guide_box_and_what_the_page_says(
     try:
         phone.page.wait_for_selector("#runs li")
         phone.no_sideways_scroll()
+        box = phone.page.locator("#turnBox").bounding_box()
+        assert box and box["y"] < 700  # the pictures on a phone's first screen
+        shot(phone, "project-guide-phone-first-screen", full=False)
         phone.page.locator("#runs").scroll_into_view_if_needed()
         shot(phone, "project-guide-phone", full=False)
         phone.assert_clean()
@@ -1121,5 +1332,132 @@ def test_browser_the_guide_box_and_what_the_page_says(
         car.page.wait_for_selector("#runs li")
         assert car.page.locator("#guideNote").is_hidden()
         assert car.page.locator("#runs .rguide").count() == 0  # an imported run does not know
+        assert car.page.locator("#artCard").is_hidden()  # an old run: neither block
+        assert car.page.locator("#critiqueCard").is_hidden()
     finally:
         car.close()
+
+
+def _guided_run(projects: Path, name: str, record: dict[str, Any], notes: str = "") -> Path:
+    """A free build with one guided run whose record is ``record`` (what lab.art keeps)."""
+    folder = freebuild.create(projects, f"a {name}", name=name, folder=name, guide=True)
+    freebuild.keep_model(
+        folder,
+        1,
+        kind="first",
+        words=f"a {name}",
+        text=TWO_BRICKS,
+        report=CLEAN_REPORT,
+        notes=notes,
+        record={"guide": True, "playbook": "Plant, 100 parts", "art": True, **record},
+    )
+    return folder
+
+
+@pytest.mark.browser
+def test_browser_the_flags_a_guided_run_keeps_and_hostile_text(
+    browser: Any, running: Running, projects: Path
+) -> None:
+    hostile = {
+        **SAMPLE_BRIEF,
+        "scale": MARKUP,
+        "pattern": MARKUP,
+        "sideways": MARKUP,
+        "thin": MARKUP,
+        "studs": MARKUP,
+        "glass": MARKUP,
+        "why_more": MARKUP,
+        "colours": [
+            {"code": 288, "job": MARKUP, "share": MARKUP, "name": MARKUP, "value": "red;x:1"}
+        ],
+        "shapes": [{"shape": MARKUP, "part": MARKUP}] * 3,
+    }
+    critique = {
+        **SAMPLE_CRITIQUE,
+        "answers": [{**a, "note": MARKUP, "question": MARKUP} for a in SAMPLE_CRITIQUE["answers"]],
+        "changed_after": True,
+        "mismatches": [MARKUP],
+        "facts": {**SAMPLE_CRITIQUE["facts"], "looks": [MARKUP]},
+    }
+    _guided_run(
+        projects,
+        "xss",
+        {
+            "brief": hostile,
+            "briefs": [{"n": 1, "brief": hostile, "reason": MARKUP, "parts_before": 12}],
+            "critique": critique,
+            "critiques": 1,
+        },
+        notes=MARKUP,
+    )
+    _guided_run(projects, "nobrief", {"brief": None, "briefs": [], "built_without_brief": True})
+    _guided_run(
+        projects,
+        "carried",
+        {
+            "brief": SAMPLE_BRIEF,
+            "briefs": [
+                {"n": 1, "brief": SAMPLE_BRIEF, "carried": True, "from_run": 3, "parts_before": 58}
+            ],
+        },
+    )
+    tab = Tab(browser, running.url, width=1280, height=900).open("p/xss")
+    try:
+        page = tab.page
+        page.wait_for_selector("#artCard:not([hidden])")
+        page.locator("#artMore summary").click()
+        assert MARKUP in tab.text("#artBrief") and MARKUP in tab.text("#artBriefMore")
+        assert tab.text("#artSays") == "Written after 12 parts were already in."
+        assert MARKUP in tab.text("#critique") and MARKUP in tab.text("#facts")
+        flags = page.locator("#critiqueFlags li").all_text_contents()
+        assert any("changed after this critique" in f for f in flags)
+        assert MARKUP in flags
+        assert page.evaluate("() => window.__pwned") is None
+        assert page.locator("img[src='x']").count() == 0
+        shot(tab, "project-hostile")
+        tab.assert_clean()
+    finally:
+        tab.close()
+    tab = Tab(browser, running.url, width=1280, height=900).open("p/nobrief")
+    try:
+        page = tab.page
+        page.wait_for_selector("#artCard:not([hidden])")
+        assert tab.text("#artSays") == (
+            "The AI wrote no art direction for this run: it built without one."
+        )
+        assert tab.text("#critiqueSays").startswith("The run ended without a critique")
+        assert page.locator("#critique li").count() == 0
+        tab.assert_clean()
+    finally:
+        tab.close()
+    tab = Tab(browser, running.url, width=1280, height=900).open("p/carried")
+    try:
+        tab.page.wait_for_selector("#artCard:not([hidden])")
+        assert tab.text("#artSays").startswith("Carried over from run 3, when the model was built")
+        tab.assert_clean()
+    finally:
+        tab.close()
+
+
+@pytest.mark.browser
+def test_browser_the_page_and_the_server_give_the_same_time_and_cost(
+    browser: Any, running: Running
+) -> None:
+    tab = Tab(browser, running.url, width=800, height=600).open()
+    try:
+        got = tab.page.evaluate(
+            """async () => {
+                const m = await import('/viewer/app.js');
+                const out = [];
+                for (let n = 20; n <= 600; n++) out.push([m.freeEstimate(n), m.freeTimeAndCost(n)]);
+                out.push([m.freeEstimate(6000), m.freeTimeAndCost('x')]);
+                return out;
+            }"""
+        )
+        for n, (estimate, words) in zip(range(20, 601), got, strict=False):
+            assert estimate == freebuild.estimate(n), n
+            assert words == freebuild.time_and_cost(n), n
+        assert got[-1][0] == freebuild.estimate(6000)
+        assert got[-1][1] == freebuild.time_and_cost("x")
+    finally:
+        tab.close()

@@ -43,7 +43,12 @@ A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" |
 "clean", "problems", "unchecked", "moves", "seconds", "turns", "cost_usd_reported",
 "pictures" (whether they were drawn), "picture_problem", "guide" (whether the run had the
 guide: true or false, or null for an imported model whose run did not say), "playbook" (the
-title of the playbook the builder asked for last, or null)}``. ``summary`` is the checker's
+title of the playbook the builder asked for last, or null)}``; a run made with the guide
+whose record has the art direction (``lab.art.record``) also has "art": true, "brief"
+(its last, or null), "brief_story" (versions, whether it was carried from an earlier run and
+which, how many parts were in when it was first written, the last reason), "critique" (its
+last, with the facts it answered and their mismatches with the brief, or null), "critiques",
+"first_no", "built_without_brief" and "ended_without_critique". ``summary`` is the checker's
 one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
 joints known by name only, whose fit it has not measured (clips, hinges, ball joints: counted
 as joined without proof). Since 20 November studs, pins, axles, bars and wheels are tested for
@@ -73,10 +78,16 @@ Functions
 - ``build(folder, words=None, on_say=None, references=None)``: runs one lab session into
   the next ``runs/NNNN/work`` and keeps what it made (``adopt``): the first build from the
   project's words when it has no model yet, otherwise ``words`` is a change to the current
-  model (``lab.run.build`` with ``start`` and ``change_of``). Every run of a project, a
-  change too, has the guide or not as the project's "guide" says. ``on_say`` gets the progress
-  as plain sentences (``Progress``). Returns the run entry; raises ``FreeBuildError`` when
-  the session could not start or made no model, after keeping the run's entry.
+  model (``lab.run.build`` with ``start`` and ``change_of``), with the replies, checks and
+  time ``limits`` gives for the parts asked for (a change: the model's actual size); they
+  grow with the size, which ``size`` keeps from 20 to 600. ``minutes``, ``estimate`` and
+  ``time_and_cost`` say how long a build of that size usually takes, when it is stopped,
+  and what builds that size have used of the person's subscription. Every run of a project,
+  a change too, has the guide or not as the project's "guide" says; with it, the session is
+  told the size, and a change is given the current run's brief to build to (``lab.art``).
+  ``on_say`` gets the progress as plain sentences (``Progress``). Returns the run entry;
+  raises ``FreeBuildError`` when the session could not start or made no model, after keeping
+  the run's entry.
 - ``adopt(folder, n, work, kind, words)``: keep lab work folder ``work`` as run ``n``; when it
   holds a model, the run's files and pictures are written and it becomes the current one.
 - ``import_run(projects_dir, source, name=None, words=None)``: a new project from a
@@ -87,7 +98,8 @@ Functions
 - ``restore(folder, n)``: make run ``n`` the current one again (its files copied back to the
   top of the folder); the other runs stay.
 - ``describe(folder)``: everything a page or the command line shows about the project
-  (with ``moves`` and ``opened``, the path of pictures/opened.png or None, and ``guide``).
+  (with ``moves`` and ``opened``, the path of pictures/opened.png or None, ``guide``, and
+  the current run's art direction fields, ``ART_KEYS``, each None when it has none).
 - ``missing()``: None when a run can start, else what is missing (the LDraw library zip,
   LeoCAD, xvfb-run) and exactly where to put it, in plain words.
 - ``reference_sheet(project_folder, out_png)``: pictures of an ordinary project's 3D model
@@ -105,6 +117,7 @@ import contextlib
 import csv
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -118,10 +131,26 @@ from bricksnap.project import slug
 KIND = "free"
 MAX_WORDS = 2000
 MAX_NAME = 80
-MIN_PARTS, MAX_PARTS, DEFAULT_PARTS = 20, 300, 80
-MAX_TURNS = 90
+MIN_PARTS, MAX_PARTS, DEFAULT_PARTS = 20, 600, 80
+MAX_TURNS = 90  # the least a session gets; ``limits`` gives more for more parts
 MAX_CHECKS = 25
 TIMEOUT_S = 5400
+# Claude Code's --max-turns limits the model's replies (one reply may call several tools);
+# the "turns" a session reports (num_turns) count its tool calls and its answer. The Cessna of
+# 20 November reported 103 turns under a limit of 90 and finished: its 102 tool calls came in
+# 43 replies. Replies per part on record: 0.21 (Cessna, 206 parts), 0.08 (guitar, 283), 0.32
+# (cat, 96); ``REPLIES_PER_PART`` leaves room above the most.
+REPLIES_PER_PART = 0.35
+PARTS_PER_CHECK = 8  # no run on record used more than 7 checks
+SECONDS_PER_PART = 18
+# How long builds took (minutes per part, low and high, in hundredths): 71 parts in 5
+# minutes, 84 in 9, 96 in 17 and 18, 156 in 15, 206 in 36, 283 in 26.
+MINUTES_PER_PART_100 = (9, 20)
+# What they used of the person's subscription at list prices, in dollars per 100 parts, low
+# and high: $1.72 for 71 parts, $3.60 for 84, $5.41 for 84, $5.72 and $6.60 for 96, $5.25 for
+# 156, $13.53 for 206, $8.68 for 283. Above ``LARGEST_ON_RECORD`` it is an estimate.
+DOLLARS_PER_100_PARTS = (2, 7)
+LARGEST_ON_RECORD = 290
 EFFORT = "high"
 SAID_CHARS = 240
 RUNS_DIR = "runs"
@@ -373,6 +402,80 @@ def create(
     return path
 
 
+def size(parts: Any) -> int:
+    """``parts`` as a size the limits accept: a whole number from ``MIN_PARTS`` to
+    ``MAX_PARTS`` (``DEFAULT_PARTS`` when it is missing or not a number)."""
+    if not isinstance(parts, int) or isinstance(parts, bool):
+        return DEFAULT_PARTS
+    return min(MAX_PARTS, max(MIN_PARTS, parts))
+
+
+def limits(parts: Any) -> dict[str, int]:
+    """What one session may use for a model of about ``parts`` parts (``size``): replies
+    (``--max-turns``), checks and seconds, each the larger of the fixed least (``MAX_TURNS``,
+    ``MAX_CHECKS``, ``TIMEOUT_S``) and a share per part (0.35 replies, one check for every 8
+    parts, 18 seconds). 600 parts get 210 replies, 75 checks and three hours."""
+    n = size(parts)
+    return {
+        "max_turns": max(MAX_TURNS, math.ceil(n * REPLIES_PER_PART)),
+        "max_checks": max(MAX_CHECKS, math.ceil(n / PARTS_PER_CHECK)),
+        "timeout": max(TIMEOUT_S, math.ceil(n * SECONDS_PER_PART / 60) * 60),
+    }
+
+
+def _five(hundredths: int) -> int:
+    """Minutes from hundredths of a minute, to the nearest five, halves up (as the page)."""
+    return 5 * ((hundredths + 250) // 500)
+
+
+def minutes(parts: Any) -> tuple[int, int]:
+    """About how long a build of ``parts`` parts usually takes, in minutes (low, high),
+    from the runs on record, each end to the nearest five minutes. Whole-number arithmetic,
+    so ``viewer/app.js`` gives the same at every size."""
+    n = size(parts)
+    low = max(5, _five(n * MINUTES_PER_PART_100[0]))
+    return low, max(low + 5, _five(n * MINUTES_PER_PART_100[1]))
+
+
+def estimate(parts: Any) -> dict[str, Any]:
+    """What a person is told before a build of ``parts`` parts: the usual minutes, the
+    minutes after which it is stopped, the dollars of their subscription it has used at
+    list prices (low, high), and whether the size is beyond the runs on record."""
+    n = size(parts)
+    low, high = minutes(n)
+    dollars = [(n * k + 50) // 100 for k in DOLLARS_PER_100_PARTS]
+    return {
+        "parts": n,
+        "minutes": [low, high],
+        "stop_minutes": limits(n)["timeout"] // 60,
+        "dollars": [max(1, dollars[0]), max(dollars[0] + 1, dollars[1])],
+        "estimated": n > LARGEST_ON_RECORD,
+    }
+
+
+def next_size(meta: dict[str, Any]) -> int:
+    """The size the next run of a project works at: the parts asked for in a first build,
+    the current model's own size in a change."""
+    current = meta.get("current")
+    now = next((r for r in meta.get("runs") or [] if r.get("n") == current), None)
+    if now and isinstance(now.get("parts"), int) and now["parts"] > 0:
+        return size(now["parts"])
+    return size(meta.get("parts_wanted"))
+
+
+def time_and_cost(parts: Any) -> str:
+    """The sentence a person reads before a build of ``parts`` parts (as the pages say it)."""
+    e = estimate(parts)
+    lo, hi = e["minutes"]
+    d0, d1 = e["dollars"]
+    guess = " (an estimate: no build this large is on record)" if e["estimated"] else ""
+    return (
+        f"A model of about {e['parts']} parts usually takes {lo} to {hi} minutes and is "
+        f"stopped at {e['stop_minutes']} minutes; builds this size have used about ${d0} to "
+        f"${d1} of your Claude subscription at list prices{guess}."
+    )
+
+
 def task_words(words: str, parts: int | None) -> str:
     """What the AI is asked to build: the person's words and about how many parts."""
     words = words.strip()
@@ -550,6 +653,50 @@ def _guide_fields(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "guide": guide if isinstance(guide, bool) else None,
         "playbook": playbook if isinstance(playbook, str) else None,
+        **_art_fields(record),
+    }
+
+
+ART_KEYS = (
+    "art",
+    "brief",
+    "brief_story",
+    "critique",
+    "critiques",
+    "first_no",
+    "built_without_brief",
+    "ended_without_critique",
+)
+
+
+def _art_fields(record: dict[str, Any]) -> dict[str, Any]:
+    """A guided run's art direction (``lab.art.record``): its last brief and the story of
+    its versions, its critique, and the flags; nothing for a run without them (an older run
+    keeps its entry as it was)."""
+    if record.get("art") is not True:
+        return {}
+    brief, critique = record.get("brief"), record.get("critique")
+    briefs = [b for b in record.get("briefs") or [] if isinstance(b, dict)]
+    story = None
+    if briefs:
+        first, last = briefs[0], briefs[-1]
+        story = {
+            "versions": len(briefs),
+            "carried_from": first.get("from_run") if first.get("carried") else None,
+            "carried": bool(first.get("carried")),
+            "parts_before": first.get("parts_before"),
+            "last_reason": last.get("reason"),
+        }
+    first_no = record.get("first_no")
+    return {
+        "art": True,
+        "brief": brief if isinstance(brief, dict) else None,
+        "brief_story": story,
+        "critique": critique if isinstance(critique, dict) else None,
+        "critiques": record.get("critiques") if isinstance(record.get("critiques"), int) else 0,
+        "first_no": first_no if isinstance(first_no, list) else None,
+        "built_without_brief": record.get("built_without_brief") is True,
+        "ended_without_critique": not isinstance(critique, dict),
     }
 
 
@@ -660,14 +807,21 @@ def build(
     options: dict[str, Any] = {}
     if meta.get("model"):
         options["model"] = str(meta["model"])
+    now = next((r for r in meta.get("runs") or [] if r.get("n") == current), None) or {}
+    parts = size(meta.get("parts_wanted")) if kind == "first" else next_size(meta)
+    allowed = limits(parts)
+    if meta.get("guide") is True:  # the art direction (``lab.art``)
+        options["parts"] = parts
+        if kind == "change" and isinstance(now.get("brief"), dict):
+            options["brief"], options["brief_run"] = now["brief"], current
     try:
         record = lab_run.build(
             task,
             work,
             effort=EFFORT,
-            max_turns=MAX_TURNS,
-            max_checks=MAX_CHECKS,
-            timeout=TIMEOUT_S,
+            max_turns=allowed["max_turns"],
+            max_checks=allowed["max_checks"],
+            timeout=allowed["timeout"],
             references=references,
             start=start,
             change_of=change_of,
@@ -794,6 +948,7 @@ def describe(folder: Path, measure_missing: bool = False) -> dict[str, Any]:
         "moves": list(now.get("moves") or []),
         "looks": rec,
         "looks_lines": _looks_lines(rec),
+        **{k: now.get(k) for k in ART_KEYS},
         "current_run": current,
         "runs": runs,
         "notes": _read(folder / "notes.txt").strip(),
@@ -842,6 +997,8 @@ TOOL_WORDS = {
     "model": "The builder is reading its model line by line",
     "look": "The builder is looking at its model from another side",
     "reference": "The builder is looking at the reference pictures",
+    "brief": "The builder is writing its art direction",
+    "hand-in sheet": "The builder is looking at its model beside its art direction, to hand it in",
 }
 
 
@@ -879,9 +1036,11 @@ class Progress:
         for item in StreamParser._content(event):
             if kind == "assistant" and item.get("type") == "tool_use":
                 name = str(item.get("name", "")).removeprefix(TOOL_PREFIX)
-                self.pending[str(item.get("id", ""))] = name
                 raw = item.get("input")
                 args: dict[str, Any] = raw if isinstance(raw, dict) else {}
+                if name == "submit" and "ldraw" not in args:  # guide mode's hand-in
+                    name = "hand-in" if "critique" in args else "hand-in sheet"
+                self.pending[str(item.get("id", ""))] = name
                 if name == "search_parts":
                     query = _short(redact(str(args.get("query") or "")), 60)
                     self.say(f"The builder is looking for parts: {query}")
@@ -894,9 +1053,17 @@ class Progress:
             elif kind == "user" and item.get("type") == "tool_result":
                 name = self.pending.pop(str(item.get("tool_use_id", "")), "")
                 text = _tool_result_text(item).lstrip()
+                if name == "hand-in" and text.startswith("Your critique was not recorded"):
+                    self.say(TOOL_WORDS["hand-in sheet"])  # it was given the sheet instead
+                if name == "hand-in" and not text.startswith("Critique recorded"):
+                    name = ""
                 self._after(name, bool(item.get("is_error")) or text.startswith("ERROR:"))
 
     def _after(self, name: str, failed: bool) -> None:
+        if name == "hand-in":
+            if not failed:
+                self.say("The builder handed in its critique of its own pictures")
+            return
         if name in ("check", "submit"):
             line = self._check_line()
             if line:

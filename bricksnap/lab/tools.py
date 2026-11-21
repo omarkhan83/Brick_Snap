@@ -30,8 +30,13 @@ numbered, with the way each points and whether it is taken. And ``check`` (``_CH
 its description says so in one more sentence) ends its reply, not submit's, with
 ``looks.section``: HOW IT LOOKS, advice measured against official sets, after the checker's
 report (also in the attempt's report file); it never adds a problem, and a model it cannot
-measure simply has no such section. With the guide off, every tool list and every reply is
-exactly what it was before guide mode existed.
+measure simply has no such section. The playbook's kind is made precise by the subject (a
+vehicle that flies is an aircraft) and its reply ends with which part governs what and the
+style guide's section for that kind of subject. The art direction (``art``) adds ``brief``
+(last), makes ``submit`` the two-step hand-in with the critique and ``place`` take a list,
+keeps what they say in ``art.json``, answers every call through ``art.call``, and gives the
+out-of-checks refusal its hand-in words. With the guide off, every tool list and every
+reply is exactly what it was before guide mode existed.
 
 What moves (``joints``, ``modules``, ``movement``): ``modules`` lists the proven moving modules
 (with one name: the module's card and a picture of it at rest and opened); ``place_module``
@@ -513,9 +518,19 @@ def tools_for(folder: Path) -> list[dict[str, Any]]:
     base = BLIND_TOOLS if cfg.get("mode") == "blind" else TOOLS
     if cfg.get("guide") is True and base is TOOLS:
         base = [_CHECK_GUIDE if t is _CHECK else t for t in base] + [_PLAYBOOK]
+        base = _art_tools(base)
     if _references(folder):
         base = [*base, _REFERENCE]
     return base
+
+
+def _art_tools(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Guide mode's art direction (``art``): submit hands in with the critique, place also
+    takes a list, and brief is added."""
+    from bricksnap.lab import art
+
+    swap = {id(_SUBMIT): art.SUBMIT, id(_PLACE): art.place_tool(_PLACE)}
+    return [swap.get(id(t), t) for t in base] + [art.BRIEF]
 
 
 # ---- the folder ---------------------------------------------------------------------------
@@ -990,9 +1005,7 @@ def _model_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     return [_text(_numbered(_model(folder)))]
 
 
-def _check_text(
-    folder: Path, text: str, label: str, looks: bool = False
-) -> list[dict[str, Any]]:
+def _check_text(folder: Path, text: str, label: str, looks: bool = False) -> list[dict[str, Any]]:
     from bricksnap.lab import picture
     from bricksnap.lab.validate import check
 
@@ -1000,6 +1013,10 @@ def _check_text(
     limit = int(cfg.get("max_checks", DEFAULT_MAX_CHECKS))
     done = len(_attempts(folder))
     if done >= limit:
+        if cfg.get("guide") is True:  # guide mode hands in with the critique (``art``)
+            from bricksnap.lab.art import OUT_OF_CHECKS
+
+            return _error(OUT_OF_CHECKS.format(limit=limit))
         return _error(
             f"this session has used all {limit} checks. Stop here and say in a few lines what "
             "you built and what you would still change."
@@ -1535,6 +1552,10 @@ def _playbook(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             + listing
         )
     found = guide.kind_of(kind)
+    if found is not None:
+        from bricksnap.lab.art import playbook_kind  # a vehicle that flies is an aircraft
+
+        found = playbook_kind(folder, found)
     if found is None:
         return _error(
             f"there is no playbook for '{kind[:40]}'. Choose the nearest of these kinds:\n"
@@ -1549,7 +1570,10 @@ def _playbook(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     with contextlib.suppress(OSError):
         record = {"kind": found, "parts": parts, "playbook": title}
         (folder / "playbook.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
-    return [_text(f"Playbook: {title}. {named}{why}\n\n{body}")]
+    from bricksnap.lab.art import playbook_style  # the style guide's section for this kind
+
+    looks = playbook_style(folder, kind, found)
+    return [_text(f"Playbook: {title}. {named}{why}\n\n{body}{looks}")]
 
 
 _HANDLERS = {
@@ -1583,7 +1607,12 @@ def call_tool(folder: Path, name: str, args: dict[str, Any]) -> list[dict[str, A
         )
     else:
         try:
-            blocks = _HANDLERS[name](folder, dict(args or {}))
+            if _config(folder).get("guide") is True:
+                from bricksnap.lab import art  # the brief and the critique
+
+                blocks = art.call(folder, name, dict(args or {}), _HANDLERS.get(name))
+            else:
+                blocks = _HANDLERS[name](folder, dict(args or {}))
         except Exception as e:  # never a traceback to the model
             (folder / "errors.log").open("a", encoding="utf-8").write(traceback.format_exc() + "\n")
             blocks = _error(

@@ -47,3 +47,38 @@ Done when the same subjects built before and after this work are clearly more st
   set aside for this: that guide is about how a model is put together, and Alec's judgement is about how
   it looks.
 - Real AI builds to test this spend Alec's Claude subscription: state the count and the cost and ask.
+- 20 November, point 3 built (branch `wip/Alec-42-art-direction`, not yet merged; no real build
+  has used it). With the guide on ("Design it first, then build it the way set designers do"):
+  the style guide is carried as `bricksnap/lab/style.md` (held equal to the study's file) and
+  read by `lab/style.py`; the instructions gain "# Art direction" with the thirteen rules of
+  finish; `playbook` also hands over the style guide's section for the subject (Aircraft or Car
+  by its words); a `brief` tool takes the eight lines of the art direction before the first
+  part (form checked: all eight, colour codes real, at most three body colours unless
+  `why_more`); `submit` takes the critique (ten yes-or-no answers, a note for each no, only
+  after a `look` since the last change). Each refusal happens once (`lab/art.py`). Runs keep
+  the brief and critique; the free-build page shows "The AI's art direction" and "Its own
+  critique". The structural guide's rules 5 and 9 gain a sentence letting a thin member hang
+  on one clip. For every build, the colour list is fuller and names 10375 trans black as the
+  glass smoke (the guide-off pin changed for that one line). Point 5 in part: up to 600 parts,
+  with turns, checks and time growing with the parts asked for (`freebuild.limits`), and the
+  form's time words come from the runs on record (`freebuild.minutes`).
+- 20 November, after an independent review of that branch (both other branches merged in):
+  the scale is now the largest the parts asked for will pay for; the structural guide has an
+  Aircraft playbook; the critique answers a hand-in sheet (three views, the brief, colours as
+  seen against the brief's, size, parts, glass, HOW IT LOOKS) and a first "no" is sent back to
+  rebuild once; every change to the model file counts, whatever the tool said; a change run
+  builds to the model's brief; the page puts the pictures first and says what happened (late
+  or changed brief, no brief, no critique, changes after it). Claude Code's --max-turns limits
+  replies, not tool calls (the Cessna's 102 tool calls came in 43 replies): the limit is now
+  0.35 replies a part, at least 90, and each session records its replies. The form and the
+  agreement say the usual time, when it is stopped and what builds that size have used of the
+  subscription.
+- The reviewer recommends a second, independent critic: a separate AI session shown only the
+  hand-in sheet (pictures, brief and counts), not the builder's reasoning, answering the ten
+  questions. Its reason: a builder grading its own work tends to say yes, and the counts can
+  only contradict the questions that can be counted (colours, size, glass), not outline,
+  proportion or finish. Not built: it is a second paid call, the owner's decision.
+- Left: real builds with Alec's yes (the Cessna first) to see whether the brief, the hand-in
+  and the rebuild change what comes out, and how many replies a 300- and 600-part build uses;
+  building in sections for models beyond one session (point 5); whether a bar in 11090 still
+  "reads as loose" (style rule 8 says so; the joints branch now tests bar tubes).

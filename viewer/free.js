@@ -6,7 +6,7 @@
 // the downloads, the earlier runs, and the bin. Text from the server, the person and the AI
 // goes in with textContent, never innerHTML.
 
-import { JobView, NOT_ANSWERING, appState, el, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { JobView, NOT_ANSWERING, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const $ = (id) => document.getElementById(id);
 const project = document.body.dataset.project;
@@ -163,6 +163,153 @@ function showNotes() {
     }
   }
   $('aiNotes').replaceChildren(...blocks);
+}
+
+// ---- the art direction and the critique (a run made with the guide; lab/art.py) ----
+
+const BRIEF_FIRST = [
+  ['scale', 'Scale'],
+  ['colours', 'Colours'],
+  ['pattern', 'Pattern'],
+];
+const BRIEF_MORE = [
+  ['shapes', 'Shapes'],
+  ['sideways', 'Built sideways'],
+  ['thin', 'Kept thin'],
+  ['studs', 'Studs'],
+  ['glass', 'Glass and stance'],
+  ['why_more', 'Why more colours'],
+];
+
+function colourItem(c) {
+  const value = /^#[0-9A-Fa-f]{6}$/.test(String(c.value || '')) ? c.value : '#cccccc';
+  const trans = /^trans/i.test(String(c.name || ''));
+  const swatch = el('span', { className: `swatch${trans ? ' trans' : ''}`, 'aria-hidden': 'true' });
+  swatch.style.backgroundColor = value;
+  const share = c.share ? `, ${c.share}` : '';
+  return el('li', { className: 'colour' }, [
+    swatch,
+    el('span', {}, [
+      document.createTextNode(`${c.name || 'Colour'} `),
+      el('span', { className: 'code', text: `(${c.code})` }),
+      document.createTextNode(`: ${c.job || ''}${share}`),
+    ]),
+  ]);
+}
+
+function briefRows(brief, which) {
+  const rows = [];
+  for (const [k, words] of which) {
+    const v = brief[k];
+    if (v === undefined || v === null || v === '') continue;
+    let dd;
+    if (k === 'colours' && Array.isArray(v)) dd = el('dd', {}, [el('ul', {}, v.map(colourItem))]);
+    else if (k === 'shapes' && Array.isArray(v)) dd = el('dd', {}, [el('ul', {}, v.map((s) => el('li', { text: `${s.shape}: ${s.part}` })))]);
+    else dd = el('dd', { text: String(v) });
+    rows.push(el('dt', { text: words }), dd);
+  }
+  return rows;
+}
+
+// What happened to the brief in this run, in plain words.
+function briefStory(info) {
+  const s = info.brief_story;
+  if (!info.brief) {
+    return info.built_without_brief
+      ? 'The AI wrote no art direction for this run: it built without one.'
+      : 'The AI wrote no art direction for this run.';
+  }
+  const said = [];
+  if (s && s.carried) {
+    said.push(s.carried_from ? `Carried over from run ${s.carried_from}, when the model was built; the change was built to it.` : 'Carried over from the run the model was built in.');
+  } else if (s && typeof s.parts_before === 'number' && s.parts_before > 0) {
+    said.push(`Written after ${plural(s.parts_before, 'part')} were already in.`);
+  } else {
+    said.push('Written before the first part: the look it then built to.');
+  }
+  if (s && s.versions > 1) {
+    const changed = s.versions - 1;
+    said.push(`Changed ${changed === 1 ? 'once' : `${changed} times`}${s.last_reason ? `; the last reason: “${s.last_reason}”` : ''}. This is the last version.`);
+  }
+  return said.join(' ');
+}
+
+let shownBrief = '';
+function showBrief() {
+  const art = info && info.art === true;
+  const brief = art && info.brief && typeof info.brief === 'object' ? info.brief : null;
+  const key = JSON.stringify(art ? [info.brief, info.brief_story, info.built_without_brief] : null);
+  if (key === shownBrief) return;
+  shownBrief = key;
+  $('artCard').hidden = !art;
+  if (!art) {
+    $('artBrief').replaceChildren();
+    $('artBriefMore').replaceChildren();
+    return;
+  }
+  $('artSays').textContent = briefStory(info);
+  $('artBrief').replaceChildren(...(brief ? briefRows(brief, BRIEF_FIRST) : []));
+  const more = brief ? briefRows(brief, BRIEF_MORE) : [];
+  $('artBriefMore').replaceChildren(...more);
+  $('artMore').hidden = more.length === 0;
+}
+
+let shownCritique = '';
+function showCritique() {
+  const art = info && info.art === true;
+  const critique = art && info.critique && Array.isArray(info.critique.answers) ? info.critique : null;
+  const key = JSON.stringify(art ? [critique, info.first_no, info.critiques] : null);
+  if (key === shownCritique) return;
+  shownCritique = key;
+  $('critiqueCard').hidden = !art;
+  const flags = [];
+  if (!art) {
+    $('critique').replaceChildren();
+    $('critiqueFlags').replaceChildren();
+    $('factsBox').hidden = true;
+    return;
+  }
+  if (!critique) {
+    $('critiqueSays').textContent = 'The run ended without a critique: the AI did not hand the model in with its answers.';
+    $('critique').replaceChildren();
+    $('critiqueFlags').replaceChildren();
+    $('factsBox').hidden = true;
+    return;
+  }
+  const answers = critique.answers.slice();
+  const no = answers.filter((a) => a.answer === 'no');
+  const ordered = no.concat(answers.filter((a) => a.answer !== 'no')); // the "no"s first
+  $('critiqueSays').textContent = `${answers.length - no.length} yes, ${no.length} no.`;
+  if (Array.isArray(info.first_no) && info.first_no.length) {
+    flags.push(`Its first critique said no to ${plural(info.first_no.length, 'question')}; it was sent back to rebuild, and this is its answer after that.`);
+  }
+  if (critique.changed_after) flags.push('The model was changed after this critique, so it may not describe the model as it is now.');
+  if (Array.isArray(critique.unexplained) && critique.unexplained.length) flags.push(`It gave no real reason for ${plural(critique.unexplained.length, '“no”')}.`);
+  for (const m of Array.isArray(critique.mismatches) ? critique.mismatches : []) flags.push(String(m));
+  $('critiqueFlags').replaceChildren(...flags.map((f) => el('li', { text: f })));
+  const facts = critique.facts && typeof critique.facts === 'object' ? critique.facts : null;
+  const factLines = [];
+  if (facts) {
+    if (typeof facts.parts === 'number') factLines.push(`Parts: ${facts.parts}${facts.parts_wanted ? ` of about ${facts.parts_wanted} asked for` : ''}.`);
+    if (facts.size) factLines.push(`Size: ${facts.size.wide} studs wide, ${facts.size.long} long, ${facts.size.high_bricks} bricks high.`);
+    if (Array.isArray(facts.colours) && facts.colours.length) factLines.push(`Colours by bulk: ${facts.colours.slice(0, 5).map((c) => `${c.name} ${Math.round(c.share * 100)}%`).join(', ')}.`);
+    if (Array.isArray(facts.glass)) factLines.push(`Transparent parts: ${facts.glass.length ? facts.glass.map((g) => `${g.name} (${g.parts})`).join(', ') : 'none'}.`);
+    for (const l of Array.isArray(facts.looks) ? facts.looks : []) factLines.push(String(l));
+  }
+  $('factsBox').hidden = factLines.length === 0;
+  $('facts').replaceChildren(...factLines.map((f) => el('li', { text: f })));
+  $('critique').replaceChildren(
+    ...ordered.map((a) =>
+      el('li', { className: a.answer === 'no' ? 'no' : 'yes' }, [
+        el('span', { className: 'ans', text: a.answer === 'no' ? 'No' : 'Yes' }),
+        el('span', { className: 'q' }, [
+          document.createTextNode(a.question || a.key || ''),
+          a.note ? el('span', { className: 'note', text: a.note }) : null,
+          a.answer === 'no' && !a.note ? el('span', { className: 'note', text: 'It gave no reason.' }) : null,
+        ]),
+      ]),
+    ),
+  );
 }
 
 // ---- downloads ----
@@ -328,6 +475,8 @@ function openConfirm(words) {
     el('span', { className: 'quote', id: 'changeQuote', text: `“${words}”` }),
     document.createTextNode('. The AI makes that change and keeps the rest of the model as it is.'),
   );
+  const size = (info && info.parts) || (info && info.parts_wanted) || 80; // the model's own size
+  $('changeTime').textContent = `It is one AI run, starting from the model as it is now. ${freeTimeAndCost(size)} You can leave this page while it works.`;
   confirmBox.hidden = false;
   confirmBox.scrollIntoView({ block: 'nearest' });
   understood.focus();
@@ -404,13 +553,15 @@ function render(force = false) {
     $('asked').textContent = info.words ? `Asked for: “${info.words}”` : '';
     $('guideNote').hidden = !info.guide;
     $('guideNote').textContent = info.guide
-      ? 'Built the way set designers do (experimental): a core first, sides built flat and pressed on. Changes are made the same way.'
+      ? 'Designed first, then built the way set designers do (experimental): an art direction, a core with sides pressed on, a critique of its own pictures. Changes are made the same way.'
       : '';
     document.title = `${info.name} - BrickSnap`;
     showChecker();
   }
   showTurntable();
+  showBrief();
   showNotes();
+  showCritique();
   showDownloads();
   showRuns();
   showNextStep();

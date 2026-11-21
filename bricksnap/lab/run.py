@@ -43,7 +43,9 @@ CONTRACT (tests in tests/test_lab.py; no test starts a real session)
   session.json, which also has ``"playbook"``: the title of the last playbook the
   ``playbook`` tool returned (from ``playbook.json``), or null. With it on, the system
   prompt is ``guide.system_prompt(prompt.md)``, written to ``system-prompt.md`` in the work
-  folder and given from there, and the tools gain ``playbook`` (``tools``). With it off,
+  folder and given from there, and the tools gain ``playbook`` and ``brief`` (``tools``,
+  ``art``); config.json then has ``"subject"`` (the words the model is built from) and
+  session.json the brief and the critique (``art.record``). With it off,
   everything the builder is given (the prompt file, the message, the tool list) is exactly
   what it was before the switch existed. A blind run refuses it.
 """
@@ -51,6 +53,7 @@ CONTRACT (tests in tests/test_lab.py; no test starts a real session)
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import shutil
 import sys
@@ -86,6 +89,8 @@ def message(
     references: int,
     start: str | None = None,
     change_of: str | None = None,
+    guide: bool = False,
+    brief: str | None = None,
 ) -> str:
     task = task.strip()
     parts = ["Build this model:", "", f'"{task}"', ""]
@@ -122,8 +127,26 @@ def message(
             f"{'' if references == 1 else 's'} of what to build: call reference first and "
             "study them."
         )
+    if guide and brief and start is not None and change_of is not None and mode != "blind":
+        parts.append(
+            "The model's art direction (its brief), as it was written when it was built:\n"
+            + brief
+            + "\nBuild the change to it. If the change alters how the model looks, first call "
+            "brief with the new version and your reason."
+        )
     if mode == "blind":
         parts.append("Write the whole model as an LDraw file and hand it in once with submit.")
+    elif guide:
+        parts.append(
+            f"You have {max_checks} checks (check and submit with ldraw each use one; handing "
+            "in does not). Work as your instructions say: the subject and its features, "
+            "playbook, the parts for its signature shapes, the brief, then build to it, "
+            "checking early and often and fixing every problem. When the check is clean and "
+            "the model looks right, hand in with submit {}: it shows the model beside your "
+            "brief with what can be counted and ten questions. Answer them with submit's "
+            "critique, rebuild what you answer no to when you are asked, then write your "
+            "closing words."
+        )
     else:
         parts.append(
             f"You have {max_checks} checks (check and submit each use one). Follow your way of "
@@ -134,9 +157,10 @@ def message(
     return "\n".join(parts)
 
 
-def prompt_file(out: Path, mode: str, guide: bool) -> Path:
+def prompt_file(out: Path, mode: str, guide: bool, session: str = "first") -> Path:
     """The system prompt's file: ``prompt.md`` (``blind_prompt.md``), or with the guide the
-    guide-mode instructions written to ``out/system-prompt.md``."""
+    guide-mode instructions for this kind of session ("first", "start", "change") written
+    to ``out/system-prompt.md``."""
     if mode == "blind":
         return BLIND_PROMPT_FILE
     if not guide:
@@ -144,7 +168,8 @@ def prompt_file(out: Path, mode: str, guide: bool) -> Path:
     from bricksnap.lab.guide import system_prompt
 
     path = out / GUIDE_PROMPT_NAME
-    path.write_text(system_prompt(PROMPT_FILE.read_text(encoding="utf-8")), encoding="utf-8")
+    text = system_prompt(PROMPT_FILE.read_text(encoding="utf-8"), session)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -155,6 +180,8 @@ def prepare(
     references: list[Path],
     start: Path | None = None,
     guide: bool = False,
+    subject: str | None = None,
+    parts: int | None = None,
 ) -> str | None:
     """Make the work folder. With ``start``, the model is that file, moved along x so its
     middle is at x = 0 (``edit.centre_x``), and checked as attempt 0; the moved text is
@@ -165,6 +192,10 @@ def prepare(
         raise SystemExit(f"{out} is not empty; give a new folder for each session.")
     out.mkdir(parents=True, exist_ok=True)
     config: dict[str, Any] = {"mode": mode, "max_checks": max_checks, "guide": guide}
+    if guide and subject:  # the playbook's style section is chosen by the subject's words
+        config["subject"] = subject
+    if guide and parts:  # the hand-in sheet and the halfway reminder count against it
+        config["parts"] = parts
     text = None
     if start is not None:
         from bricksnap.lab.edit import centre_x
@@ -267,6 +298,8 @@ def finish(
         "final_summary": summary,
         "closing_words": run.final_text,
         "playbook": _playbook_used(out),
+        "replies": _replies(out),
+        **_art_record(out, extra),
     }
     text = runner.redact(json.dumps(record, indent=1))
     (out / "session.json").write_text(text + "\n", encoding="utf-8")
@@ -280,6 +313,35 @@ def _playbook_used(out: Path) -> str | None:
         return None
     title = data.get("playbook") if isinstance(data, dict) else None
     return str(title) if isinstance(title, str) else None
+
+
+def _replies(out: Path) -> int:
+    """How many replies the model gave (distinct assistant messages in the transcript):
+    what Claude Code's --max-turns limits. Its own "turns" (num_turns) counts tool calls
+    and the final answer, so a session can report more turns than its limit."""
+    seen: set[str] = set()
+    for t in (out / "transcript").glob("*.jsonl"):
+        with contextlib.suppress(OSError):
+            for line in t.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and event.get("type") == "assistant":
+                    msg = event.get("message")
+                    mid = msg.get("id") if isinstance(msg, dict) else None
+                    if isinstance(mid, str):
+                        seen.add(mid)
+    return len(seen)
+
+
+def _art_record(out: Path, extra: dict[str, Any]) -> dict[str, Any]:
+    """Guide mode only: the brief and the critique (``art.record``)."""
+    if extra.get("guide") is not True:
+        return {}
+    from bricksnap.lab import art
+
+    return art.record(out)
 
 
 def _progress(event: dict[str, Any]) -> None:
@@ -317,6 +379,9 @@ def build(
     change_of: str | None = None,
     on_event: Callable[[dict[str, Any]], None] | None = None,
     guide: bool = False,
+    parts: int | None = None,
+    brief: dict[str, Any] | None = None,
+    brief_run: int | None = None,
 ) -> dict[str, Any]:
     """Run one session into the new or empty folder ``out`` and return its record (what
     session.json holds). ``on_event`` gets every stream-json event as it arrives (from the
@@ -328,7 +393,16 @@ def build(
         raise SystemExit("Say what to build.")
     refs = list(references or [])
     load_index()
-    start_text = prepare(out, mode, max_checks, refs, start, guide=guide)
+    start_text = prepare(
+        out, mode, max_checks, refs, start, guide=guide, subject=change_of or task, parts=parts
+    )
+    brief_text = None
+    if guide and brief and change_of is not None and start is not None:
+        from bricksnap.lab import art
+
+        art.seed(out, brief, brief_run)  # a change builds to the model's brief
+        brief_text = art.brief_lines(brief)
+    session = "change" if change_of is not None else "start" if start is not None else "first"
     result_event: dict[str, Any] = {}
 
     def hear(event: dict[str, Any]) -> None:
@@ -339,9 +413,18 @@ def build(
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run = runner.run_session(
-        prompt_file=prompt_file(out, mode, guide),
+        prompt_file=prompt_file(out, mode, guide, session),
         mcp=runner.mcp_config(out, module=SERVER_MODULE),
-        message=message(task, mode, max_checks, len(refs), start_text, change_of=change_of),
+        message=message(
+            task,
+            mode,
+            max_checks,
+            len(refs),
+            start_text,
+            change_of=change_of,
+            guide=guide,
+            brief=brief_text,
+        ),
         transcript=out / "transcript" / f"{stamp}.jsonl",
         model=model,
         effort=effort,

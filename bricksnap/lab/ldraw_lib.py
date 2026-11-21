@@ -758,6 +758,20 @@ class Library:
                 out[int(m.group(2))] = m.group(1).replace("_", " ")
         return out
 
+    def colour_values(self) -> dict[int, str]:
+        """LDraw colour code -> its colour as "#RRGGBB" (VALUE), from LDConfig.ldr."""
+        out: dict[int, str] = {}
+        try:
+            with self._lock:
+                text = self._zip.read("ldraw/LDConfig.ldr").decode("utf-8", errors="replace")
+        except KeyError:
+            return out
+        for line in text.splitlines():
+            m = re.match(r"\s*0\s+!COLOUR\s+\S+\s+CODE\s+(\d+)\s+VALUE\s+#([0-9A-Fa-f]{6})", line)
+            if m:
+                out[int(m.group(1))] = "#" + m.group(2).upper()
+        return out
+
 
 def _axles_as_axles(cons: list[Connector], description: str) -> list[Connector]:
     """The library draws axles with the axle-HOLE primitives (``axlehol8``, "Technic Axle

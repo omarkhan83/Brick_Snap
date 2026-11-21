@@ -8,7 +8,7 @@ Evidence marks: **D** LEGO designers say it. **B** expert builders say it. **S**
 
 Write these eight lines first. Build to them. Change them only on purpose.
 
-1. **Scale:** how many studs wide, and the one feature that forced it. Take the smallest scale at which the subject's signature shape can be made from real parts. If the parts will not pay for it, drop the interior before the shape. [D B]
+1. **Scale:** how many studs wide, and what that width lets you show that the next size down would not. Take the largest scale the parts asked for will pay for, never below the smallest at which the subject's signature shapes can be made from real parts. Spend the parts on shape and finish, not on hidden filling or an interior nobody sees. [D B I]
 2. **Colours:** one body colour (about 70%), one second colour (20%), one accent (under 10%), plus black or grey for mechanics and glass. Say where each goes. [B S]
 3. **Pattern:** how the colours divide the body (stacked zones, a sweep, a band a third of the way along). Decide it before the first part. [B S]
 4. **Shapes:** the three to five shapes that make this subject, and the part that makes each. [D]
@@ -26,7 +26,7 @@ Write these eight lines first. Build to them. Change them only on purpose.
 5. **Taper in plan.** Make nose and tail narrower than the middle with wedge plates: 24299/24307, 43722b/43723b, 41769b/41770b, 65426/65429. [S]
 6. **One livery.** Each colour has one job. Carry a division unbroken across parts: a plate course, a sideways band, or pairs of wedge plates and triangular tiles (35787, 22385) for a sweep. Put a band off-centre. [B S]
 7. **Prefer deep and muted colours** to bright red, blue and yellow on white, which is the 1980s palette: dark blue 272, dark red 320, dark green 288, sand blue 379, sand green 378, dark azure 321, dark orange 484, medium nougat 84, dark tan 28, greys 71 72. Use a primary as the accent, or when the subject is that colour. [S; writers' opinion]
-8. **Thin things thin.** Struts, legs, rails and aerials are bars (87994, 30374, 4095), a tile or plate on edge, or a lever (4592 with 4593). If the scale cannot show it thin, leave it out: small official planes do. [S I] A clip on a handle holds at any angle (60897, 61252 on 2540, 48336, 60478). A bar in the tube of 11090 reads as loose: use 23443. [T]
+8. **Thin things thin.** Struts, legs, rails and aerials are bars (87994, 30374, 4095), a tile or plate on edge, or a lever (4592 with 4593). If the scale cannot show it thin, leave it out: small official planes do. [S I] A clip on a handle holds at any angle (60897, 61252 on 2540, 48336, 60478), but only what carries nothing (struts, rails, aerials, mirrors, blades); a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow. A bar in the tube of 11090 reads as loose: use 23443. [T]
 9. **No bare Technic holes, pin ends or undersides on show.** Turn the plain side out or cover it. [I]
 10. **Glass is one tint, set into the body**, narrower than it, with pillars in the body colour or a dark one. Take the rake from a moulded screen (57783, 30841, 18973) or a clear panel on a hinge (60581, 87552 on 3937 with 3938). Use clear 47 over an interior, or trans-black 10375 with none. Never trans-brown 40, never a stack of tinted bricks. [S]
 11. **Gather detail, leave calm between.** One or two detail colours; every detail says what it is. Small parts: 98138 6141 85861 54200 2412b 4589 4740 60849 25269 24246. [B S]
@@ -42,7 +42,7 @@ Write these eight lines first. Build to them. Change them only on purpose.
 4. A light-blue or brown box of glass under a roof plate: a small dark canopy faired in, or clear glass in frames over an interior.
 5. Thick struts and bare wheels: bars or blades, fairings of curved slopes, or neither.
 
-Smallest: sides and belly can be rounded from 4 studs wide (2-stud core, 1-stud skins). An interior needs 6. Under 4, shape the top only. [S, few sets]
+Smallest: sides and belly can be rounded from 4 studs wide (2-stud core, 1-stud skins). An interior needs 6. Under 4, shape the top only. [S, few sets] For a light aircraft, about 300 parts pay for 4 wide and about 600 for 6 wide with an interior behind clear glass. [I, the Cessna critique]
 
 **Car.**
 1. Terraced bonnet and roof: curved slopes and tiles.

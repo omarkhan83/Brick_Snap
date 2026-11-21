@@ -305,7 +305,7 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   LDraw parts library. It lives in the same projects folder; ``kind`` tells the two apart
   ("model" for one made from a 3D file, "free" for a free build). The pages call it "Built
   by the AI, part by part" and mark it experimental wherever it appears.
-- ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 300, default 80),
+- ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 600, default 80),
   "reference"? (the folder name of an ordinary project with a 3D model, whose pictures from
   five sides the AI is shown), "guide"? (true: build it the way set designers do, with
   ``lab.guide``; false when left out; anything but true or false is refused), "understood":
@@ -340,7 +340,12 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   each ``{"n", "kind", "words", "created", "ok", "error", "has_model", "parts", "kinds",
   "summary", "clean", "problems", "unchecked", "seconds", "guide", "playbook", "picture"}``:
   ``guide`` true, false or null when not known, ``playbook`` the title of the playbook the
-  builder asked for or null), ``guide`` (whether the project's runs have it), ``turntable`` (the
+  builder asked for or null), ``guide`` (whether the project's runs have it), the current
+  run's art direction as ``freebuild.describe`` gives it (``freebuild.ART_KEYS``: ``art``
+  true when the run recorded one, ``brief``, ``brief_story``, ``critique`` with its facts
+  and mismatches, ``critiques``, ``first_no``, ``built_without_brief``,
+  ``ended_without_critique``; null for a run without them),
+  ``turntable`` (the
   addresses of the twelve views round the model), ``sheet``, ``picture_problem``, ``files``
   (``{file: address}`` for model.ldr, parts.csv and report.txt), ``bin`` and ``job``, and
   ``looks_lines`` (``freebuild.describe``: how the current run looks against official sets,
@@ -1137,6 +1142,7 @@ class App:
             sheet=url(str(about.get("sheet") or "")),
             moves=list(about.get("moves") or []),
             looks_lines=[str(x) for x in about.get("looks_lines") or []],
+            **{k: about.get(k) for k in freebuild.ART_KEYS},
             opened=url(str(about.get("opened") or "")),
             picture_problem=about.get("picture_problem"),
             files={rel: url(rel) for rel in about.get("files", [])},
@@ -2155,11 +2161,13 @@ class App:
             job.say("This is a new model: the AI builds it part by part from the parts library")
         else:
             job.say(f'This is one change to the model: "{_short(words, 200)}"')
-        if freebuild.read_meta(folder).get("guide") is True:
+        meta = freebuild.read_meta(folder)
+        if meta.get("guide") is True:
             job.say(
-                "It builds the way set designers do: a core first, sides built flat and pressed on"
+                "It designs the model first, then builds it the way set designers do, and "
+                "judges its own pictures before it finishes"
             )
-        job.say("One AI run; it usually takes ten to twenty minutes")
+        job.say("One AI run. " + freebuild.time_and_cost(freebuild.next_size(meta)))
         entry = freebuild.build(folder, words, on_say=job.say, references=references)
         verdict = entry.get("summary") or "not checked"
         job.say(f"Done: {verdict}")

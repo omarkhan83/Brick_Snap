@@ -24,7 +24,10 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 4. **Build a repeated unit once and copy it.** Make left and right the same unit turned round, or
    build one side and mirror it. [10 of 10]
 5. **One joint for each moving part**, made for moving (wheel pin, clip on a bar, hinge, turntable,
-   axle), on something solid. Hold everything else by several studs. [10 of 10]
+   axle), on something solid. Hold everything else by several studs. [10 of 10] A thin member
+   that carries nothing (a strut, rail, aerial, mirror or blade) may hang on one clip on a bar
+   or handle; a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow.
+   [style study, 2026-11-20]
 6. **Cover every seam.** Where two parts meet in a layer that carries weight, lay a longer part across
    them in the next layer, and prefer one larger part to several small ones. [9 of 10; LEGO's model
    builders, 1998; J. Berard of LEGO, 2006]
@@ -34,7 +37,9 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
    build, a third in the last; hardly any upside down. [36 models]
 8. **Give anything long and thin a stiff spine**: an axle, a bar, a long plate or a beam. [8 of 8]
 9. **Use only joints the parts were made for.** Force nothing, wedge nothing between studs, push pins
-   fully in, set click hinges on a click, hang nothing on friction alone. [Berard, 2006]
+   fully in, set click hinges on a click, hang nothing on friction alone. [Berard, 2006] A clip
+   gripping a bar or handle holds by its shape: it is a joint made for that. [style study,
+   2026-11-20]
 10. **Work in small steps.** An official step adds 2 parts (median), more only when they are identical.
     Place a few parts, then check. [36 models; 10 of 10]
 11. **Keep weight off joints.** A long or heavy part on a clip, hinge or ball joint droops: shorten or
@@ -72,6 +77,36 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
   roof.
 - **Apart, in order:** spine; side pairs; end mounts; floor; body; lockers, tanks, grille and bumper;
   roof; wheels.
+
+### Aircraft, 100 parts
+[seen in 7 aircraft sets of 1987 to 2025; the core in 2 Creator planes, 2020 and 2025]
+
+- **Core:** a spine 2 studs wide of side-stud bricks (87087, 11211, 30414) on a long plate, with a
+  skin one stud thick pressed on each side. The wing sets the scale.
+- **Strong:** the wing is one long course of plates passing over or through the body, locked by a
+  second layer of plates that overlaps the joint.
+- **Outside:** flanks as panels on the side studs; curved slopes on top, inverted curved slopes
+  under the belly and tail; the screen one moulded part; the fin on jumper plates on the centre line.
+- **Moves:** the propeller on a pin or a bar; the wheels on a gear plate under the core.
+- **Order:** spine; wing course and its lock; skins; tail; gear under the core; struts, aerials and
+  propeller last.
+- **Not:** a box of stacked plates; struts or wheel fairings the scale cannot show thin.
+
+### Aircraft, 400 parts
+[seen in 4 sets: 2 Creator planes, 2020 and 2025; a 203-part tribute plane, 2021; a 2012 biplane]
+
+- **Core:** a spine 2 to 4 studs wide of side-stud bricks and brackets on two long plates whose
+  seams do not line up; 6 studs wide overall leaves room for an interior.
+- **Strong:** the wing passes through the body as one long course of plates, locked above and
+  below; a long plate runs along each side of the spine.
+- **Outside:** each flank a panel carrying its livery line; nose and tail tapered in plan with
+  wedge plates; inverted curved slopes for a rising belly; the fin of wedge plates on edge, on
+  jumper plates on the centre line; the screen moulded, or clear panels on hinges.
+- **Moves:** the propeller on a pin; wheels on gear plates or pins under the core; flaps and
+  rudder on hinge plates only when asked.
+- **Order:** spine; wing and its lock; floor and interior; flanks; nose; tail; gear; struts,
+  aerials and propeller last.
+- **Not:** Technic beams with holes as struts; a box of stacked plates.
 
 ### Hollow thing with an inside, 100 parts
 [scaled down: the smallest hollow building read had 400 parts]
