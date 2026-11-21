@@ -1902,8 +1902,12 @@ def test_without_the_movement_check_nothing_proves_the_module():
     from bricksnap.lab.validate import check as run
 
     report = run(_car_on_wheel_modules(), movement=False)
-    assert "(7 of them only by joints the checker cannot confirm)" in report.summary()
-    assert _held_only(report) == [1, 2, 4, 7, 8, 10, 13]
+    # no module is proven, but each wheel is tested for fit on its pin, and each tyre round
+    # its wheel: they hold as studs do; only the tyres' own contacts with the pins are known
+    # by name
+    assert "every part is held, nothing overlaps" in report.summary()
+    assert not _held_only(report)
+    assert len(report.fits) == 8 and "module" not in report.text()
 
 
 def test_a_module_whose_part_was_moved_proves_nothing():
@@ -1913,9 +1917,11 @@ def test_a_module_whose_part_was_moved_proves_nothing():
     lines[8] = " ".join(tok)
     report = check("\n".join(lines) + "\n")
     assert any("not where the module puts it" in t for t in moving_problems(report))
-    # the refused rear module proves nothing: its axle and wheel still hang on unconfirmed
-    # joints; the front one is proven, and the plate stands on it
-    assert _held_only(report) == [8, 10]
+    # the refused rear module proves nothing; its wheels are still each tested for fit on
+    # the pin, and the tyre moved off its wheel is not on it (an overlap)
+    assert not _held_only(report)
+    assert any(i.kind == "overlap" and i.lines == [8, 9] for i in report.problems)
+    assert "line 8 is held on the wheel pin of line 7" in report.text()
 
 
 def test_with_a_module_only_the_parts_on_a_clip_are_counted():
@@ -1971,4 +1977,25 @@ def test_a_joint_the_builder_declared_proves_nothing():
     )
     report = check(text)
     assert report.moving_ok == 1, report.text()
-    assert 1 in _held_only(report)
+    # the declared joint proves nothing; the wheel is held because it is tested for fit on
+    # the pin, and the tyre round the wheel
+    assert not _held_only(report)
+    assert "line 2 is held on the wheel pin of line 1" in report.text()
+    assert "line 3 is held round the wheel line 2" in report.text()
+
+
+def test_a_wheel_off_its_pin_does_not_hang_on_a_fit_through_its_tyre():
+    # the tyre gap: slid 8 LDU out (2 past the limit), the wheel is off its pin but its tyre
+    # is still round the pin's line; the tyre's contact with the pin is known by name only,
+    # so the plate (the wheel and tyre stand on the ground) hangs on a joint not measured
+    text = _text(
+        [
+            "1 72 0 -30 0 1 0 0 0 1 0 0 0 1 4488.dat",
+            "1 71 38 -25 0 0 0 -1 0 1 0 1 0 0 6014b.dat",
+            "1 0 44 -25 0 0 0 -1 0 1 0 1 0 0 6015.dat",
+        ]
+    )
+    report = check(text)
+    assert not any("wheel pin of line 1" in i.text for i in report.fits), report.text()
+    assert any(i.lines == [1, 3] and "wheel pin" in i.text for i in report.unchecked)
+    assert _held_only(report) == [1], report.text()

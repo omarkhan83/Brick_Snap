@@ -254,7 +254,13 @@ def test_clip_and_bar_are_not_checked_but_joined():
 
 
 def unchecked_words(report) -> list[str]:
+    """The joints known by name only (the NOT CHECKED section)."""
     return [i.text for i in report.unchecked if i.kind == "joint"]
+
+
+def fit_words(report) -> list[str]:
+    """The joints tested for fit ("line N (part) is held ...")."""
+    return [i.text for i in report.fits]
 
 
 @pytest.mark.parametrize("key", ["343.dat", "932.dat", "993.dat"])
@@ -338,15 +344,16 @@ BAR_IN_OPEN_STUDS = [
 def test_a_bar_in_an_open_stud_is_a_joint_not_checked():
     r = check("\n".join(BAR_IN_OPEN_STUDS))
     assert r.ok, r.text()
-    words = unchecked_words(r)
-    assert any("line 2 (85861.dat) and line 3" in w and "bar in an open stud" in w for w in words)
+    words = fit_words(r)
+    assert any(w.startswith("line 3 (") and "bar in an open stud of line 2" in w for w in words)
+    assert not unchecked_words(r)
 
 
 def test_a_bar_beside_the_stud_is_not_held():
     beside = BAR_IN_OPEN_STUDS[:2] + [line(15, 10, -96, 0, "87994.dat")]
     r = check("\n".join(beside))
     assert any(i.kind == "loose" and i.lines == [3] for i in r.problems)
-    assert not any("bar in" in w for w in unchecked_words(r))
+    assert not any("bar in" in w for w in unchecked_words(r) + fit_words(r))
 
 
 def test_a_pin_is_too_thick_for_an_open_stud():
@@ -367,7 +374,7 @@ def test_a_bar_through_a_round_bricks_middle():
         )
     )
     assert r.ok, r.text()
-    assert any("bar in an axle hole" in w for w in unchecked_words(r))
+    assert any("bar in an axle hole" in w for w in fit_words(r))
 
 
 def test_a_claw_standing_in_an_open_stud():
@@ -378,7 +385,7 @@ def test_a_claw_standing_in_an_open_stud():
     ]
     r = check("\n".join(claw))
     assert r.ok, r.text()
-    assert any("bar in an open stud" in w for w in unchecked_words(r))
+    assert any("bar in an open stud" in w for w in fit_words(r))
     # on a plain stud (no hollow) the same claw collides
     solid_stud = [claw[0], line(15, 0, -32, 0, "6141.dat"), claw[2]]
     on_solid = check("\n".join(solid_stud))
@@ -417,8 +424,8 @@ def test_axles_are_read_as_axles(lib):
 def test_an_axle_through_a_brick_carrying_wheels():
     r = check("\n".join(AXLE_AND_WHEELS))
     assert r.ok, r.text()
-    axle = [w for w in unchecked_words(r) if "axle joint" in w]
-    assert len(axle) == 4  # two bricks, two wheels
+    axle = [w for w in fit_words(r) if "on the axle of line" in w]
+    assert len(axle) == 4  # two bricks, two wheels: each tested for fit
 
 
 def test_an_axle_that_misses_the_hole_is_reported():
@@ -427,7 +434,7 @@ def test_an_axle_that_misses_the_hole_is_reported():
     r = check("\n".join(missed))
     assert any(i.kind == "overlap" and i.lines == [1, 3] for i in r.problems)
     assert any(i.kind == "loose" and 3 in i.lines for i in r.problems)
-    assert not any("axle joint" in w for w in unchecked_words(r))
+    assert not any("axle" in w for w in unchecked_words(r) + fit_words(r))
 
 
 CUTOUT = "0 0 -1 0 1 0 1 0 0"  # 29120 turned: its cutout end towards +x
@@ -459,7 +466,7 @@ def test_a_stud_in_a_technic_pin_hole():
     brick = line(72, 0, -24, 0, "32000.dat")  # pin holes along z at x -10 and 10, y -14
     r = check(brick + "\n" + line(15, -10, -14, -10, "49668.dat", TOOTH_ON_SIDE))
     assert r.ok, r.text()
-    assert any("stud in a pin hole" in w for w in unchecked_words(r))
+    assert any("in its Technic pin hole" in w for w in fit_words(r))
     off = check(brick + "\n" + line(15, -6, -14, -10, "49668.dat", TOOTH_ON_SIDE))
     assert any(i.kind == "stud" for i in off.problems) and "loose" in kinds(off)
 
@@ -469,16 +476,15 @@ def test_the_same_part_twice_is_an_overlap_even_when_it_joins_by_hinges():
     r = check(hinge + "\n" + hinge)
     over = next(i for i in r.problems if i.kind == "overlap")
     assert over.lines == [1, 2] and "same part twice" in over.text
-    assert not r.unchecked
+    assert not r.unchecked and not r.fits
 
 
 # ---- the limits of a bar in a hollow (the review's cases): each fails if its limit loosens --
 
 
 def joined_by_bar(report, lines) -> bool:
-    return any(
-        i.kind == "joint" and i.lines == lines and "bar in" in i.text for i in report.unchecked
-    )
+    """A bar in a hollow between the two lines, which is a joint tested for fit."""
+    return any(set(i.lines) == set(lines) and "as a bar in" in i.text for i in report.fits)
 
 
 OPEN_STUD_PLATE = [line(7, 0, -8, 0, "3036.dat"), line(14, 10, -16, 10, "85861.dat")]
@@ -592,9 +598,9 @@ def test_an_axle_askew_3_degrees_joins_8_does_not():
     m3 = "0 0 1 0.05234 0.99863 0 -0.99863 0.05234 0"
     m15 = "0 0 1 0.13917 0.99027 0 -0.99027 0.13917 0"  # 8 degrees
     ok = check("\n".join([*AXLE_IN_BRICK, line(1, 0, -22, 10, "3705.dat", m3)]))
-    assert ok.ok and any("axle joint" in w for w in unchecked_words(ok))
+    assert ok.ok and any("on the axle of line" in w for w in fit_words(ok))
     bad = check("\n".join([*AXLE_IN_BRICK, line(1, 0, -22, 10, "3705.dat", m15)]))
-    assert not bad.ok and not any("axle joint" in w for w in unchecked_words(bad))
+    assert not bad.ok and not any("axle" in w for w in unchecked_words(bad) + fit_words(bad))
 
 
 def test_a_bush_2_beyond_the_axles_end_is_not_on_it():
@@ -659,7 +665,7 @@ def test_a_bar_must_be_3_ldu_into_a_technic_bricks_through_hole():
         bar = line(1, 0, -22, -60 + into, "87994.dat", ALONG_Z)
         r = check("\n".join([*brick, bar]))
         assert joined_by_bar(r, [2, 3]) == joined, into
-        assert any("a loose fit" in w for w in unchecked_words(r)) == joined, into
+        assert any("a loose fit" in w for w in fit_words(r)) == joined, into
 
 
 def test_a_bar_right_through_technic_holes_and_a_bush():
@@ -668,7 +674,7 @@ def test_a_bar_right_through_technic_holes_and_a_bush():
     r = check("\n".join([base, line(14, 0, -32, 10, "3700.dat"), bar]))
     assert r.ok and joined_by_bar(r, [2, 3])
     r = check("\n".join([base, line(14, 0, -32, 10, "32064a.dat"), bar]))
-    assert r.ok and any("bar in an axle hole" in w for w in unchecked_words(r))
+    assert r.ok and any("bar in an axle hole" in w for w in fit_words(r))
     bush = line(2, 0, -22, 30, "3713.dat")  # on the bar beyond the brick
     r = check("\n".join([base, line(14, 0, -32, 10, "3700.dat"), bar, bush]))
     assert r.ok and joined_by_bar(r, [3, 4]), r.text()
@@ -689,8 +695,26 @@ def test_a_bar_drawn_as_a_tube_is_a_bar():
 # loosens ----------------------------------------------------------------------------------------
 
 
+FIT_WORDS = {  # how a joint tested for fit says what holds the part
+    "wheel pin": "on the wheel pin of line",
+    "tyre on a wheel": "round the wheel line",
+    "axle": "on the axle of line",
+    "Technic pin": "on the Technic pin of line",
+}
+
+
+def fitted(report, lines, words: str) -> bool:
+    """A joint of this sort between the two lines, tested for fit."""
+    said = FIT_WORDS.get(words, words)
+    return any(set(i.lines) == set(lines) and said in i.text for i in report.fits)
+
+
 def joint_between(report, lines, words: str) -> bool:
-    return any(i.kind == "joint" and i.lines == lines and words in i.text for i in report.unchecked)
+    """A joint of this sort between the two lines, of either kind."""
+    named = any(
+        i.kind == "joint" and i.lines == lines and words in i.text for i in report.unchecked
+    )
+    return named or fitted(report, lines, words)
 
 
 def overlap_between(report, lines) -> bool:
@@ -858,6 +882,87 @@ def test_a_wheel_with_no_hole_must_be_on_half_its_width(x, held):
         + line(4, x, -25, 0, "30027a.dat", "0 0 -1 0 1 0 1 0 0")
     )
     assert joint_between(check(t), [1, 2], "wheel pin") == held
+
+
+@pytest.mark.parametrize("z, tested", [(-10, True), (-12, True), (-12.5, False)])
+def test_a_stud_in_a_pin_hole_is_tested_for_fit_within_2_ldu_of_its_face(z, tested):
+    # a tooth plate's side stud in a Technic brick's hole: seated at z -10; its base may be up
+    # to 2 LDU outside the hole's face (a stated limit), not 2.5
+    brick = line(72, 0, -24, 0, "32000.dat")
+    r = check(brick + "\n" + line(15, -10, -14, z, "49668.dat", TOOTH_ON_SIDE))
+    assert any("in its Technic pin hole" in w for w in fit_words(r)) == tested, r.text()
+    assert ("loose" in kinds(r)) == (not tested)
+
+
+PIN_ALONG_Z = "0 0 1 0 1 0 -1 0 0"  # a pin's own x (its length) along world z
+
+
+@pytest.mark.parametrize(
+    "x, z, tested",
+    [(0, -10, True), (0, -12, True), (0, -13, False), (1.5, -10, True), (2, -10, False)],
+)
+def test_a_technic_pin_is_tested_for_fit_on_its_holes_line_and_depth(x, z, tested):
+    # a half pin in a Technic brick's 20 LDU through hole: home at z -10; it must be in all but
+    # PIN_PLAY (2 LDU) of the shorter of pin and hole (18 at z -12, 17 at -13), and on the
+    # hole's line within AXLE_LDU (1.5)
+    brick = line(7, 0, -24, 0, "3700.dat")
+    r = check(brick + "\n" + line(4, x, -14, z, "4274.dat", PIN_ALONG_Z))
+    assert fitted(r, [1, 2], "Technic pin") == tested, r.text()
+    # either way it is a joint: when its fit is not measured it is known by name only
+    assert joint_between(r, [1, 2], "Technic pin"), r.text()
+    assert (not r.unchecked) == tested
+
+
+@pytest.mark.parametrize("z, tested", [(10, True), (12, True), (13, False)])
+def test_a_full_pins_other_half_is_tested_too(z, tested):
+    # the library draws a full Technic pin with a pin primitive for one half only; the other
+    # half (here the one in the hole, from z -10 at home) is taken from its box
+    brick = line(7, 0, -24, 0, "3700.dat")
+    r = check(brick + "\n" + line(4, 0, -14, z, "3673.dat", PIN_ALONG_Z))
+    assert fitted(r, [1, 2], "Technic pin") == tested, r.text()
+
+
+PLANE_WHEEL = "0 0 -1 0 1 0 1 0 0"  # as the builder of the Cessna put its wheels on
+
+
+@pytest.mark.parametrize("x, tested", [(90, True), (96, True), (97, False)])
+def test_a_wheel_with_a_round_box_is_tested_on_half_its_width(x, tested):
+    # 4624 has no hole primitive: its line is its round box's axis (BOX_ROUND), its hub half
+    # its 16 LDU width, so the 4488's pin must be in 8 - WHEEL_PLAY = 6 LDU: 12 at home (x 90),
+    # 6 at x 96, 5 at x 97
+    t = line(15, 60, -23, 20, "4488.dat") + "\n" + line(71, x, -18, 20, "4624.dat", PLANE_WHEEL)
+    assert fitted(check(t), [1, 2], "wheel pin") == tested
+
+
+def test_a_tyre_is_tested_for_fit_only_when_both_boxes_are_round():
+    # 3641 on 4624: both boxes round (two sides equal) -> tested for fit
+    t = [
+        line(71, 90, -18, 20, "4624.dat", PLANE_WHEEL),
+        line(0, 90, -18, 20, "3641.dat", PLANE_WHEEL),
+    ]
+    assert fitted(check("\n".join(t)), [1, 2], "tyre on a wheel")
+    # 32247's box is 108 x 107.2 (more than BOX_ROUND apart): its line comes from its shape,
+    # which is enough to accept its tyre (the library's 32248) but not to measure the fit
+    r = check("1 4 0 -65 0 1 0 0 0 1 0 0 0 1 32247.dat\n1 256 0 -65 0 1 0 0 0 1 0 0 0 1 539.dat\n")
+    assert not r.problems and joint_between(r, [1, 2], "tyre on a wheel"), r.text()
+    assert not fitted(r, [1, 2], "tyre on a wheel"), r.text()
+
+
+def test_a_part_on_a_joint_tested_for_fit_is_held_as_on_studs():
+    brick = line(7, 0, -24, 0, "3700.dat")
+    r = check(brick + "\n" + line(4, 0, -14, -10, "4274.dat", PIN_ALONG_Z))
+    text = r.text()
+    assert r.summary().endswith("every part is held, nothing overlaps, and it stands.")
+    assert "NOT CHECKED" not in text
+    assert "- line 1 is held on the Technic pin of line 2 (in 20 LDU, 18 asked)" in text
+    assert text.endswith(
+        "(Joints tested for fit are measured, as studs are, for where and how far one part "
+        "goes into the other; how firmly any joint grips is not judged.)"
+    )
+    off = check(brick + "\n" + line(4, 0, -14, -13, "4274.dat", PIN_ALONG_Z)).text()
+    assert "(1 of them only by joints the checker cannot confirm)" in off
+    assert "NOT CHECKED (joints known by name only: the checker has not measured the fit" in off
+    assert "a Technic pin joint, known by name only" in off and "Joints tested for fit" not in off
 
 
 def test_report_text_sections():
