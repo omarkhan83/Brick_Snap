@@ -236,3 +236,23 @@ Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review
 - A measurable clip whose fit fails falls back to "known by name" within `CLIP_REACH` (a clip
   moved 4 LDU off its bar passes 19 times in 99 in the targeted run).
 - 20612's two oblique tubes are not found (its third, along its own x, is).
+
+## Style techniques (branch `wip/Alec-42-style-techniques`, 20 and 21 November)
+Every technique of the style guide is built and checked in `tests/test_lab_style_techniques.py`.
+Done there: a stud beside a cut edge or under open space is no "no socket" problem (35 false
+problems gone from the 18 official models, 226 to 191); parts' stud cells follow their top
+studs (16 parts moved onto the grid); `place` offers only sockets a stud can go in, says when
+another quarter turn catches more studs, and in guide mode turns a part on one stud by an angle.
+
+Left:
+- **Hinge halves are still known by name only.** A rule was tried and withdrawn (21 November):
+  read each half's turning line from the cylinders its file is drawn with, and join two halves
+  only when the lines are one. It misread parts whose hinge is not drawn with cylinders: a
+  locking hinge 30389b/30389c with its finger 40902 or 53029 (the centre axle hole read as the
+  hinge line, 60 LDU off, so a correct hinge became two problems), and 2433, 41529, 4508, 47431
+  and 47978 read their own stud or tube axis. It caught nothing new in 126 hinge mutations, and
+  an official set (75892) has a 3937 and 3938 4 LDU apart. So a hinge top lifted 8 to 16 LDU
+  still passes (the style test of it is a strict expected failure). Done safely it would trust
+  a pair's lines only where the library's own assembly of those two parts (3937c01 for 3937
+  with 3938, and the like) puts them on one line, and measure other pairs against that pose
+  turned about that line; a pair with no assembly stays known by name.

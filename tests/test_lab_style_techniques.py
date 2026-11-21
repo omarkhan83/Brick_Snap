@@ -523,7 +523,15 @@ CASES["tail 77182"] = lambda: tail("77182")
 
 # where the checker is wrong today: case -> the checker's words (see the module's notes)
 FALSE_RESULT: dict[str, str] = {}
-WRONG_PASSES: dict[tuple[str, str], str] = {}
+WRONG_PASSES: dict[tuple[str, str], str] = {
+    ("hinge 3937 3938 panel", "the top and its panel a plate too high"): (
+        "4 parts of 4 kinds, no problems: every part is held (2 of them only by joints the "
+        "checker cannot confirm) ... [a known gap: a hinge is known by name only, so any two "
+        "hinge parts that touch are joined wherever they are. A rule reading each half's line "
+        "from its shape was tried and withdrawn (it misread locking hinges); see "
+        "docs/tasks/the-checkers-older-joint-rules.md]"
+    ),
+}
 
 
 def _right_params() -> list:  # type: ignore[type-arg]
@@ -618,15 +626,6 @@ def test_a_hinge_opened_about_its_own_line_is_still_joined(degrees):
     rep = check("\n".join(lines))
     assert not [i for i in rep.problems if i.kind == "hinge"], said(rep)
     assert any(i.kind == "joint" and i.lines == [2, 3] for i in rep.unchecked), said(rep)
-
-
-@pytest.mark.parametrize("dy, dz", [(-8, 0), (-16, 0), (0, 8), (0, 16)])
-def test_a_hinge_half_off_the_others_line_is_a_problem_in_words(dy, dz):
-    t = hinged_panel().right
-    rep = check(moved(moved(t, 3, dy=dy, dz=dz), 4, dy=dy, dz=dz))
-    hinge = [i for i in rep.problems if i.kind == "hinge"]
-    assert hinge and hinge[0].lines == [2, 3], said(rep)
-    assert "the two halves of a hinge turn about one line" in hinge[0].text
 
 
 def test_the_glass_hinge_is_a_joint_known_by_name_only():
