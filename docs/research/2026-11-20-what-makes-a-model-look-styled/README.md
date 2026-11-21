@@ -82,8 +82,9 @@ Three researchers worked side by side.
   models from ours, in order: plate seams on the sides; the share of the sides that is the face of a
   sideways part; flat upright wall; parts not upright; the classic primaries; colours over 5%; colour
   patches.
-- **The craft** (`cessna-critique.md`; the evidence file with its sources is being checked quotation by
-  quotation before it is added here). What LEGO's designers and long-standing builders have published
+- **The craft** (`findings.md` with its sources, `cessna-critique.md`). Its 71 quotations were checked
+  word for word against the pages they cite by a second reader: 68 stood, 2 were corrected to the page's
+  words, 1 was found at another address; one claim the page did not make was rewritten. What LEGO's designers and long-standing builders have published
   about studs, building sideways, curves, colour, scale and detail, and about 45 official sets read old
   against new from LEGO's own published building instructions and reviews: aircraft and cars first,
   then creatures, buildings and an object. Techniques are described in our own words; no page of
