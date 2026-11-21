@@ -41,6 +41,12 @@ attaches to: on a stud pointing up, turn 0 gives the new part the unturned rotat
 new part tipped over the shortest way so that its top faces along the stud. The socket used
 turns with the part. The rotation matrix comes out exact (whole numbers for quarter turns and
 axis-aligned studs).
+``angle`` (degrees, optional) turns the new part further about the stud it sits on (or the
+stud of its own that hangs it), clockwise seen from its top as ``turn`` is (90 is one more
+quarter turn): for a part held by exactly one stud only (a 1 x 2 plate on a jumper's centre
+stud turned 45 degrees). Placed without the angle, the part and that line must join by one
+stud (the checker's stud test), else it is refused in plain words; on the ground it is
+refused (use turn). The matrix is then not whole numbers.
 When another quarter turn would join more studs between the new part and that line (counted
 by the checker's own stud test, both ways), the note ends with one sentence saying so ("Turn 2
 would catch 4 side studs; this catches 1."); what is placed does not change.
@@ -48,6 +54,7 @@ would catch 4 side studs; this catches 1."); what is placed does not change.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -243,6 +250,7 @@ def place(
     x: float = 0.0,
     z: float = 0.0,
     lib: Library | None = None,
+    angle: float | None = None,
 ) -> Placement:
     lib = lib or library()
     new, new_name = _new_part(part, lib)
@@ -250,6 +258,14 @@ def place(
         raise PlaceError("turn is a number of quarter turns: 0, 1, 2 or 3.")
     q = np.linalg.matrix_power(QUARTER, turn)
     turned = f", turned {turn} quarter turn{'s' if turn != 1 else ''}" if turn else ""
+    if angle is not None:
+        if not isinstance(angle, int | float) or not math.isfinite(angle) or abs(angle) > 360:
+            raise PlaceError("angle is a number of degrees, between -360 and 360.")
+        if line == 0 or (stud is None and under_socket is None):
+            raise PlaceError(
+                "angle turns a part about the one stud that holds it: give stud (or "
+                "under_socket) as well. On the ground, use turn."
+            )
     if line == 0:
         m = q
         lo, hi = new.bbox_min, new.bbox_max
@@ -308,12 +324,29 @@ def place(
             "Say where: stud (a stud of that line), under_socket (a socket of that line), or "
             "line 0 with x and z for the ground."
         )
-    m, pos = pose(q)
+    target_info, new_info = (t_name, target, t_pos, t_m), (new_name, new)
+    if angle is not None:
+        held = _caught(target_info, new_info, *reversed(pose(q)))
+        if held != 1:
+            raise PlaceError(
+                f"angle is for a part held by exactly one stud (a part turned on one stud); "
+                f"placed so, {new_name} and line {line} join by {held} studs, and a part on "
+                "two or more studs cannot turn on them. Use turn, or seat it on a single "
+                "stud (a jumper plate's centre stud) first."
+            )
+        a = math.radians(angle)
+        spin = np.array([[math.cos(a), 0, math.sin(a)], [0, 1, 0], [-math.sin(a), 0, math.cos(a)]])
+        m, pos = pose(spin @ q)
+        note = note[:-1] + f", turned {fmt(angle)} degrees about that stud."
+    else:
+        m, pos = pose(q)
     m = _clean(m)
     note += " " + _where(new, pos, m)
+    if angle is not None:
+        return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
     better = _better_turn(
-        (t_name, target, t_pos, t_m),
-        (new_name, new),
+        target_info,
+        new_info,
         [(k, *pose(np.linalg.matrix_power(QUARTER, k))) for k in range(4)],
         turn,
         sideways=stud is not None and abs(float(d_w[1])) < 0.99,

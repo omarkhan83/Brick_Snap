@@ -701,3 +701,56 @@ def test_place_says_when_another_turn_would_catch_more_studs():
         "Turn 2 would catch 4 studs; this catches 2."
     )
     assert "would catch" not in place(t, "3001.dat", 1, 2, stud=1).note
+
+
+def test_place_turns_a_part_on_one_stud_by_an_angle():
+    t = on(base(), "15573.dat", 72, 1, stud=b(-10, 10))
+    t = on(t, "3005.dat", 4, 1, stud=b(30, -10))  # a 1 x 1 brick at the front right
+    got = place(t, "3023b.dat", 15, 2, stud=1, angle=-45)
+    assert "turned -45 degrees about that stud" in got.note
+    assert got.line == turned_on_one_stud("3023b.dat", "15573.dat", -45).splitlines()[-1]
+    assert held(check(t + "\n" + got.line))
+    clash = check(t + "\n" + place(t, "3023b.dat", 15, 2, stud=1, angle=45).line)
+    assert any({3, 4} <= set(i.lines) for i in clash.problems), said(clash)
+    # 90 degrees is one more quarter turn
+    assert (
+        place(t, "3023b.dat", 15, 2, stud=1, angle=90).line
+        == place(t, "3023b.dat", 15, 2, stud=1, turn=1).line
+    )
+
+
+@pytest.mark.parametrize(
+    "where, words",
+    [
+        (dict(line=1, stud=b(-10, -10)), "join by 2 studs"),  # a 1 x 2 plate on two studs
+        (dict(line=0, x=0, z=0), "On the ground, use turn"),
+    ],
+)
+def test_an_angle_is_refused_for_a_part_on_two_studs_or_the_ground(where, words):
+    with pytest.raises(PlaceError, match=words):
+        place(base(), "3023b.dat", 15, angle=45, **where)
+
+
+def test_guide_mode_place_offers_an_angle_and_the_plain_tools_do_not():
+    from bricksnap.lab import art, tools
+
+    plain: Any = tools._PLACE
+    assert "angle" not in plain["input_schema"]["properties"]
+    guide = art.place_tool(plain)["input_schema"]["properties"]
+    assert guide["angle"]["type"] == "number" and "angle" in guide["parts"]["items"]["properties"]
+
+
+def test_the_place_tool_passes_the_angle_on(tmp_path):
+    import json
+
+    from bricksnap.lab import tools
+
+    folder = tmp_path / "work"
+    folder.mkdir()
+    (folder / "config.json").write_text(json.dumps({"mode": "tools", "guide": True}))
+    tools._save_model(folder, on(base(), "15573.dat", 72, 1, stud=b(-10, 10)))
+    args = {"part": "3023b.dat", "colour": 15, "line": 2, "stud": 1, "angle": -45}
+    reply = tools._place(folder, args)[0]["text"]
+    assert "turned -45 degrees about that stud" in reply, reply
+    bad = tools._place(folder, {**args, "angle": "a lot"})[0]["text"]
+    assert "angle must be a number of degrees" in bad

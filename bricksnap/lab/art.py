@@ -34,6 +34,8 @@ work folder.
 - ``place`` in guide mode also takes ``{"parts": [...]}``: up to ``MAX_BATCH`` placements
   done in turn by the ordinary ``place``, the reply listing each, stopping at the first that
   fails (``PLACE``).
+  It also takes ``angle`` (degrees, ``ANGLE``; each of those placements too), passed to
+  ``place.place``: a part held by exactly one stud turned further about it.
 - ``call(folder, name, args, handler)``: answers one tool call in guide mode. The first
   ``place``, ``add``, ``fill``, ``place_module`` or ``submit`` with ldraw before any brief
   is refused once, with a sentence saying to write the brief first (a builder that insists
@@ -198,12 +200,20 @@ SUBMIT: dict[str, Any] = {
 }
 
 
+ANGLE = {"type": "number", "minimum": -360, "maximum": 360}
+
+
 def place_tool(base: dict[str, Any]) -> dict[str, Any]:
-    """Guide mode's ``place``: the ordinary one, which also takes a list of placements."""
+    """Guide mode's ``place``: the ordinary one, which also takes a list of placements and an
+    ``angle`` for a part turned on one stud."""
     out = copy.deepcopy(base)
-    one = copy.deepcopy(base["input_schema"]["properties"])
+    out["input_schema"]["properties"]["angle"] = ANGLE
+    one = copy.deepcopy(out["input_schema"]["properties"])
     out["description"] = (
         base["description"] + "\n"
+        "angle (degrees, optional): a part held by exactly one stud turned further about that "
+        "stud, clockwise seen from its top (45 for a 1 x 2 plate on a jumper's stud set on the "
+        "diagonal); refused when the part sits on two or more studs.\n"
         f'4. Many at once: {{"parts": [{{...}}, {{...}}]}}, up to {MAX_BATCH} placements '
         "of the kinds above, done in turn; each new part takes the next line number, so a "
         "later one may stand on an earlier one. The reply lists each; it stops at the first "

@@ -1044,6 +1044,11 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         return _error("part must be a file name such as 3001.dat.")
     try:
         where = _where_args(args)
+        if args.get("angle") is not None:  # guide mode's place (``art.place_tool``)
+            angle = args["angle"]
+            if isinstance(angle, bool) or not isinstance(angle, int | float):
+                raise ValueError("angle must be a number of degrees.")
+            where["angle"] = float(angle)
         result = place(_model(folder), part.strip(), **where)
     except (PlaceError, ValueError) as e:
         return _error(str(e))
