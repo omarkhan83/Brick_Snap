@@ -139,9 +139,10 @@ What it reports, each item naming the line number, the part and its position:
     the library draws with no primitive for its bore, gets one from its real shape:
     ``_tube_hollows``) and a stud in a Technic pin hole;
   - a clip on a bar or a handle (``_clip_fit``): the bar (a handle's, ``_handle_bars``, or a
-    bar part's long axis, ``_bar_lines``) through the clip's grip, which is, per clip
-    primitive, ``CLIP_GRIP`` LDU from its point (within ``CLIP_TOL``), along its axis or
-    square to it (within ``CLIP_DEG`` degrees); for an "along" clip on a bar the library does
+    bar part's long axis, ``_bar_lines``) through the clip's grip: at the bar's point nearest
+    the clip primitive's point, running along the primitive's axis or square to it, as
+    ``CLIP_GRIP`` says per primitive (within ``CLIP_DEG`` degrees); for an "along" clip on a
+    bar the library does
     not draw (23443's handle) the primitive's own axis; for a clip with no primitive (15712)
     the first place along the bar inside the clip's box where the grip holds. There the bar
     must be bar-thick and the clip round it (``_grip_holds``) at the grip's middle and
@@ -1699,9 +1700,8 @@ def _fit_of(a: Placed, b: Placed, words: list[str]) -> tuple[int, int, str] | No
                         p.line,
                         q.line,
                         (
-                            f"by the clip of line {p.line} round its bar (the clip "
-                            f"{fmt(round(got_c[0], 1))} LDU from the bar's line, "
-                            f"{fmt(got_c[1])} for this clip)"
+                            f"by the clip of line {p.line} round its bar (its point "
+                            f"{fmt(round(got_c, 1))} LDU from the bar's line)"
                         ),
                     )
             elif word == "Technic pin":
@@ -1730,25 +1730,24 @@ JOINT_ROOM = {  # LDU round a receptacle's line (the hole, the clip) where its j
     "bar handle": 6.0,  # round the handle's bar (``_handle_bars``), when the clip has no primitive
 }
 CLIP_REACH = 7.5  # LDU a clip primitive's point may be from the bar it holds
-# a clip tested for fit: per clip primitive, how far its point is from the centre line of the
-# bar it grips, and whether the bar runs along the primitive's axis or square to it (measured
-# on the clip-on-bar and clip-on-handle pairs of the official sets, 0, 2 or 6 LDU, and for the
-# rest found in the library's clip parts' own shapes: where a bar's ring is clip all round)
+# a clip tested for fit: per clip primitive, whether the bar it grips runs along the
+# primitive's axis or square to it (measured on the clip-on-bar and clip-on-handle pairs of
+# the official sets, and for the rest found in the library's clip parts' own shapes: where a
+# bar's ring is clip all round)
 CLIP_GRIP = {
-    "clip1": (0.0, "along"),
-    "clip4": (0.0, "along"),
-    "clip5": (0.0, "along"),
-    "clip7": (1.0, "along"),
-    "clip12": (0.0, "along"),
-    "clip13": (0.0, "along"),
-    "clip15": (0.0, "along"),
-    "clip16": (0.0, "along"),
-    "clip3": (2.0, "across"),
-    "clip6": (2.0, "across"),
-    "clip8": (6.0, "across"),
-    "clip11": (6.0, "across"),
+    "clip1": "along",
+    "clip4": "along",
+    "clip5": "along",
+    "clip7": "along",
+    "clip12": "along",
+    "clip13": "along",
+    "clip15": "along",
+    "clip16": "along",
+    "clip3": "across",
+    "clip6": "across",
+    "clip8": "across",
+    "clip11": "across",
 }  # clip2 (a thick U-clip, 4085c), clip9, clip10 and clip14 grip too loosely to say: by name
-CLIP_TOL = 1.0  # LDU the bar's line may be from where the primitive says
 CLIP_DEG = 5.0  # degrees the bar may lean from the grip's direction
 GRIP_HALF = 2.0  # LDU either side of the grip's middle where bar and clip must both be
 GRIP_R = 5.5  # LDU: the circle round the bar's line where the clip is and the bar is not
@@ -2046,14 +2045,14 @@ def _grip_holds(p: Placed, q: Placed, x: np.ndarray, u: np.ndarray) -> bool:
     return True
 
 
-def _clip_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
-    """A clip of p measured on a bar of q: (how far the clip primitive's point is from the
-    bar's centre line, how far its primitive allows: 0 for a clip the library draws without
-    a primitive); None when it is not a fit. Where the grip is:
-    - a clip primitive in ``CLIP_GRIP`` and a bar of q (``_bar_lines``): the bar's line within
-      ``CLIP_GRIP[prim] + CLIP_TOL`` LDU of the primitive's point, along the primitive's axis
-      (an "along" clip) or square to it (an "across" one) within ``CLIP_DEG`` degrees, the
-      line's point nearest the clip at least ``GRIP_HALF`` LDU inside the bar's ends;
+def _clip_fit(p: Placed, q: Placed) -> float | None:
+    """A clip of p measured on a bar of q: how far the clip primitive's point is from the
+    bar's centre line (0 for a clip the library draws without a primitive); None when it is
+    not a fit. Where the grip is:
+    - a clip primitive in ``CLIP_GRIP`` and a bar of q (``_bar_lines``): the point of the
+      bar's line nearest the primitive's point, at least ``GRIP_HALF`` LDU inside the bar's
+      ends, the line along the primitive's axis (an "along" clip) or square to it (an
+      "across" one) within ``CLIP_DEG`` degrees;
     - an "along" clip primitive alone (q's bar drawn with no primitive, as 23443's handle):
       its own axis through its point;
     - a part its name calls a clip, drawn with no clip primitive (15712), on a bar of q: the
@@ -2065,7 +2064,7 @@ def _clip_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
     for c in clips:
         if c.prim not in CLIP_GRIP:
             continue
-        reach, how = CLIP_GRIP[c.prim]
+        how = CLIP_GRIP[c.prim]
         o = p.to_world(c.pos)
         a = p.m @ c.axis
         for e0, e1 in bars:
@@ -2075,14 +2074,14 @@ def _clip_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
             u = (e1 - e0) / length
             t = float(np.dot(o - e0, u))
             dist = float(np.linalg.norm(o - (e0 + t * u)))
-            if dist > reach + CLIP_TOL or not GRIP_HALF <= t <= length - GRIP_HALF:
+            if not GRIP_HALF <= t <= length - GRIP_HALF:
                 continue
             cos = min(1.0, abs(float(np.dot(u, a))))
             off = math.degrees(math.acos(cos) if how == "along" else math.asin(cos))
             if off <= CLIP_DEG and _grip_holds(p, q, e0 + t * u, u):
-                return dist, reach
+                return dist
         if how == "along" and not bars and _grip_holds(p, q, o, a):
-            return 0.0, reach
+            return 0.0
     if clips or "clip" not in p.part.name_joint_words():
         return None
     lo, hi = p.part.bbox_min - 1, p.part.bbox_max + 1
@@ -2093,7 +2092,7 @@ def _clip_fit(p: Placed, q: Placed) -> tuple[float, float] | None:
             x = e0 + t * u
             local = p.to_local(x[None, :])[0]
             if np.all(local >= lo) and np.all(local <= hi) and _grip_holds(p, q, x, u):
-                return 0.0, 0.0
+                return 0.0
     return None
 
 
@@ -2513,7 +2512,7 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
             not words
             and not linked
             and (a.line, b.line) not in joint_pairs
-            and any(_could_grip(p, q) and _clip_fit(p, q) for p, q in ((a, b), (b, a)))
+            and any(_could_grip(p, q) and _clip_fit(p, q) is not None for p, q in ((a, b), (b, a)))
         ):
             words = ["bar in a clip"]
         if words and (_touches(a, b) or _touches(b, a)) and not _joint_clash(a, b, words):

@@ -206,9 +206,10 @@ Left:
   handle (75892: 98313); 11090 on 25893's handle (76897).
 - Clip primitives not measured (known by name only): clip2 (4085c, the thick U-clip), clip9,
   clip10, clip14.
-- Limits no test pins (loosened, no test fails, because the grip ring binds first or no
-  part tests them): `CLIP_TOL`, the per-primitive reach in `CLIP_GRIP`, `BAR_BOX`, the bar
-  tube's wall (6 of 8) and its depth.
+- The limits no test pinned are settled: the per-primitive reach in `CLIP_GRIP` and
+  `CLIP_TOL` are removed (the grip ring decided every case; the official sets, the 18 models,
+  the free builds and the mutation runs are the same without them); `BAR_BOX` is pinned by a
+  clip on 6190's bar, the bar tube's wall by 11090's clip end, its depth by 20612's middle.
 - A builder tool that puts a clip on a handle at a given angle (the tests' `frame` and
   `handle_middle` do it in a few lines).
 - Hinge halves, finger hinges, ball joints and turntables stay known by name only.

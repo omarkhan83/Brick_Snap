@@ -120,6 +120,25 @@ def test_a_bar_pushed_past_the_stop_of_11090_is_an_overlap():
     assert tubes_fitted(r) == 0
 
 
+def tube_bores(key: str) -> list[tuple[list[float], list[float]]]:
+    from bricksnap.lab.validate import Placed, _tube_hollows
+
+    p = Placed(1, 0, np.zeros(3), np.eye(3), key, key, ldraw_lib.library().part(key), 0)
+    return [(np.round(h.p0, 1).tolist(), np.round(h.p1, 1).tolist()) for h in _tube_hollows(p)]
+
+
+def test_a_bar_tubes_bore_has_a_wall_round_it():
+    # 11090's axis is empty at its clip end too, but no wall stands round it there (6 of 8
+    # points 5 LDU out): only the real bore, from y 30 to its stop at 20, is one
+    assert tube_bores("11090.dat") == [([0.0, 30.0, 0.0], [0.0, 20.0, 0.0])]
+
+
+def test_a_bar_tubes_bore_is_at_least_bar_depth_deep():
+    # 20612 (a ring with three bar tubes) also has a hole 3.9 LDU deep at its middle, less
+    # than BAR_DEPTH (4): not a bore; its tube along x is
+    assert tube_bores("20612.dat") == [([20.0, 2.7, 0.0], [13.0, 2.7, 0.0])]
+
+
 # ---- a clip on a bar: its limits ------------------------------------------------------------
 
 CLIP = "1 72 0 -8 0 1 0 0 0 1 0 0 0 1 60897.dat\n"  # its grip: through (0, -4, -20), along y
@@ -193,6 +212,16 @@ def test_a_clip_with_no_primitive_must_be_round_the_bar(x, held):
     t[2] = str(float(t[2]) + x)
     r = check("\n".join([*text[:-1], " ".join(t)]) + "\n")
     assert (clips_fitted(r) == 1) == held, r.text()
+
+
+def test_a_part_wider_than_a_bar_has_no_bar_line_from_its_box():
+    # 6190 (Bar 1 x 3, 16 LDU across: more than BAR_BOX) gets no line from its box's long axis,
+    # which is not its bar; a clip on its bar is measured on the clip's own axis and fitted
+    R = frame([0, 1, 0], [1, 0, 0], [1, 0, 0], [0, 1, 0])  # 60897's grip (its y) along x
+    grip = np.array([-7.5, -34.1, 0.0])  # on 6190's bar, which runs along its own x
+    text = "1 7 0 -30 0 1 0 0 0 1 0 0 0 1 6190.dat\n"
+    r = check(text + line(72, grip - R @ np.array([0, 4.0, -20]), R, "60897.dat"))
+    assert clips_fitted(r) == 1, r.text()
 
 
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
