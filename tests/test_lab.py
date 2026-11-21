@@ -242,12 +242,12 @@ def test_nothing_on_the_ground_and_tipping():
     assert "tips over" in kinds(r) or "loose" in kinds(r)
 
 
-def test_clip_and_bar_are_not_checked_but_joined():
+def test_a_bar_standing_in_a_clip_is_tested_for_fit():
     clip = line(72, 0, -8, 0, "60897.dat")
     bar = line(0, 0, -60, -20, "87994.dat")  # 60 LDU long, standing in the clip
     r = check(clip + "\n" + bar)
     assert not r.problems
-    assert any(i.kind == "joint" and "bar in a clip" in i.text for i in r.unchecked)
+    assert any("by the clip of line 1 round its bar" in w for w in fit_words(r)), r.text()
 
 
 # ---- false alarms seen on official sets (experiment 3), each beside its wrong twin ----------
@@ -642,16 +642,15 @@ def test_place_seats_parts_with_a_cutout_where_the_checker_wants_them(lib):
 def test_the_line_about_parts_held_only_by_unchecked_joints_is_never_cut():
     from bricksnap.lab.validate import MAX_OTHERS
 
-    clip = "60897.dat"  # each plate carries a clip with a bar standing in it
-    text = []
+    text = []  # hinge halves (known by name only), each base on a 1 x 2 brick
     for k in range(MAX_OTHERS + 5):
-        text.append(line(4, 40 * k, -24, 0, "3005.dat"))  # a 1 x 1 brick under each
-        text.append(line(72, 40 * k, -32, 0, clip))
-        text.append(line(0, 40 * k, -84, -20, "87994.dat"))
+        text.append(line(4, 60 * k, -24, 10, "3004.dat"))
+        text.append(line(72, 60 * k, -48, 10, "3937.dat"))
+        text.append(line(0, 60 * k, -48, 10, "3938.dat"))
     r = check("\n".join(text))
     out = r.text()
     assert "joined to what stands on the ground only through those joints" in out
-    assert "more joints of the same sort (5 bar in a clip)" in out
+    assert "more joints of the same sort (5 hinge)" in out
     assert "only by joints the checker cannot confirm" in r.summary()
 
 
