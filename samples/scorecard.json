@@ -4,22 +4,23 @@
   {
    "name": "bottle",
    "ok": true,
-   "parts": 102,
+   "parts": 95,
    "loose": 0,
    "pieces": 1,
-   "weak_spots": 19,
-   "part_types": 9,
+   "weak_spots": 5,
+   "part_types": 13,
    "colours": 4,
-   "shaped": 0.4348,
-   "rough_parts": 106,
+   "shaped": 0.2,
+   "rough_parts": 93,
    "rough_shaped": 0.0,
-   "match_front": 0.8388,
-   "match_right": 0.7799,
-   "match_top": 0.7625,
-   "notes": 2,
-   "seconds": 0.39,
+   "match_front": 0.8714,
+   "match_right": 0.9136,
+   "match_top": 0.8315,
+   "notes": 4,
+   "seconds": 2.04,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": "x and y"
   },
   {
    "name": "car",
@@ -37,9 +38,10 @@
    "match_right": 0.914,
    "match_top": 0.9341,
    "notes": 9,
-   "seconds": 0.44,
+   "seconds": 1.62,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "cat",
@@ -57,9 +59,10 @@
    "match_right": 0.8854,
    "match_top": 0.867,
    "notes": 8,
-   "seconds": 2.08,
+   "seconds": 6.79,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "duck",
@@ -77,9 +80,10 @@
    "match_right": 0.9399,
    "match_top": 0.9278,
    "notes": 7,
-   "seconds": 1.21,
+   "seconds": 7.82,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "hat",
@@ -97,9 +101,10 @@
    "match_right": 0.9321,
    "match_top": 0.9466,
    "notes": 5,
-   "seconds": 0.67,
+   "seconds": 0.76,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "knight",
@@ -117,9 +122,10 @@
    "match_right": 0.9098,
    "match_top": 0.8773,
    "notes": 7,
-   "seconds": 0.78,
+   "seconds": 4.79,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "pawn",
@@ -137,9 +143,10 @@
    "match_right": 0.9003,
    "match_top": 0.896,
    "notes": 5,
-   "seconds": 0.73,
+   "seconds": 5.76,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "pineapple",
@@ -157,9 +164,10 @@
    "match_right": 0.6205,
    "match_top": 0.6995,
    "notes": 8,
-   "seconds": 1.12,
+   "seconds": 8.68,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "spaceship",
@@ -177,9 +185,10 @@
    "match_right": 0.9438,
    "match_top": 0.9039,
    "notes": 5,
-   "seconds": 0.94,
+   "seconds": 1.02,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "star",
@@ -197,9 +206,10 @@
    "match_right": 0.8695,
    "match_top": 0.8717,
    "notes": 6,
-   "seconds": 0.43,
+   "seconds": 1.1,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   },
   {
    "name": "teapot",
@@ -217,9 +227,10 @@
    "match_right": 0.9173,
    "match_top": 0.8871,
    "notes": 7,
-   "seconds": 1.04,
+   "seconds": 2.99,
    "error": "",
-   "picture_error": ""
+   "picture_error": "",
+   "seat": ""
   }
  ]
 }
