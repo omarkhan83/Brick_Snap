@@ -1,6 +1,6 @@
 # The free-build checker still takes some joints on trust that it could test
-- status: open
-- owner: nobody
+- status: in-progress
+- owner: Alec-42 (since 2026-11-20)
 - stage: 4
 
 On 20 November the checker stopped calling official techniques wrong (215 false problems on six
@@ -144,3 +144,15 @@ found what the six sets and free builds had not. Fixed:
   targeted 900 573 -> 768. Timings (best of 3, s, base -> branch): Car Base 30278c01 0.005 ->
   0.006, triceratops 30461c01 0.049 -> 0.052 (best of 15), 22969ac01 0.009 -> 0.009,
   from-pictures fable-duck 1.31 -> 1.33, 31072 0.49 -> 0.53, 40379 0.62 -> 0.62, 40441 1.23 -> 1.23.
+
+## Next (claimed 20 November): joints the checker now tests for fit should not read as "cannot confirm"
+A plane Alec built on 20 November (206 parts, guide on) stands on three wheels the builder put on
+wheel pins itself, and its summary reads "every part is held (203 of them only by joints the checker
+cannot confirm)". Since the work above, a wheel on its pin, a tyre on its wheel, an axle in its hole
+and a bar in its hollow are each tested for position against the real shapes, as a stud in its socket
+is; only grip is untested, and grip is untested for studs too. So the report should tell two things
+apart: joints tested for fit (they hold a part the way a stud does) and joints known only by name
+(clips by reach, hinge halves, ball joints, the 18 wheels with no line), and count only the second
+kind in "held only by joints the checker cannot confirm". The words the builder and the page show
+about this ("parts joined by clips, bars, pins and axles are counted as joined without proof") change
+with it.
