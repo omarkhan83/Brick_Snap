@@ -142,13 +142,17 @@ def bar_axes(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
 
 
 def _target(text: str, onto: int, which: int):  # type: ignore[no-untyped-def]
-    from bricksnap.lab.validate import _bar_lines
+    from bricksnap.lab.validate import _NAME_END, _bar_lines
 
     placed, lib = _parse(text)
     q = placed.get(onto)
     if q is None:
         raise ClipError(f"line {onto} is not a part of the model.")
-    bars = _bar_lines(q) or [(q.to_world(e0), q.to_world(e1)) for e0, e1 in bar_axes(q.key)]
+    bars = _bar_lines(q)
+    if not bars and any(_NAME_END.get(w) == "bar+" for w in q.part.name_joint_words()):
+        # a bar the library does not draw (23443's handle), on a part its name calls a bar or
+        # a handle: the checker joins a clip to no other part (4593, a control stick, is not)
+        bars = [(q.to_world(e0), q.to_world(e1)) for e0, e1 in bar_axes(q.key)]
     if not bars:
         raise ClipError(
             f"line {onto} ({q.key} {q.part.description}) has no bar or handle the checker can "

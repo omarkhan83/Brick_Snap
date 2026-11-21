@@ -289,7 +289,8 @@ def test_a_grip_is_looked_for_in_the_clip_not_in_its_opening():
     from bricksnap.lab.validate import grip_lines
 
     # 98460's clip (a fence's) is empty out to 4.75 LDU round its line and solid from 5: the
-    # circle of GRIP_R (5.5) is in the clip; one at 4.75 would be in the opening and find no grip
+    # circle of GRIP_R (5.5) is in the clip; one at 4.75 would be in the opening and find no
+    # grip. It is the only clip in the library whose grip differs between the two values.
     assert len(grip_lines("98460.dat")) == 1
 
 
@@ -577,6 +578,24 @@ def test_the_clip_tool_refuses_in_plain_words(work):
         said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 2, **bad})
         assert said.startswith("ERROR:") and "Traceback" not in said, (bad, said)
     assert model(work) == BASE + HANDLE  # nothing was added
+
+
+def test_the_clip_tool_says_when_the_checker_only_joins_its_clip_by_name(work):
+    # 48729b's clip is found, but on a bar its grip is too tight at GRIP_CLEAR for the checker
+    # to measure: the clip is joined by name only, and the reply says so
+    (work / "model.ldr").write_text(BASE + HANDLE)
+    said = use(work, "clip", {"part": "48729b", "colour": 15, "onto": 2})
+    assert "lines 2 and 3: joined by name only" in said, said
+    assert "It could not measure this clip's grip on that bar; it measures these: 60897" in said
+
+
+def test_the_clip_tool_refuses_a_part_the_checker_joins_no_clip_to(work):
+    # 4593 (a control stick) has a bar-thick knob, but its name is not a bar or a handle:
+    # the checker would find no joint, so the tool refuses it before adding anything
+    (work / "model.ldr").write_text("1 7 0 -40 0 1 0 0 0 1 0 0 0 1 4593.dat\n")
+    said = use(work, "clip", {"part": "60897", "colour": 15, "onto": 1})
+    assert said.startswith("ERROR:") and "has no bar or handle the checker can find" in said
+    assert model(work) == "1 7 0 -40 0 1 0 0 0 1 0 0 0 1 4593.dat\n"
 
 
 def test_the_clip_tool_reports_a_clash_as_the_checker_finds_it(work):

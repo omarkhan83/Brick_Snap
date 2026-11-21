@@ -239,4 +239,8 @@ Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review
   11090's clip end resting on a bar's top; a bar 8 above or 6 beside a tile clip.
 - A measurable clip whose fit fails falls back to "known by name" within `CLIP_REACH` (a clip
   moved 4 LDU off its bar passes 19 times in 99 in the targeted run).
-- 20612's two oblique tubes are not found (its third, along its own x, is).
+- 20612's two oblique tubes are not found (its third, along its own x, is). 72869, named a
+  bar tube, has no bore found at all.
+- The grip's clear ring (none of 12 points at `GRIP_CLEAR`) depends on where its 12 points
+  fall: 48729b's clip passes in the search and fails at the bar, so it is joined by name
+  only (`clip` says so). Testing more points in both would settle it either way.
