@@ -21,8 +21,10 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   a rib or wall at one side of a stud (most undersides grip a stud so) leaves a socket a
   socket.
   ``sockets(part, real=False)`` leaves that last test out (``Part.has_sockets`` uses it).
-  The answer is kept in memory per part; the real test costs one solid per part, built once
-  and kept on disk by ``solid`` (0.03 to 0.4 s for ordinary parts).
+  The answer is kept in memory per part. The real test asks the solid (built once, kept on
+  disk by ``solid``: 0.03 to 0.4 s for ordinary parts) which sockets to try, then the part's
+  drawn surface: a few milliseconds for most parts, 0.6 to 1.7 s for a big curved or wing
+  part the first time it is asked.
 
 ``place(text, part, colour, line, ...)`` -> ``Placement`` (the finished LDraw line and a
 sentence saying what was done), or raises ``PlaceError`` in plain words. ``text`` is the

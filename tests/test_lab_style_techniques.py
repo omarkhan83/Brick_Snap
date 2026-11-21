@@ -21,6 +21,7 @@ without it. No AI session is started.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Callable
@@ -600,6 +601,9 @@ def test_place_offers_only_sockets_the_real_shape_takes_a_stud_in():
     assert len(sockets(dish, real=False)) == 4  # three corners and the tube, by filled body
     assert [s.kind for s in sockets(dish)] == ["tube"]
     assert len(sockets(_part("3001.dat"))) == 11 and len(sockets(_part("41770b.dat"))) == 7
+    # the voxel solid has thin columns under 4595's sockets that no triangle draws; an
+    # official set (41498) puts a plate's studs in both
+    assert len(sockets(_part("4595.dat"))) == 2
 
 
 def test_a_stud_into_solid_plastic_where_there_is_no_socket_is_still_caught():
@@ -798,8 +802,6 @@ def test_guide_mode_place_offers_an_angle_and_the_plain_tools_do_not():
 
 
 def test_the_place_tool_passes_the_angle_on(tmp_path):
-    import json
-
     from bricksnap.lab import tools
 
     folder = tmp_path / "work"
@@ -811,3 +813,30 @@ def test_the_place_tool_passes_the_angle_on(tmp_path):
     assert "turned -45 degrees about that stud" in reply, reply
     bad = tools._place(folder, {**args, "angle": "a lot"})[0]["text"]
     assert "angle must be a number of degrees" in bad
+
+
+def test_place_offers_every_socket_a_library_assembly_seats_a_stud_in():
+    # the library's own assembled parts are right by definition: wherever one seats a stud in
+    # a part's underside, place must offer that socket (the real-shape test drops none)
+    from test_lab_assemblies import EXPECTED, assembly
+
+    lib = ldraw_lib.library()
+    seated = missing = 0
+    for key in json.loads(EXPECTED.read_text()):
+        r = check(assembly(lib, key), movement=False)
+        by = {p.line: p for p in r.placed}
+        for link in r.links:
+            a, held_part = by[link.holder], by[link.held]
+            studs = numbered_studs(a.part)
+            for n in link.studs:
+                s = studs[n - 1]
+                base_b = held_part.to_local(a.to_world(s.pos[None, :]))[0]
+                if held_part.dir_local(a.m @ s.axis)[1] > -0.98:
+                    continue  # not a stud coming up into the underside
+                seated += 1
+                near = min(
+                    (float(np.linalg.norm(x.pos - base_b)) for x in sockets(held_part.part)),
+                    default=99.0,
+                )
+                missing += near > 1.5
+    assert seated > 100 and missing == 0, (seated, missing)
