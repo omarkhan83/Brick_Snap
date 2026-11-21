@@ -23,6 +23,9 @@ module gives each part its real shape:
   ``d`` (the part's frame) go into the part's solid plastic: any point of its core
   (``STUD_CORE_R`` round its axis, or a smaller ``radius``, ``STUD_CORE_H`` up it) DEEP
   inside. A stud that only grazes the part (less than about 1 LDU) does not.
+- ``stud_middle_blocked(key, base, d)``: would a stud's middle be in the part's plastic (a
+  point of its axis, or a quarter of the ring ``STUD_MIDDLE_R`` round it at one height,
+  deep inside)? What ``place.sockets`` asks of each socket it offers.
 
 What it guarantees, for a part whose cells are ``h`` LDU (``CELL``, 0.5, for every ordinary
 part; coarser only for parts so big the grid would pass ``MAX_CELLS``: about 1 to 1.2 LDU
@@ -232,6 +235,7 @@ def in_the_way(
 
 STUD_CORE_R = 5.0  # LDU: a stud is 6 in radius; its core this far out is what must be free
 STUD_CORE_H = (0.75, 3.5)  # LDU up the stud (it is 4 tall) that must be free
+STUD_MIDDLE_R = 2.5  # LDU: the ring round a stud's axis that ``stud_middle_blocked`` tries
 
 
 def stud_core_inside(
@@ -258,6 +262,29 @@ def stud_core_inside(
         for r in sorted({2.5, radius}):
             pts.append(c + r * ring)
     return bool(solid(key, lib).inside(np.concatenate(pts), deep=True).any())
+
+
+def stud_middle_blocked(
+    key: str, base: np.ndarray, d: np.ndarray, lib: Library | None = None
+) -> bool:
+    """Would the middle of a stud (its base and unit direction in the part's frame) be in the
+    part's real solid plastic: a point of its axis, or at one height 3 or more of 12 points
+    on the ring ``STUD_MIDDLE_R`` round it, deep inside (``STUD_CORE_H`` up it)? A single rib
+    or wall at the stud's side, which many undersides have to grip a stud, does not count."""
+    d = np.asarray(d, dtype=float)
+    a = np.array([1.0, 0, 0]) if abs(d[0]) < 0.9 else np.array([0, 0, 1.0])
+    u = np.cross(d, a)
+    u /= np.linalg.norm(u)
+    v = np.cross(d, u)
+    ang = np.linspace(0, 2 * np.pi, 12, endpoint=False)
+    ring = STUD_MIDDLE_R * (np.outer(np.cos(ang), u) + np.outer(np.sin(ang), v))
+    so = solid(key, lib)
+    for h in np.linspace(STUD_CORE_H[0], STUD_CORE_H[1], 4):
+        c = np.asarray(base, dtype=float) + h * d
+        hit = so.inside(np.vstack([c[None, :], c + ring]), deep=True)
+        if hit[0] or int(hit[1:].sum()) >= 3:
+            return True
+    return False
 
 
 def triangles(key: str, lib: Library | None = None) -> np.ndarray:

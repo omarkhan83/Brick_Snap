@@ -16,10 +16,10 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   (``validate.stud_grid``), which differs only for a part with no top studs whose box is
   not whole studs (a curved slope with a cutout): placed with ``place``, such a part passes
   the check. Last, a socket must be one the part's REAL shape takes a stud in: the middle of
-  a stud pointing up from it (``solid.stud_core_inside`` within ``SOCKET_CORE_R`` of its
-  axis) is not in plastic. The filled body calls the corners of a radar dish's (4740) domed
-  underside sockets, and they are not; a rib or wall that only touches a stud's side (most
-  undersides grip a stud so) leaves a socket a socket.
+  a stud pointing up from it is not in plastic (``solid.stud_middle_blocked``). The filled
+  body calls the corners of a radar dish's (4740) domed underside sockets, and they are not;
+  a rib or wall at one side of a stud (most undersides grip a stud so) leaves a socket a
+  socket.
   ``sockets(part, real=False)`` leaves that last test out (``Part.has_sockets`` uses it).
   The answer is kept in memory per part; the real test costs one solid per part, built once
   and kept on disk by ``solid`` (0.03 to 0.4 s for ordinary parts).
@@ -90,7 +90,6 @@ class Placement:
 
 
 _REAL_SOCKETS: dict[str, list[Socket]] = {}
-SOCKET_CORE_R = 2.5  # LDU: a socket is false only when a stud's middle would be in plastic
 
 
 def sockets(part: Part, real: bool = True) -> list[Socket]:
@@ -104,7 +103,7 @@ def sockets(part: Part, real: bool = True) -> list[Socket]:
         _REAL_SOCKETS[part.name] = [
             s
             for s in _sockets(part)
-            if not solid.stud_core_inside(part.name, s.pos, up, radius=SOCKET_CORE_R)
+            if not solid.stud_middle_blocked(part.name, s.pos, up)
         ]
     return [Socket(s.pos.copy(), s.kind) for s in _REAL_SOCKETS[part.name]]
 
