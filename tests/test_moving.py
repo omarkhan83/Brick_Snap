@@ -953,6 +953,9 @@ def test_free_build_records_what_moves_and_an_opened_picture(tmp_path, monkeypat
 
 # ---- joint-free models: the whole report is main's ------------------------------------------
 
+# One entry changed on purpose since (20 November, the style techniques): fable-car lost a
+# false "no socket" for two studs standing under a slope's open underside (the real shapes
+# share nothing); the slope's overlap with the tile beside them is still reported.
 MAIN = json.loads((Path(__file__).parent / "moving_main_reports.json").read_text())
 
 

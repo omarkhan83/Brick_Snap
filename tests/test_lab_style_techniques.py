@@ -497,26 +497,7 @@ CASES["tail 77180"] = lambda: tail("77180")
 CASES["tail 77182"] = lambda: tail("77182")
 
 # where the checker is wrong today: case -> the checker's words (see the module's notes)
-_CUT_CORNER = (
-    "Stud 22 of line 1 (3036.dat Plate 6 x 8 ...): they press against the underside of line 3 "
-    "where it has no socket (no flat hollow for a stud there); line 3 (41770b.dat Wing 2 x 4 "
-    "Left with Chamfer ...) cannot sit there. [The stud stands beside the chamfer: the real "
-    "shapes share nothing. Part.is_socket asks for flat underside in two directions round the "
-    "stud, and past a cut edge there is one.]"
-)
-_UNDER_GLASS = (
-    "Studs ... of line 1 (3036.dat Plate 6 x 8 ...): they press against the underside of line 2 "
-    "where it has no socket (no flat hollow for a stud there); line 2 ({} Windscreen ...) cannot "
-    "sit there. [The studs stand under the glass beside its side walls: the real shapes share "
-    "nothing.]"
-)
-FALSE_RESULT: dict[str, str] = {
-    "wedges 41769b/41770b": _CUT_CORNER,
-    "wedges 41769b/41770b stacked": _CUT_CORNER,
-    "sweep 35787 22385": _CUT_CORNER.replace("Stud 22", "Stud 16").replace("line 3", "line 5"),
-    "screen 57783": _UNDER_GLASS.format("57783.dat"),
-    "screen 18973": _UNDER_GLASS.format("18973.dat"),
-}
+FALSE_RESULT: dict[str, str] = {}
 WRONG_PASSES: dict[tuple[str, str], str] = {
     ("hinge 3937 3938 panel", "the top and its panel a plate too high"): (
         "4 parts of 4 kinds, no problems: every part is held (2 of them only by joints the "
@@ -577,6 +558,21 @@ def test_the_technique_built_wrong_is_caught(name, what):
 
 
 # ---- what the table above cannot say in one sentence ---------------------------------------------
+
+
+@pytest.mark.parametrize("turn", range(4))
+@pytest.mark.parametrize("part", [p for pair in WEDGES for p in pair] + ["35787", "22385"])
+def test_a_wedge_plate_on_a_full_plate_with_studs_beside_its_cut(part, turn):
+    # every cell under the part has a stud, so a stud stands beside each cut edge; it holds
+    # nothing there and hits nothing (once "no socket": 41770b, on the real shapes nothing)
+    r = check(on(base(), part + ".dat", 4, 1, stud=b(-10, -10), turn=turn))
+    assert held(r), said(r)
+
+
+def test_a_stud_into_solid_plastic_where_there_is_no_socket_is_still_caught():
+    # the dish on four studs: its real shape stands on the corner studs
+    r = check(detail_on_top("4740").wrong["on four studs"])
+    assert any("where it has no socket" in i.text for i in r.problems), said(r)
 
 
 def test_the_glass_hinge_is_a_joint_known_by_name_only():
