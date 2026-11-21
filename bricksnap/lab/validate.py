@@ -154,14 +154,25 @@ What it reports, each item naming the line number, the part and its position:
   each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
   KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip whose
   primitive is not in ``CLIP_GRIP`` (clip2, the thick U-clip of 4085c; clip9, clip10, clip14)
-  or whose bar has no line it can find, hinge halves, finger hinges, ball and socket, a
-  turntable outside a
+  or whose bar has no line it can find, hinge halves (see below), finger hinges, ball and
+  socket, a turntable outside a
   proven module, a wheel or tyre whose line comes from its shape or that has none, an axle
   or pin the library does not draw as one (or that misses the measure), a tyre touching a
-  wheel pin, and anything judged by nearness. A joint tested for fit holds a part as a stud
-  link does: it is listed under HOW IT HOLDS TOGETHER ("line 2 is held on the wheel pin of
-  line 1 (in 12 LDU, 6 asked)") and counts as confirmed in ``held_only_item``; the report
-  then says once that fit is tested and grip is not (``FIT_NOTE``).
+  wheel pin, and anything judged by nearness.
+  Two different parts joined by name as a hinge, when both turning lines can be read from
+  their shapes (``_hinge_line``: the line along which the part's cylinders of radius
+  ``HINGE_R`` or less run longest, when at least twice as long as on any other; 3937, 3938,
+  2429, 2430, 3830, 3831 read; the line of a part drawn otherwise is not guessed), are
+  joined only when the two lines are one (within ``HINGE_DEG`` degrees and ``HINGE_LDU``
+  LDU: an official set, 75892, has a 3937 and 3938 4 LDU apart). Off it, they are not
+  joined, and where that leaves either loose a problem of kind "hinge" says so in words
+  ("line 3's hinge line is 8 LDU from line 2's: the two halves of a hinge turn about one
+  line ..."). When a line cannot be read, or the two are the same part (two hinge bases
+  side by side), the joint is as it was: known by name, counted as joined.
+  A joint tested for fit holds a part as a stud link does: it is listed under HOW IT HOLDS
+  TOGETHER ("line 2 is held on the wheel pin of line 1 (in 12 LDU, 6 asked)") and counts
+  as confirmed in ``held_only_item``; the report then says once that fit is tested and grip
+  is not (``FIT_NOTE``).
 - What is loose: groups of parts with no path of connections to a part on the ground
   (y = 0 at its lowest point, within ``GROUND_TOL``), each with what is below it and how far;
   groups that stand on the ground but are not joined to the rest (a warning); parts below the
@@ -2207,6 +2218,98 @@ def _joint_clash(a: Placed, b: Placed, words: list[str]) -> bool:
     return depth >= JOINT_SNUG_DEPTH - 1e-9 or vol > JOINT_SNUG_VOL
 
 
+HINGE_LDU = 5.0  # LDU: how far apart two hinge halves' lines may be and still be one hinge
+HINGE_DEG = 5.0  # degrees between them
+HINGE_R = 8.0  # LDU: a hinge's knuckles and pins are drawn with cylinders this thin or less
+_CYLINDER = re.compile(r"^(?:\d+-\d+)?(?:cyli|cylo|cyls|cylc|cylh|cyl)\w*$")
+_HINGE_LINES: dict[str, tuple[np.ndarray, np.ndarray] | None] = {}
+
+
+def _cylinders(lib: Library, kind: str, key: str, m: np.ndarray, t: np.ndarray, depth: int = 0):  # type: ignore[no-untyped-def]
+    """The cylinder primitives a part's file is drawn with (its studs' left out): (centre,
+    unit axis, radius, length), in the part's frame."""
+    out = []
+    if depth > 12:
+        return out
+    for line in lib.text(kind, key).splitlines():
+        tok = line.split()
+        if len(tok) < 15 or tok[0] != "1":
+            continue
+        try:
+            nums = [float(v) for v in tok[2:14]]
+        except ValueError:
+            continue
+        found = lib.resolve(" ".join(tok[14:]))
+        if found is None:
+            continue
+        mm = m @ np.array(nums[3:12]).reshape(3, 3)
+        tt = m @ np.array(nums[0:3]) + t
+        base = found[1].rsplit("/", 1)[-1].removesuffix(".dat")
+        if found[0] == "primitive":
+            length = float(np.linalg.norm(mm[:, 1]))
+            if _CYLINDER.match(base) and length > 1e-6:
+                out.append((tt, mm[:, 1] / length, float(np.linalg.norm(mm[:, 0])), length))
+        elif not base.startswith("stud"):
+            out.extend(_cylinders(lib, found[0], found[1], mm, tt, depth + 1))
+    return out
+
+
+def _hinge_line(key: str, lib: Library | None = None) -> tuple[np.ndarray, np.ndarray] | None:
+    """A hinge part's turning line, read from its shape, in its own frame (a point and a unit
+    direction): the line along which its thin cylinders (radius ``HINGE_R`` or less, its
+    knuckles and pin) run longest in all, when that is at least twice as long as on any other
+    line; else None (the axis cannot be read)."""
+    if key in _HINGE_LINES:
+        return _HINGE_LINES[key]
+    lib = lib or library()
+    found = lib.resolve(key)
+    groups: list[list] = []  # [point, direction, total length]
+    if found is not None:
+        for c, a, r, length in _cylinders(lib, found[0], found[1], np.eye(3), np.zeros(3)):
+            if r > HINGE_R:
+                continue
+            for g in groups:
+                d = c - g[0]
+                if abs(abs(float(a @ g[1])) - 1) < 0.002 and np.linalg.norm(
+                    d - (d @ g[1]) * g[1]
+                ) < 0.5:
+                    g[2] += length
+                    break
+            else:
+                groups.append([c, a, length])
+    groups.sort(key=lambda g: -g[2])
+    got = None
+    if groups and (len(groups) == 1 or groups[0][2] >= 2 * groups[1][2]):
+        got = (groups[0][0], groups[0][1])
+    _HINGE_LINES[key] = got
+    return got
+
+
+def _hinge_off(a: Placed, b: Placed) -> str | None:
+    """For two hinge halves joined by name (two different parts): why they are not one hinge
+    (their turning lines, read from their shapes, are more than ``HINGE_DEG`` apart in
+    direction or ``HINGE_LDU`` apart), or None when they are, when either line cannot be
+    read, or when the two are the same part (two hinge bases side by side)."""
+    if a.key == b.key:
+        return None
+    la, lb = _hinge_line(a.key), _hinge_line(b.key)
+    if la is None or lb is None:
+        return None
+    pa, da = a.to_world(la[0][None, :])[0], a.m @ la[1]
+    pb, db = b.to_world(lb[0][None, :])[0], b.m @ lb[1]
+    deg = math.degrees(math.acos(min(1.0, abs(float(da @ db)))))
+    d = pb - pa
+    off = float(np.linalg.norm(d - (d @ da) * da))
+    if deg <= HINGE_DEG and off <= HINGE_LDU:
+        return None
+    turned = f", and turned {fmt(round(deg))} degrees from it" if deg > HINGE_DEG else ""
+    return (
+        f"line {b.line}'s hinge line is {fmt(round(off, 1))} LDU from line {a.line}'s{turned}: "
+        "the two halves of a hinge turn about one line, so they are not joined. Move "
+        f"line {b.line} so its hinge sits on line {a.line}'s."
+    )
+
+
 def _touches(a: Placed, b: Placed) -> bool:
     pts, _ = a.part.samples()
     probe = [pts]
@@ -2334,6 +2437,7 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
         return f"line {p.line} ({p.key})"
 
     joint_pairs: set[tuple[int, int]] = set()
+    hinge_off: list[tuple[Placed, Placed, str]] = []  # hinge halves off one line (``_hinge_off``)
 
     boxes = {p.line: _world_bbox(p, 2.0) for p in placed}
     pairs = []
@@ -2442,6 +2546,9 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
                         base + " They are the same part twice in the same place: remove one.",
                     )
                 )
+            elif joint == ["hinge"] and (off := _hinge_off(a, b)) is not None:
+                joint_pairs.add((a.line, b.line))
+                hinge_off.append((a, b, off))
             elif joint and _joint_clash(a, b, joint):
                 # a named joint does not excuse what else the two share
                 joint_pairs.add((a.line, b.line))
@@ -2529,7 +2636,13 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
             and any(_could_grip(p, q) and _clip_fit(p, q) is not None for p, q in ((a, b), (b, a)))
         ):
             words = ["bar in a clip"]
-        if words and (_touches(a, b) or _touches(b, a)) and not _joint_clash(a, b, words):
+        if (
+            words == ["hinge"]
+            and (_touches(a, b) or _touches(b, a))
+            and (off := _hinge_off(a, b)) is not None
+        ):
+            hinge_off.append((a, b, off))
+        elif words and (_touches(a, b) or _touches(b, a)) and not _joint_clash(a, b, words):
             fit = _fit_of(a, b, words)
             report.issues.append(
                 _fit_issue(fit, by_line)
@@ -2610,6 +2723,13 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
     # a single loose part sunk into a held one (a bar pushed into a solid top): say so, and
     # which way is out, instead of "there is no part under it"
     loose_lines = {ln for c in loose for ln in c}
+    # hinge halves off one another's line are not joined; said only where that leaves one of
+    # them loose (a hinge half next to another hinge, not its own, is no problem)
+    for a, b, off in hinge_off:
+        if a.line in loose_lines or b.line in loose_lines:
+            report.issues.append(
+                Issue("problem", "hinge", [a.line, b.line], f"{lab(a)} and {lab(b)}: {off}")
+            )
     looked = 0
     for comp in sorted(loose, key=lambda c: c[0]):
         said = _loose_text(comp, placed, by_line, bottom_pts, lab)

@@ -503,14 +503,7 @@ CASES["tail 77182"] = lambda: tail("77182")
 
 # where the checker is wrong today: case -> the checker's words (see the module's notes)
 FALSE_RESULT: dict[str, str] = {}
-WRONG_PASSES: dict[tuple[str, str], str] = {
-    ("hinge 3937 3938 panel", "the top and its panel a plate too high"): (
-        "4 parts of 4 kinds, no problems: every part is held (2 of them only by joints the "
-        "checker cannot confirm), nothing overlaps, and it stands. [A hinge known by name joins "
-        "any two hinge parts that touch, wherever they are: lifted up to 16 LDU or moved 16 "
-        "LDU across the pin, the top is still 'held'.]"
-    ),
-}
+WRONG_PASSES: dict[tuple[str, str], str] = {}
 
 
 def _right_params() -> list:  # type: ignore[type-arg]
@@ -585,6 +578,35 @@ def test_a_stud_into_solid_plastic_where_there_is_no_socket_is_still_caught():
     # the dish on four studs: its real shape stands on the corner studs
     r = check(detail_on_top("4740").wrong["on four studs"])
     assert any("where it has no socket" in i.text for i in r.problems), said(r)
+
+
+@pytest.mark.parametrize("degrees", [0, 30, 90])
+def test_a_hinge_opened_about_its_own_line_is_still_joined(degrees):
+    # 3937's hinge line runs along x through y 10, z 0 of its own frame; turn the top and
+    # its panel about that line
+    case = hinged_panel()
+    lines = case.right.splitlines()
+    t = lines[1].split()
+    pivot = np.array([float(v) for v in t[2:5]]) + np.array([0.0, 10, 0])
+    a = math.radians(degrees)
+    r = np.array([[1, 0, 0], [0, math.cos(a), -math.sin(a)], [0, math.sin(a), math.cos(a)]])
+    for n in (3, 4):
+        tok = lines[n - 1].split()
+        pos = np.array([float(v) for v in tok[2:5]])
+        m = np.array([float(v) for v in tok[5:14]]).reshape(3, 3)
+        lines[n - 1] = ldraw_line(int(tok[1]), r @ (pos - pivot) + pivot, r @ m, tok[14])
+    rep = check("\n".join(lines))
+    assert not [i for i in rep.problems if i.kind == "hinge"], said(rep)
+    assert any(i.kind == "joint" and i.lines == [2, 3] for i in rep.unchecked), said(rep)
+
+
+@pytest.mark.parametrize("dy, dz", [(-8, 0), (-16, 0), (0, 8), (0, 16)])
+def test_a_hinge_half_off_the_others_line_is_a_problem_in_words(dy, dz):
+    t = hinged_panel().right
+    rep = check(moved(moved(t, 3, dy=dy, dz=dz), 4, dy=dy, dz=dz))
+    hinge = [i for i in rep.problems if i.kind == "hinge"]
+    assert hinge and hinge[0].lines == [2, 3], said(rep)
+    assert "the two halves of a hinge turn about one line" in hinge[0].text
 
 
 def test_the_glass_hinge_is_a_joint_known_by_name_only():
