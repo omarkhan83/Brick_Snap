@@ -21,3 +21,18 @@ the models named, with the scorecard no worse, and the third is either fixed or 
 - 20 November: the idea of finishing a second way without the heavy-section rule and keeping the better
   result was tried and turned down; see the decision of that date. The pineapple at 40 studs does lose
   16 slopes to the rule (shaped share 22% to 17.5%), and gets a sturdier build for it.
+- 20 November (found by the seating work, branch `wip/Alec-42-seating`): the finishing pass's own
+  sturdiness measure and the independent check in `tests/test_finish.py` (`hanging_on_one_part`)
+  disagree on one input. To reproduce: make the pawn at 16 studs in seating (1, 1)
+  (`pipeline.create_project(samples/models/pawn.stl, studs=16)` on that branch with
+  `pipeline.SEAT_PARTS` set very large, or `load_seed(..., seat=(1, 1))`, voxelize, `make_buildable`),
+  then `finish(build, design, catalog)`. The pass's measure (`sturdiness_in_cells`) says lone links go
+  from (5 cells, 1) to (0, 0); the independent check finds one plate (a 2 x 4 plate 3020 at x=7, y=11,
+  z=3, and three more like it near the head) cutting off 8 cells, a slope 3040b and a cheese slope
+  54200 that stand for three input parts, where the input's heaviest weak spot was 5 cells. So
+  `test_the_pawn_is_no_less_sturdy_after_finishing` would fail on that build. By the finishing
+  CONTRACT's own words the check looks right: "a group holding fewer than 3 input parts is not a lone
+  link" counts input parts, but the pass starts from `connect.lone_links`, which already leaves out
+  groups of fewer than `MIN_LOAD` (3) *finished* parts, so a group of two finishing parts that stands
+  for three input parts is never seen. Not fixed; the seating no longer moves the pawn at 16 studs, so
+  no test meets it today.

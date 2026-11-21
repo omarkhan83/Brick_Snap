@@ -145,6 +145,10 @@ Implementation notes
   appeared meanwhile) and is held by the job, so two uploads of cat.stl become ``cat`` and
   ``cat-2``. The project's name is the given name, or the file's name without its suffix, cut
   to 80 characters with control characters removed: it is only ever shown as text.
+- (stage 4) Making the project tries where the model sits on the grid
+  (``pipeline.create_project``, "the model sits where its build comes out best"); while it
+  does, the job shows the line ``create_project`` says (``say=job.say``). The project's page
+  shows the sentence that says where the model was moved first among the build's notes.
 - Upload limits: a body whose Content-Length is more than 60 MB plus 1 MB for the form's
   other fields is refused before any of it is read; a body with no Content-Length is refused
   (411); the file is written to disk as it arrives and the upload is stopped as soon as it
@@ -997,6 +1001,13 @@ class App:
             card["studs"] = studs if isinstance(studs, int) else None
         except (OSError, ValueError):
             card["problem"] = "This project's file project.json is damaged and cannot be read."
+        if card["problem"] is None:
+            try:
+                Project(folder)
+            except ProjectError as e:  # a damaged seat
+                card["problem"] = str(e)
+            except Exception:
+                pass
         build_file = folder / "build.json"
         if build_file.is_file():
             try:
@@ -1234,6 +1245,14 @@ class App:
             info["current"] = project.build_is_current()
         except Exception:  # damaged files: the card's "problem" already says so
             info["current"] = False
+        try:
+            from bricksnap.pipeline import check_seat
+
+            check_seat(Project(folder))
+        except ProjectError as e:  # a damaged or impossible seat: said on the page
+            info["problem"] = str(e)
+        except Exception:  # anything else damaged: the card's "problem" says so
+            pass
         if info["valid"]:
             info["verdict"] = (
                 f"{_plural(info['parts'] or 0, 'part')} in one connected piece that stands up on "
@@ -1430,6 +1449,7 @@ class App:
                     hollow=hollow,
                     piece=piece if isinstance(piece, int) else None,
                     piece_box=box,
+                    say=job.say,
                 )
                 with self.lock:
                     target = self.root / job.project

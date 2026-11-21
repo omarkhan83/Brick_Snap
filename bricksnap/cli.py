@@ -89,6 +89,8 @@ STAGE 2 ADDITIONS TO THE CONTRACT
 - ``render PROJECT --rough``: the three-row picture (seed, rough, build) through
   ``pipeline.render_compare(project, rough=True)``, saved as ``renders/compare-rough.png``
   unless ``--out`` is given.
+- ``new`` prints the line ``pipeline.create_project`` says while it tries where the model
+  sits on the grid (stage 4), followed by "...".
 - ``new`` and ``build`` print the build's notes under "What the software changed by itself:"
   when there are any, and show only the three most serious weak spots, followed by how many
   more there are and that ``check`` lists them all. ``check`` prints everything.
@@ -428,12 +430,17 @@ def open_project(ref: str) -> Project:
             )
             try:
                 project = Project(candidate)
+            except ProjectError:  # said plainly already (a damaged seat)
+                raise
             except ValueError as e:  # not JSON, or not text at all
                 raise damaged from e
             if not isinstance(project.meta, dict):
                 raise damaged
             if project.meta.get("kind") == "free":
                 raise UserError(free_build_refusal(ref))
+            from bricksnap.pipeline import check_seat
+
+            check_seat(project)  # a whole side marked seated is said here, every command
             return project
     if _is_dir(given):
         raise ProjectError(
@@ -741,6 +748,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         hollow=args.hollow,
         piece=piece if isinstance(piece, int) else None,
         piece_box=box,
+        say=lambda line: print(f"{line}..."),
     )
     build, picture = _build_and_render(project)
     _pieces_picture(args, model, folder).unlink(missing_ok=True)  # the question is answered

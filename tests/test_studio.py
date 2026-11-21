@@ -572,7 +572,7 @@ def test_render_rows_section_and_zoom(pawn: Project):
     for args, words in (
         ({"zoom": {"region": "tail"}}, "The regions are: base, head"),
         ({"zoom": {"min": [0, 0, 0], "max": [99, 0, 0]}}, "outside the grid"),
-        ({"section": {"axis": "y", "at": 40}}, "from 0 to 8"),
+        ({"section": {"axis": "y", "at": 40}}, "from 0 to 9"),  # seated: a cell more
         ({"section": {"axis": "x", "at": 1}, "zoom": {"region": "head"}}, "not both"),
         ({"views": ["front", "front"]}, "same view twice"),
         ({"colour": True}, 'Its optional arguments are "views"'),

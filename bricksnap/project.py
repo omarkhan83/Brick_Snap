@@ -4,7 +4,10 @@ projects/<name>/
   project.json       name, seed file, size in studs, up axis, hollow or solid, the brief,
                      and which piece of the file is built ("piece": its number, with
                      "piece_box": its box in the file's own coordinates; both absent for
-                     the whole file; see bricksnap.pieces)
+                     the whole file; see bricksnap.pieces), and where the model sits on
+                     the grid ("seat": [sx, sy], 1 where it is half a stud over on that
+                     axis, with "seat_note": the sentence that says so; both absent for a
+                     model that sits where it always did; see bricksnap.pipeline)
   seed.<ext>         a copy of the input model
   design.base.npz    the Design exactly as voxelised from the seed (never edited)
   design.npz         the current Design arrays
@@ -34,6 +37,12 @@ _DAMAGED_PIECE = (
 )
 
 
+DAMAGED_SEAT = (
+    "{path}/project.json is damaged: its record of where the model sits on the grid cannot "
+    "be used. Make the project again from the model file."
+)
+
+
 class ProjectError(ValueError):
     """Something is wrong with a project folder. The message is written for a non-programmer."""
 
@@ -51,6 +60,8 @@ class Project:
         if not meta_file.exists():
             raise ProjectError(f"{self.path} is not a BrickSnap project (no project.json in it).")
         self.meta: dict[str, Any] = json.loads(meta_file.read_text(encoding="utf-8"))
+        if isinstance(self.meta, dict) and "seat" in self.meta:
+            _ = self.seat  # a damaged seat is said when the project is opened, every way in
 
     # ---- creating and opening -------------------------------------------------------------
 
@@ -66,6 +77,8 @@ class Project:
         name: str | None = None,
         piece: int | None = None,
         piece_box: Any = None,
+        seat: tuple[int, int] = (0, 0),
+        seat_note: str | None = None,
     ) -> Project:
         """Make a new project folder and copy the seed model into it."""
         path = Path(path)
@@ -89,6 +102,9 @@ class Project:
         if piece is not None:
             meta["piece"] = int(piece)
             meta["piece_box"] = [[float(c) for c in corner] for corner in piece_box]
+        if tuple(seat) != (0, 0):
+            meta["seat"] = [int(seat[0]), int(seat[1])]
+            meta["seat_note"] = seat_note or ""
         write_text_atomic(path / "project.json", json.dumps(meta, indent=1) + "\n")
         return cls(path)
 
@@ -133,6 +149,30 @@ class Project:
         if not ok:
             raise ProjectError(_DAMAGED_PIECE.format(path=self.path))
         return box
+
+    @property
+    def seat(self) -> tuple[int, int]:
+        """Where the model sits on the grid: (sx, sy), 1 where it is half a stud over on that
+        axis (``bricksnap.seed.seated``). (0, 0) when the project has no "seat" (every project
+        made before seating existed). Anything else is a ProjectError."""
+        if "seat" not in self.meta:
+            return (0, 0)
+        value = self.meta["seat"]
+        if (
+            not isinstance(value, list)
+            or len(value) != 2
+            or any(isinstance(v, bool) or v not in (0, 1) for v in value)
+        ):
+            raise ProjectError(DAMAGED_SEAT.format(path=self.path))
+        return (int(value[0]), int(value[1]))
+
+    @property
+    def seat_note(self) -> str | None:
+        """The sentence that says where the model was moved and what it gained, or None."""
+        if self.seat == (0, 0):
+            return None
+        note = self.meta.get("seat_note")
+        return note if isinstance(note, str) and note else None
 
     @property
     def seed_path(self) -> Path:

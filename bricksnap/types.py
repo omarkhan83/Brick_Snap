@@ -86,6 +86,9 @@ class Seed:
     faces: np.ndarray  # (m, 3) int64 indices into vertices
     face_colors: np.ndarray | None = None  # (m, 3) uint8 RGB, or None when the model has no colour
     source: str = ""  # original file name, for messages
+    seat: tuple[int, int] = (0, 0)
+    """Half a stud (4 mm) more in x and in y than centred, 0 or 1 each (``seed.seated``).
+    ``voxelize`` keeps that offset even where it needs one more cell than the side alone."""
 
     @property
     def extent_mm(self) -> np.ndarray:

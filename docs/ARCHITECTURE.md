@@ -50,6 +50,8 @@ person can all look at the same files.
 projects/<name>/
   project.json       name, seed file, size in studs, up axis, hollow or solid, the brief; and, when the
                      file held several separate pieces and one was chosen, which piece and its box
+                     and, when a small model was set half a stud over on the grid because its
+                     build came out better that way, that seating and a sentence about it
   seed.<ext>         a copy of the input model
   design.base.npz    the Design exactly as voxelised from the seed (never edited)
   design.npz         the current Design arrays
@@ -279,7 +281,7 @@ Nothing at run time needs the full LDraw library, a GPU, or a paid licence.
 bricksnap/
   types.py        Design, Build, Placement, Report: shared data shapes, no logic
   catalog/        parts.json, colours.json, loader, nearest-colour lookup
-  seed.py         load a mesh, orient it, scale it
+  seed.py         load a mesh, orient it, scale it, and place it on the grid (centred, or in a seating)
   pieces.py       find the separate pieces of a model file (islands seen from above); keep one
   voxelize.py     mesh to Design
   design.py       apply_ops, the edit log, replay
@@ -297,7 +299,8 @@ bricksnap/
   lab/            experimental: the AI builds from the whole parts library (parts search, placing by
                   connection, a checker, pictures by LeoCAD) and the free-build project made of it;
                   proven moving modules (wheels, hinges, turntables) and a check that what should
-                  move can
+                  move can; and a measure of how a model looks (seams, what is built sideways,
+                  colour, bare holes) set against official sets
   cli.py          the `bricksnap` command
   viewserver.py   the small local server behind `bricksnap view`
   webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads
@@ -328,7 +331,8 @@ Rules that keep parallel work from colliding:
 ## Front ends
 
 The engine is a library. `bricksnap.pipeline` is the one door into it: make a project, rebuild, draw,
-export. The command line is a thin layer over that, and so is the designer's tool server. The web app
+export. Making a project is also where a small model's seating on the grid is chosen, once, by building
+each seating and comparing; everything afterwards reads the seating from the project. The command line is a thin layer over that, and so is the designer's tool server. The web app
 (`bricksnap serve`, `bricksnap/webapp.py`) is a third: a small server on the user's own computer that
 calls the same functions and serves the viewer page with controls added. No front end holds logic of its
 own, so they cannot drift apart.

@@ -811,3 +811,18 @@ def test_compare_reads_a_saved_file(tmp_path):
     path = tmp_path / "scorecard.json"
     path.write_text(json.dumps({"studs": 16, "rows": [asdict(r) for r in rows]}), "utf-8")
     assert compare(load_rows(path), rows).strip() == "No change."
+
+
+def test_a_seating_that_moved_is_said_first_and_under_the_table():
+    from bricksnap.bench import Row, compare, format_table, row_from_dict
+
+    old = Row("bottle", ok=True, parts=102)
+    new = Row("bottle", ok=True, parts=95, seat="x and y")
+    said = compare([old], [new])
+    assert (
+        "bottle: its seating moved from where it always sat to half a stud over in x and y;" in said
+    )
+    assert "Sitting half a stud over on the grid: bottle (x and y)." in format_table([new])
+    assert "Sitting half a stud over" not in format_table([old])
+    assert row_from_dict({"name": "bottle", "seat": "y"}).seat == "y"
+    assert row_from_dict({"name": "bottle"}).seat == ""  # scorecards saved before seating
