@@ -182,3 +182,36 @@ Left:
   and in the other by its box.
 - A proven module's own line ("the joints inside it ... counted as joined") still sits in the
   NOT CHECKED section under the new heading, as before.
+
+## Thin members on clips and bars (branch `wip/Alec-42-thin-members`, 20 November)
+Done:
+- The 11090 bug: a part's own clip no longer hides the name that makes it a bar tube, a bar
+  or a handle; a bar tube's bore (none drawn in the library) is found in its real shape
+  (11090 and 23443: 10 LDU deep to a stop), so a bar in it is a bar in a hollow, tested for
+  fit; a bar pushed past the stop is an overlap. The Cessna's attempt 3 goes from 2 problems
+  (both struts "Loose") to none. Same trap, now handled: 3628 and 4735 (bars with clips of
+  their own), 48729 (a bar with a clip, no primitives). 72869 (Bar Tube with Clip Angled 90)
+  is still not found: its bore is not on its box's middle line.
+- A clip on a bar or handle is tested for fit (`_clip_fit`): the bar through the grip (per
+  clip primitive, `CLIP_GRIP`), leaning at most 5 degrees, bar-thick with the clip round it
+  2 LDU either side of the grip's middle, not at the bar's end; any angle about the bar.
+  A plain bar must be within `CLIP_REACH` of a clip, as a handle is. In the 18 official
+  models 69 clip joints and 8 bar-tube joints are fitted; 8 stay known by name only.
+- Tests: `tests/test_lab_thin.py` builds a bar strut on 23443, one on 11090, a blade strut,
+  a rail, a leg in a clip tile, an aerial, and a clip on a handle at 0, 30, 45, 90 degrees.
+Left:
+- The 8 official clip joints still known by name only: a 15712 whose bar sits at its end
+  (21026); clip6 or clip3 clips on handles or bars whose line cannot be found (40379, 75892:
+  25893, 3957b, 27257); a mechanical arm's clip with no primitive that is not round its
+  handle (75892: 98313); 11090 on 25893's handle (76897).
+- Clip primitives not measured (known by name only): clip2 (4085c, the thick U-clip), clip9,
+  clip10, clip14.
+- The limits no test pinned are settled: the per-primitive reach in `CLIP_GRIP` and
+  `CLIP_TOL` are removed (the grip ring decided every case; the official sets, the 18 models,
+  the free builds and the mutation runs are the same without them); `BAR_BOX` is pinned by a
+  clip on 6190's bar, the bar tube's wall by 11090's clip end, its depth by 20612's middle.
+- Done since: the builder's `clip` and `strut` tools (guide mode, `bricksnap/lab/clips.py`).
+  `clip` places parts whose clip primitive the checker measures; 15712 (no primitive) and the
+  thick U-clip 4085c it cannot place. `strut` uses 11090 and a Bar 3L or 4L only (23443 has
+  a handle, not a clip: a strut on 23443 needs clip plates, placed with `clip`).
+- Hinge halves, finger hinges, ball joints and turntables stay known by name only.

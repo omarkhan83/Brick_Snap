@@ -32,7 +32,11 @@ its description says so in one more sentence) ends its reply, not submit's, with
 report (also in the attempt's report file); it never adds a problem, and a model it cannot
 measure simply has no such section. The playbook's kind is made precise by the subject (a
 vehicle that flies is an aircraft) and its reply ends with which part governs what and the
-style guide's section for that kind of subject. The art direction (``art``) adds ``brief``
+style guide's section for that kind of subject. Also ``clip`` and ``strut`` (``clips``): put a
+part with a clip on a bar or handle of the model at an angle about it, saying where it points
+(a bar tube's bore) and whether the checker counts it fitted; and a strut of two 11090 and a bar
+between two bars or handles, or the distance and what to move when no bar closes it. The art
+direction (``art``) adds ``brief``
 (last), makes ``submit`` the two-step hand-in with the critique and ``place`` take a list,
 keeps what they say in ``art.json``, answers every call through ``art.call``, and gives the
 out-of-checks refusal its hand-in words. With the guide off, every tool list and every
@@ -229,7 +233,7 @@ _CHECK = {
         "the part and its position, what is wrong and, when it can, what would fix it "
         "(overlaps, studs off the grid or not pressed home, loose parts and what is under "
         "them, parts below the ground, a model that would tip over, unknown parts); "
-        "warnings; joints it has not measured the fit of (clips, hinges, ball joints...); how "
+        "warnings; joints it has not measured the fit of (hinges, ball joints...); how "
         "every part is held; "
         "and one picture with three views: from the front-left above, from the back-right "
         "above, and straight from the front. There is a limit on how many checks a session "
@@ -504,6 +508,128 @@ _PLAYBOOK = {
 }
 
 
+_CLIP = {
+    "name": "clip",
+    "description": (
+        "Put a part with a clip onto the bar or handle of a part already in the model, at an "
+        "angle about the bar: for struts, rails, aerials and blades at an angle. "
+        '{"part": "11090", "colour": 15, "onto": 12, "angle": 30} puts it on the bar of line '
+        "12 (which: 2 for its second bar or handle), turned 30 degrees about the bar from "
+        "pointing up, and slide moves it along the bar (LDU from the bar's middle). The reply "
+        "says where the part now points, for a bar tube with a clip (11090) the line of its "
+        "bore (where a bar pushed into it runs), and whether the checker counts the joint as "
+        "fitted. Clips that work: 60897, 61252, 11476, 63868, 11090."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "part": {"type": "string", "description": "The part with the clip, e.g. 60897."},
+            "colour": {"type": "integer", "minimum": 0},
+            "onto": {"type": "integer", "minimum": 1, "description": "The bar's line."},
+            "which": {"type": "integer", "minimum": 1, "default": 1},
+            "angle": {"type": "number", "default": 0, "description": "Degrees about the bar."},
+            "slide": {"type": "number", "default": 0, "description": "LDU along the bar."},
+        },
+        "required": ["part", "colour", "onto"],
+        "additionalProperties": False,
+    },
+}
+_STRUT = {
+    "name": "strut",
+    "description": (
+        "A thin strut between two bars or handles already in the model: a bar tube with clip "
+        "(11090) on each, turned so their bores face each other, and the bar between them "
+        '(Bar 3L or 4L). {"onto": [12, 30], "colour": 15}; which: [1, 2] picks a bar or '
+        "handle of each. When no bar closes the distance it says the distance, the distances "
+        "the bars close, and how far to move one end."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "onto": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+            "which": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+            "colour": {"type": "integer", "minimum": 0},
+        },
+        "required": ["onto", "colour"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _vec(v: Any) -> str:
+    return " ".join(f"{round(float(x), 1):g}" for x in v)
+
+
+def _fitted(text: str, a: int, b: int) -> str:
+    """Whether the checker counts the joint between lines a and b as tested for fit."""
+    from bricksnap.lab.validate import check
+
+    r = check(text, movement=False)
+    if any(set(i.lines) == {a, b} for i in r.fits):
+        return "The checker counts the joint as fitted (tested for fit)."
+    if any(i.kind == "joint" and set(i.lines) == {a, b} for i in r.unchecked):
+        return "The checker counts it as joined but has not measured the fit: check the model."
+    return "The checker does not see a joint there: check the model."
+
+
+def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import clips
+
+    part = args.get("part")
+    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+    onto = _whole(args, "onto", None, 1)
+    which = _whole(args, "which", 1, 1)
+    if not isinstance(part, str) or colour is None or onto is None:
+        return _error("part, colour and onto are needed.")
+    try:
+        angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
+        c = clips.clip(_model(folder), part, colour, onto, which or 1, angle, slide)
+    except (ValueError, TypeError) as e:
+        return _error(str(e))
+    text, numbers = _append(folder, [c.line])
+    n = numbers[0]
+    said = (
+        f"Added line {n}: {c.line.split()[-1]} clipped on the bar of line {onto}, its grip at "
+        f"({_vec(c.grip)}) on the bar running ({_vec(c.along)}); it points ({_vec(c.points)}) "
+        "from the bar."
+    )
+    if c.bore is not None:
+        mouth, inward = c.bore
+        said += (
+            f" Its bore opens at ({_vec(mouth)}) and runs ({_vec(inward)}) for 10 LDU: a bar "
+            f"pushed 3 to 10 LDU into it lies along ({_vec(-inward)}) from there."
+        )
+    return [_text(said + " " + _fitted(text, onto, n))]
+
+
+def _strut_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import clips
+
+    def two(v: Any) -> list[int] | None:
+        good = isinstance(v, list) and len(v) == 2
+        good = good and all(isinstance(x, int) and not isinstance(x, bool) and x >= 1 for x in v)
+        return v if good else None
+
+    onto, which = two(args.get("onto")), two(args.get("which") or [1, 1])
+    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+    if onto is None or which is None or colour is None:
+        return _error("onto must be two line numbers, which two whole numbers, and a colour.")
+    try:
+        a, b, bar, name, gap = clips.strut(_model(folder), onto[0], onto[1], colour, *which)
+    except (ValueError, TypeError) as e:
+        return _error(str(e))
+    text, numbers = _append(folder, [a.line, b.line, bar])
+    na, nb, nbar = numbers
+    return [
+        _text(
+            f"Added lines {na} and {nb} (11090 on the bars of lines {onto[0]} and {onto[1]}, "
+            f"their bores facing each other {gap:.1f} LDU apart) and line {nbar}, a {name} "
+            f"between them. {_fitted(text, onto[0], na)} {_fitted(text, onto[1], nb)} For the "
+            f"bar: {_fitted(text, na, nbar)} {_fitted(text, nb, nbar)}"
+        )
+    ]
+
+
 _CHECK_GUIDE = {
     **_CHECK,
     "description": _CHECK["description"]
@@ -517,7 +643,7 @@ def tools_for(folder: Path) -> list[dict[str, Any]]:
     cfg = _config(folder)
     base = BLIND_TOOLS if cfg.get("mode") == "blind" else TOOLS
     if cfg.get("guide") is True and base is TOOLS:
-        base = [_CHECK_GUIDE if t is _CHECK else t for t in base] + [_PLAYBOOK]
+        base = [_CHECK_GUIDE if t is _CHECK else t for t in base] + [_CLIP, _STRUT, _PLAYBOOK]
         base = _art_tools(base)
     if _references(folder):
         base = [*base, _REFERENCE]
@@ -1594,6 +1720,8 @@ _HANDLERS = {
     "place_module": _place_module,
     "joint": _joint,
     "playbook": _playbook,
+    "clip": _clip_tool,
+    "strut": _strut_tool,
 }
 
 

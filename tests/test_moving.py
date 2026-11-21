@@ -1664,7 +1664,8 @@ def _declare(text, f, m, at, axis, kind="SPIN", low=0.0, high=0.0):
 )
 def test_a_clip_joint_cannot_be_declared_yet(text, at, axis):
     report = check(text)
-    assert any(i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked)
+    # a joint (tested for fit, or known by name only), but not one that can be declared yet
+    assert any(i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked + report.fits)
     why = _declare(text, 1, 2, at, axis)
     assert why == "the checker cannot yet confirm how a clip turns: use a module instead"
 
@@ -1928,8 +1929,10 @@ def test_a_module_whose_part_was_moved_proves_nothing():
 
 def test_with_a_module_only_the_parts_on_a_clip_are_counted():
     text = _car_on_wheel_modules()
-    text += "1 72 10 -39 -70 1 0 0 0 1 0 0 0 1 60897.dat\n"  # a clip plate at the plate's end
-    text += "1 0 10 -91 -90 1 0 0 0 1 0 0 0 1 87994.dat\n"  # a bar standing in the clip
+    # a thick U-clip plate at the plate's end (its clip primitive is not one the checker
+    # measures, so the bar in it is known by name only)
+    text += "1 72 10 -39 -70 1 0 0 0 1 0 0 0 1 4085c.dat\n"
+    text += "1 0 10 -91 -80 1 0 0 0 1 0 0 0 1 87994.dat\n"  # a bar standing in the clip
     report = check(text)
     assert not report.problems, report.text()
     assert _held_only(report) == [15]

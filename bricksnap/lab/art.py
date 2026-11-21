@@ -74,7 +74,7 @@ from typing import Any
 from bricksnap.lab import style
 
 STATE_FILE = "art.json"
-GATED = ("place", "add", "fill", "place_module")
+GATED = ("place", "add", "fill", "place_module", "clip", "strut")
 FIELD_CHARS = 600
 NOTE_WORDS = 3
 MAX_BATCH = 40
