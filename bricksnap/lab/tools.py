@@ -5,9 +5,10 @@ CONTRACT (tests in tests/test_lab.py; served over MCP by ``mcp_server``)
 A work folder holds one session's model and everything the tools save:
 - ``config.json``: ``{"mode": "tools" | "blind", "max_checks": int, "guide": bool}`` (written
   by ``run``; a folder without "guide" has it off).
-- ``model.ldr``: the model being built. ``place``, ``add`` and ``remove`` change it; ``submit``
-  replaces it. Its line numbers are the ones every tool and report uses. A removed part
-  becomes a comment line ("0 removed: ..."), so the other lines keep their numbers.
+- ``model.ldr``: the model being built. ``place``, ``add`` and ``remove`` change it (in guide
+  mode, ``turn`` rewrites its group's lines where they stand); ``submit`` replaces it. Its line
+  numbers are the ones every tool and report uses. A removed part becomes a comment line ("0
+  removed: ..."), so the other lines keep their numbers.
 - ``attempts/attempt-NNN.ldr``, ``-report.txt`` and ``.png``: each ``check`` or ``submit``.
 - ``looks/``, ``parts/``, ``modules/``: the pictures of ``look``, ``part_info`` and
   ``modules``.
@@ -44,7 +45,14 @@ plate under its tiles. Each appends its lines and a 0 STEP and replies with what
 (heights, or each panel's size, side studs holding it, where its face is, a plate on one stud
 that can turn, the lines it lies over, where the face's core still shows, the side faces with no
 side studs), what it left and why, what the checker refused, and what the checker says about
-the new parts. And ``fill`` takes "sides" (``_FILL_GUIDE``; refused with the guide off): the
+the new parts. And ``turn`` (``edit.turn``): the parts on the lines named turned together by
+quarter turns about a model axis and moved (by ``then_move``, or ``onto``: one of their sockets
+pressed on a stud, as place does), for a side profile built flat and turned up onto side studs;
+the lines keep their numbers. It replies with how it was turned, the box the group now spans,
+which way its top faces, how many side studs and studs hold it and on which lines, and what the
+checker says about it; a group that would go into the rest of the model or below the ground is
+refused with where, the model unchanged. And ``fill`` takes "sides" (``_FILL_GUIDE``; refused
+with the guide off): the
 box built as a core with side studs on the named faces (``cover.core``), its reply naming each
 face's carrier lines and the next calls: skin on them, a plate across the core and skins
 (``_lid``: the plate and place's arguments, when the library has that size) and cap. The art
@@ -677,6 +685,51 @@ _SKIN = {
 }
 
 
+_TURN = {
+    "name": "turn",
+    "description": (
+        "Turn a group of parts already in the model as one rigid piece, by quarter turns, and "
+        "move it: for a side profile or panel built lying flat away from the model (a plate, "
+        "wedge plates, curved slopes, tiles on top), then turned up and pressed onto side "
+        'studs of the core. {"lines": [30, 31, 32], "axis": "z", "quarter_turns": 1} turns '
+        "those parts together about the model's axis through the middle of their box (or "
+        '"about": [x, y, z]); each keeps its place in the group, they keep their line numbers, '
+        "and nothing else moves. About x, 1 quarter turn tips the group's top (what faced up) "
+        "to face -z and 3 to face +z; about z, 1 tips it to face +x and 3 to face -x; about y "
+        'it turns clockwise seen from above, as place\'s turn. Then "then_move": [dx, dy, dz] '
+        '(LDU), or "onto": {"line": n, "stud": k, "own_line": m, "own_socket": j}: the move '
+        "that puts socket j (default 1) of the group's line m (default its first line) on "
+        "stud k of line n, as place does (numbers as part_info gives them). Refused, the model "
+        "unchanged, when the group would go into the rest of the model or below the ground. "
+        "Returns the box the group now spans, which way its top faces, how many studs and "
+        "side studs hold it and on which lines, and what the checker says about it."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "lines": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1},
+            "axis": {"type": "string", "enum": ["x", "y", "z"]},
+            "quarter_turns": {"type": "integer", "minimum": 0, "maximum": 3},
+            "about": _BOX,
+            "then_move": _BOX,
+            "onto": {
+                "type": "object",
+                "properties": {
+                    "line": {"type": "integer", "minimum": 1},
+                    "stud": {"type": "integer", "minimum": 1},
+                    "own_line": {"type": "integer", "minimum": 1},
+                    "own_socket": {"type": "integer", "minimum": 1, "default": 1},
+                },
+                "required": ["line", "stud"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["lines", "axis", "quarter_turns"],
+        "additionalProperties": False,
+    },
+}
+
+
 def _cover_args(args: dict[str, Any]) -> tuple[int, list[int] | None, Any]:
     """The arguments cap and skin share: colour, lines and box."""
     colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
@@ -903,6 +956,94 @@ def _skin_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     return _cover_reply(folder, r, head, body)
 
 
+def _turn_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab.edit import EditError, turn
+
+    try:
+        lines = args.get("lines")
+        if (
+            not isinstance(lines, list)
+            or not lines
+            or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in lines)
+        ):
+            raise ValueError("lines must be a list of line numbers, such as [12, 13].")
+        axis = args.get("axis")
+        if axis not in ("x", "y", "z"):
+            raise ValueError('axis is "x", "y" or "z": the model axis to turn the group about.')
+        k = _whole(args, "quarter_turns", None, 0, 3)
+        if k is None:
+            raise ValueError("quarter_turns is needed: 0, 1, 2 or 3.")
+        about = _numbers(args["about"], 3, "about") if args.get("about") is not None else None
+        move = args.get("then_move")
+        move = _numbers(move, 3, "then_move") if move is not None else None
+        onto = args.get("onto")
+        if onto is not None:
+            if not isinstance(onto, dict) or set(onto) - {"line", "stud", "own_line", "own_socket"}:
+                raise ValueError(
+                    'onto is {"line": n, "stud": k} and, if wanted, "own_line" and "own_socket".'
+                )
+            onto = {
+                key: v
+                for key in ("line", "stud", "own_line", "own_socket")
+                if (v := _whole(onto, key, None, 1)) is not None
+            }
+        model = _model(folder)
+        t = turn(model, lines, str(axis), k, about, move, onto)
+    except (ValueError, EditError) as e:
+        return _error(str(e))
+    _save_model(folder, t.text)
+    mine = set(t.lines)
+    report = t.report
+    side: dict[int, int] = {}
+    flat: dict[int, int] = {}
+    for x in report.links:
+        if (x.held in mine) == (x.holder in mine):
+            continue
+        other = x.holder if x.held in mine else x.held
+        into = side if x.how == "sideways" else flat
+        into[other] = into.get(other, 0) + len(x.studs)
+
+    def held(counts: dict[int, int], word: str) -> str:
+        n = sum(counts.values())
+        where = ", ".join(map(str, sorted(counts)))
+        return f"{_n(n, word)} (line{'s' if len(counts) != 1 else ''} {where})"
+
+    holds = [held(c, w) for c, w in ((side, "side stud"), (flat, "stud")) if c]
+    hold = (
+        "It is held by " + " and ".join(holds) + "."
+        if holds
+        else "Nothing holds it: no stud joins it to the rest of the model (onto presses a "
+        "socket of it on a stud)."
+    )
+    n = len(t.lines)
+    lo, hi = t.lo, t.hi
+    said = (
+        f"Turned {_n(n, 'part')} ({_group_lines(t.lines)}): {t.how}. They keep their line "
+        f"numbers. The group now spans x {fmt_n(lo[0])}..{fmt_n(hi[0])}, y {fmt_n(lo[1])}.."
+        f"{fmt_n(hi[1])}, z {fmt_n(lo[2])}..{fmt_n(hi[2])}; its top (what faced up) now faces "
+        f"{t.up_now}. {hold}"
+    )
+    return [
+        _text(
+            said
+            + "\nWhat the checker says about it:\n"
+            + _quick(folder, t.text, t.lines, brief=n > 1, report=report).replace(
+                "among the new parts", "within the group", 1
+            )
+        )
+    ]
+
+
+def _group_lines(lines: list[int]) -> str:
+    """'lines 8 to 16' for a run, else the numbers."""
+    s = sorted(lines)
+    if len(s) == 1:
+        return f"line {s[0]}"
+    if s == list(range(s[0], s[-1] + 1)):
+        return f"lines {s[0]} to {s[-1]}"
+    return "lines " + ", ".join(map(str, s[:20])) + (" and more" if len(s) > 20 else "")
+
+
 def _vec(v: Any) -> str:
     return " ".join(f"{round(float(x), 3) + 0.0:g}" for x in v)
 
@@ -1021,6 +1162,7 @@ def tools_for(folder: Path) -> list[dict[str, Any]]:
             _STRUT,
             _CAP,
             _SKIN,
+            _TURN,
             _PLAYBOOK,
         ]
         base = _art_tools(base)
@@ -2432,6 +2574,7 @@ _HANDLERS = {
     "strut": _strut_tool,
     "cap": _cap_tool,
     "skin": _skin_tool,
+    "turn": _turn_tool,
 }
 
 

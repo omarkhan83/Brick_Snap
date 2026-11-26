@@ -232,6 +232,7 @@ def test_with_the_guide_on_playbook_is_offered(tmp_path):
         "strut",
         "cap",
         "skin",
+        "turn",
         "playbook",
         "brief",
     ]

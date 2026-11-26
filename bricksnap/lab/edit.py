@@ -1,6 +1,7 @@
-"""Editing a model in bulk: clear a box, fill a box, mirror lines (research prototype).
+"""Editing a model in bulk: clear a box, fill a box, mirror lines, turn a group (research
+prototype).
 
-CONTRACT (tests in tests/test_lab.py)
+CONTRACT (tests in tests/test_lab.py; ``turn`` in tests/test_lab_turn.py)
 
 Coordinates are the model's LDraw coordinates (LDU; y points down, the ground is y = 0).
 
@@ -44,11 +45,32 @@ Coordinates are the model's LDraw coordinates (LDU; y points down, the ground is
   is looked up and used when its geometry matches the mirror image; otherwise the line is
   refused with the reason. A part lying across the plane whose copy would land on itself is
   not copied.
+
+``turn(text, lines, axis, quarter, about=None, then_move=None, onto=None) -> Turned``
+- The parts on ``lines`` (part lines the checker can read; none in a joint) turned together
+  as one rigid piece by ``quarter`` (0 to 3) quarter turns about the model's ``axis`` ("x",
+  "y", "z"; ``quarter_turns``: the right-hand rule with y down, so about x one turn tips up to
+  -z, about z up to +x, about y it is ``place``'s turn) through ``about`` (default the middle
+  of the box their bodies span), then moved by ``then_move`` (LDU), or instead by the move
+  that puts socket ``own_socket`` (default 1, ``place.sockets``) of the group's line
+  ``own_line`` (default its first) on stud ``stud`` of ``line`` outside the group (``onto``),
+  as ``place`` puts a socket on a stud; refused, naming the quarter turns that would do, when
+  after the turn that socket does not face the way the stud points. Every part gets the same
+  rotation and move, keeps its line number, colour and name; every other line is unchanged.
+- The model is then checked (``validate.check``, no movement). Refused (``EditError``, in
+  plain words, nothing returned) when a part of the group and one outside it would share space
+  (a problem of kind "overlap", or a "stud" problem other than a gap), saying which lines,
+  where the group would be and the checker's words, or when the group would reach below the
+  ground; also when it would move nothing.
+- ``Turned``: the new text, the group's lines, the rotation and move (each point p goes to
+  r p + t), the box the group's bodies now span, the way its up now points, a sentence saying
+  how it was turned, and the checker's report.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -364,3 +386,215 @@ def centre_x(text: str, lib: Library | None = None) -> tuple[str, float]:
     from bricksnap.lab.joints import shifted
 
     return shifted("\n".join(out) + "\n", shift), shift
+
+
+# ---- turning a group ----------------------------------------------------------------------
+
+_QUARTER_ABOUT = {
+    "x": np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]]),
+    "y": np.array([[0, 0, 1.0], [0, 1.0, 0], [-1.0, 0, 0]]),
+    "z": np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 1.0]]),
+}
+MAX_GROUP = 400
+
+
+def quarter_turns(axis: str, k: int) -> np.ndarray:
+    """``k`` quarter turns about the model's ``axis`` by the right-hand rule (y down): about x,
+    one turn tips up (-y) to -z; about y, +x goes to -z (place's ``turn``, clockwise seen from
+    above); about z, up goes to +x. Whole numbers."""
+    return np.linalg.matrix_power(_QUARTER_ABOUT[axis], k % 4)
+
+
+@dataclass
+class Turned:
+    text: str  # the model with the group's lines rewritten
+    lines: list[int]  # the group's part lines, in order
+    r: np.ndarray  # the rotation: each point p of the group goes to r @ p + t
+    t: np.ndarray
+    lo: np.ndarray  # the box the group's bodies span now
+    hi: np.ndarray
+    up_now: str  # the way the group's up (-y) now points
+    how: str  # a sentence: about what point it turned, or which socket is on which stud
+    report: Report
+
+
+def turn(
+    text: str,
+    lines: list[int],
+    axis: str,
+    quarter: int,
+    about: Sequence[float] | None = None,
+    then_move: Sequence[float] | None = None,
+    onto: dict[str, int] | None = None,
+    lib: Library | None = None,
+) -> Turned:
+    from bricksnap.lab.joints import parse as parse_joints
+    from bricksnap.lab.ldraw_lib import direction_word
+    from bricksnap.lab.validate import check
+
+    lib = lib or library()
+    if axis not in _QUARTER_ABOUT:
+        raise EditError('axis is "x", "y" or "z": the model axis to turn the group about.')
+    if quarter not in (0, 1, 2, 3):
+        raise EditError("quarter_turns is 0, 1, 2 or 3.")
+    if then_move is not None and onto is not None:
+        raise EditError(
+            "give onto (the tool works out the move) or then_move (you give it), not both."
+        )
+    group = list(dict.fromkeys(lines))
+    if not group:
+        raise EditError("name the lines of the group, such as [12, 13, 14].")
+    if len(group) > MAX_GROUP:
+        raise EditError(f"turn at most {MAX_GROUP} lines at a time.")
+    rows = text.splitlines()
+    by_line = {p.line: p for p in _placed(text, lib)}
+    for n in group:
+        if not 1 <= n <= len(rows):
+            raise EditError(f"there is no line {n} (the model has {len(rows)} lines).")
+        if n not in by_line:
+            raise EditError(
+                f"line {n} is not a part the checker can read ('{rows[n - 1][:50]}'): name only "
+                "part lines."
+            )
+    for j in parse_joints(text)[0]:
+        mine = sorted(set(group) & set(j.fixed + j.moving))
+        if mine:
+            raise EditError(
+                f"line {mine[0]} is part of the joint '{j.name}': turn moves parts, not joints. "
+                "Turn the group without it, then put the moving part in again."
+            )
+    parts = [by_line[n] for n in group]
+    boxes = [world_box(p) for p in parts]
+    lo0 = np.min([a for a, _ in boxes], axis=0)
+    hi0 = np.max([b for _, b in boxes], axis=0)
+    r = quarter_turns(axis, quarter)
+    centre = np.array(about, dtype=float) if about is not None else (lo0 + hi0) / 2
+    t = centre - r @ centre
+    ways = ("one quarter turn", "two quarter turns", "three quarter turns")
+    turned = f"{ways[quarter - 1]} about {axis}" if quarter else "no turn"
+    how = f"{turned}, about the point ({_pt(centre)})" + (
+        " (the middle of its box)" if about is None else ""
+    )
+    if onto is not None:
+        t, how = _onto(by_line, group, r, onto, turned)
+    elif then_move is not None:
+        move = np.array(then_move, dtype=float)
+        t = t + move
+        how += f", then moved by ({_pt(move)})"
+    if quarter == 0 and not np.any(np.abs(t) > 1e-9):
+        raise EditError("that moves nothing: give quarter_turns, then_move or onto.")
+    new_rows = list(rows)
+    for p in parts:
+        name = " ".join(rows[p.line - 1].split()[14:])
+        new_rows[p.line - 1] = ldraw_line(p.colour, r @ p.pos + t, r @ p.m, name)
+    new_text = "\n".join(new_rows) + "\n"
+    report = check(new_text, movement=False)
+    mine = set(group)
+    now = [world_box(p) for p in report.placed if p.line in mine]
+    lo = np.min([a for a, _ in now], axis=0)
+    hi = np.max([b for _, b in now], axis=0)
+    into = [  # sharing space: an overlap, or a stud that hits a part instead of a socket
+        i
+        for i in report.problems
+        if (i.kind == "overlap" or (i.kind == "stud" and "not pressed home" not in i.text))
+        and len(mine & set(i.lines)) == 1
+        and len(set(i.lines)) == 2
+    ]
+    if into:
+        first = into[0]
+        a = next(n for n in first.lines if n in mine)
+        b = next(n for n in first.lines if n not in mine)
+        more = f", and {len(into) - 1} more such" if len(into) > 1 else ""
+        raise EditError(
+            f"Not turned: so turned, the group (now x {_span(lo[0], hi[0])}, y "
+            f"{_span(lo[1], hi[1])}, z {_span(lo[2], hi[2])}) would go into the rest of the "
+            f"model: its line {a} into line {b} ({by_line[b].key} "
+            f"{by_line[b].part.description}){more}. The checker: {first.text} The model is "
+            "unchanged: turn it the other way, move it clear, or press it on another stud."
+        )
+    low = float(hi[1])  # y points down: the group's lowest point
+    if low > 0.5:
+        raise EditError(
+            f"Not turned: so turned, the group would reach {fmt(round(low, 1))} LDU below the "
+            "ground (y = 0). The model is unchanged: move it up (then_move with a negative y) "
+            "or turn it the other way."
+        )
+    up_now = direction_word(r @ np.array([0.0, -1.0, 0.0]))
+    return Turned(new_text, group, r, t, lo, hi, up_now, how, report)
+
+
+def _pt(v: np.ndarray) -> str:
+    return ", ".join(fmt(round(float(x), 1) + 0.0) for x in v)
+
+
+def _span(a: float, b: float) -> str:
+    return f"{fmt(round(float(a), 1) + 0.0)}..{fmt(round(float(b), 1) + 0.0)}"
+
+
+def _onto(
+    by_line: dict[int, Placed],
+    group: list[int],
+    r: np.ndarray,
+    onto: dict[str, int],
+    turned: str,
+) -> tuple[np.ndarray, str]:
+    """The move that puts a socket of one of the group's parts, after the turn, on a stud of
+    the model (as ``place`` puts a socket on a stud), and the sentence saying so."""
+    from bricksnap.lab.ldraw_lib import direction_word
+    from bricksnap.lab.place import sockets
+    from bricksnap.lab.validate import numbered_studs
+
+    line, stud = onto.get("line"), onto.get("stud")
+    own_line = onto.get("own_line", group[0])
+    own_socket = onto.get("own_socket", 1)
+    if not isinstance(line, int) or not isinstance(stud, int):
+        raise EditError('onto needs "line" and "stud": the stud of the model to press it on.')
+    if line in group:
+        raise EditError(f"line {line} is in the group: press the group onto a part outside it.")
+    if own_line not in group:
+        raise EditError(f"own_line {own_line} is not one of the group's lines.")
+    target = by_line.get(line)
+    if target is None:
+        raise EditError(f"line {line} is not a part the checker can read.")
+    studs = numbered_studs(target.part)
+    if not 1 <= stud <= len(studs):
+        raise EditError(
+            f"line {line} ({target.key}) has {len(studs)} studs, numbered 1 to {len(studs)}; "
+            f"there is no stud {stud}."
+        )
+    own = by_line[own_line]
+    socks = sockets(own.part)
+    if not 1 <= own_socket <= len(socks):
+        raise EditError(
+            f"line {own_line} ({own.key}) has {len(socks)} sockets, numbered 1 to {len(socks)}; "
+            f"there is no socket {own_socket}."
+        )
+    s = studs[stud - 1]
+    base = target.to_world(s.pos)
+    d = target.m @ s.axis
+    d = d / np.linalg.norm(d)
+    takes = r @ own.m @ np.array([0.0, -1.0, 0.0])  # the way a stud in the socket points
+    if float(np.dot(takes, d)) < 0.99:
+        now = own.m @ np.array([0.0, -1.0, 0.0])
+        fits = [
+            f"{k} about {ax}"
+            for ax in ("x", "y", "z")
+            for k in (1, 2, 3)
+            if float(np.dot(quarter_turns(ax, k) @ now, d)) > 0.99
+        ]
+        if float(np.dot(now, d)) > 0.99:
+            fits = ["0 (it faces that way as it is)"]
+        raise EditError(
+            f"with {turned}, socket {own_socket} of line {own_line} takes a stud pointing "
+            f"{direction_word(takes)}, but stud {stud} of line {line} points "
+            f"{direction_word(d)}. The quarter turns that face it that way: "
+            + (", ".join(fits) if fits else "none (the part is not square to the model's axes)")
+            + "."
+        )
+    sock = own.m @ socks[own_socket - 1].pos + own.pos  # the socket before the turn
+    t = base - r @ sock
+    how = (
+        f"{turned}, and socket {own_socket} of line {own_line} pressed on stud {stud} of line "
+        f"{line}"
+    )
+    return t, how

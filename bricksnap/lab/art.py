@@ -41,8 +41,8 @@ work folder.
   It also takes ``angle`` (degrees, ``ANGLE``; each of those placements too), passed to
   ``place.place``: a part held by exactly one stud turned further about it.
 - ``call(folder, name, args, handler)``: answers one tool call in guide mode. The first
-  ``place``, ``add``, ``fill``, ``place_module``, ``clip``, ``strut``, ``cap``, ``skin`` or
-  ``submit`` with ldraw before any brief
+  ``place``, ``add``, ``fill``, ``place_module``, ``clip``, ``strut``, ``cap``, ``skin``,
+  ``turn`` or ``submit`` with ldraw before any brief
   is refused once, with a sentence saying to write the brief first (a builder that insists
   goes on, and the record says it built without one). Whatever the tool and whatever its
   reply, a call after which ``model.ldr`` differs is a change; a critique given before a
@@ -82,7 +82,7 @@ from typing import Any
 from bricksnap.lab import style
 
 STATE_FILE = "art.json"
-GATED = ("place", "add", "fill", "place_module", "clip", "strut", "cap", "skin")
+GATED = ("place", "add", "fill", "place_module", "clip", "strut", "cap", "skin", "turn")
 FIELD_CHARS = 600
 NOTE_WORDS = 3
 MAX_BATCH = 40
