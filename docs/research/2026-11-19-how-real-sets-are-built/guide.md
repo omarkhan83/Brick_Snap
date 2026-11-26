@@ -59,7 +59,7 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 - **Strong:** run a long plate along the top of each side.
 - **Outside:** build one side unit twice and turn the second round. Stand a 1 x 4 side-stud brick (30414)
   across each end of the floor; build lights and grille flat on a plate and press them on. Curved slopes
-  and tiles on bonnet and boot; an arch part over each wheel.
+  and tiles on bonnet and boot (cap tiles a top in one call); an arch part over each wheel.
 - **Moves:** wheels on their pins. The roof rests on two studs only, so it lifts off.
 - **Order:** base and wheel mounts first; sides before end faces; roof near the end; wheels last.
 - **Not:** hinged doors unless asked.
@@ -85,8 +85,8 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
   skin one stud thick pressed on each side. The wing sets the scale.
 - **Strong:** the wing is one long course of plates passing over or through the body, locked by a
   second layer of plates that overlaps the joint.
-- **Outside:** flanks as panels on the side studs; curved slopes on top, inverted curved slopes
-  under the belly and tail; the screen one moulded part; the fin on jumper plates on the centre line.
+- **Outside:** flanks as panels on the side studs (skin makes each in one call); curved slopes on
+  top, inverted curved slopes under the belly and tail; the screen one moulded part; the fin on jumper plates on the centre line.
 - **Moves:** the propeller on a pin or a bar; the wheels on a gear plate under the core.
 - **Order:** spine; wing course and its lock; skins; tail; gear under the core; struts, aerials and
   propeller last.
@@ -99,7 +99,7 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
   seams do not line up; 6 studs wide overall leaves room for an interior.
 - **Strong:** the wing passes through the body as one long course of plates, locked above and
   below; a long plate runs along each side of the spine.
-- **Outside:** each flank a panel carrying its livery line; nose and tail tapered in plan with
+- **Outside:** each flank a panel carrying its livery line (skin, on brackets or side-stud bricks); nose and tail tapered in plan with
   wedge plates; inverted curved slopes for a rising belly; the fin of wedge plates on edge, on
   jumper plates on the centre line; the screen moulded, or clear panels on hinges.
 - **Moves:** the propeller on a pin; wheels on gear plates or pins under the core; flaps and

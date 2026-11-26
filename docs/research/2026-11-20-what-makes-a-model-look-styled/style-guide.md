@@ -19,9 +19,9 @@ Write these eight lines first. Build to them. Change them only on purpose.
 
 ## (b) Rules of finish
 
-1. **Cap every upward face** with curved slopes or tiles: terraced studs are the first sign of an old set. Tiles 3070b 3069b 63864 2431 6636 4162 3068b 87079; curved slopes 11477 15068 50950 61678 93273 88930 93606. [S D]
+1. **Cap every upward face** with curved slopes or tiles: terraced studs are the first sign of an old set. Tiles 3070b 3069b 63864 2431 6636 4162 3068b 87079; curved slopes 11477 15068 50950 61678 93273 88930 93606. [S D] The tool cap tiles every free stud of a top in one call, leaving the studs you keep. [T]
 2. **Keep studs only where they mean something**, in a row or a patch, never scattered. [D S]
-3. **Skin the sides.** Build each flank flat on a plate, turn it, press it on side studs: no stack of plate edges on show. Side-stud bricks 87087 11211 30414 22885 4070; brackets 99780 99781 99207 44728 36840 36841. [D S B]
+3. **Skin the sides.** Build each flank flat on a plate, turn it, press it on side studs: no stack of plate edges on show. Side-stud bricks 87087 11211 30414 22885 4070; brackets 99780 99781 99207 44728 36840 36841. [D S B] Put them in the core facing out; the tool skin then presses plates on their studs and tiles the plates' faces in one call. fill is for hidden cores, never for a face seen from outside. [T]
 4. **Round the underside too.** Inverted curved slopes (24201 32803 13547) make the body tuck under; a 45-degree staircase does not. [S B]
 5. **Taper in plan.** Make nose and tail narrower than the middle with wedge plates: 24299/24307, 43722b/43723b, 41769b/41770b, 65426/65429. [S]
 6. **One livery.** Each colour has one job. Carry a division unbroken across parts: a plate course, a sideways band, or pairs of wedge plates and a triangular tile (35787) or a tile with an angled end (22385) for a sweep. Put a band off-centre. [B S]
