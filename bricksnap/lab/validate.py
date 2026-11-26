@@ -174,13 +174,15 @@ What it reports, each item naming the line number, the part and its position:
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
   real move onto studs are kept. Parts that reach the ground only through clip grips tested
   for fit and carry more than a strut, a rail, an aerial, a blade or a mirror
-  (``clip_loads``: the filled volume of all of them more than ``LOAD_PER_GRIP`` per clip,
-  or held out on one clip beyond ``LOAD_ONE_GRIP``) get a warning naming them and a word in
+  (``clip_loads``: the filled volume of all of them, with all that hangs from them, more
+  than ``LOAD_PER_GRIP`` per clip, or that volume times its reach from the grips more than
+  ``LOAD_ONE_GRIP`` per clip) get a warning naming them and a word in
   the summary: they reach the ground only through N clips, and the checker cannot judge
-  whether clips will carry that much. Two official models trip it (75075 and 31066: their
-  designers carry weight on several clips; 40379 did under the first, stricter limit for one
-  clip); it was kept on purpose, for every model, as a warning that never becomes a problem:
-  it is not a false alarm to fix.
+  whether clips will carry that much. Three official models trip it (75075 and 31066: their
+  designers carry weight on several clips; 40433: a windscreen and a wedge as a canopy on
+  two clips, its middle 50 LDU out from them); it was kept on
+  purpose, for every model, as a warning that never becomes a problem: it is not a false
+  alarm to fix.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
