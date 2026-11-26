@@ -82,3 +82,46 @@ Done when the same subjects built before and after this work are clearly more st
   and the rebuild change what comes out, and how many replies a 300- and 600-part build uses;
   building in sections for models beyond one session (point 5); whether a bar in 11090 still
   "reads as loose" (style rule 8 says so; the joints branch now tests bar tubes).
+- 21 November, paused for the night with two branches unfinished and unmerged (point 4: the
+  checker and the tools must not punish style techniques). Both are on GitHub; neither has
+  been through the full checks since its last commits, so neither is on `main`.
+  - `wip/Alec-42-thin-members` (tip 2d0f64c): a bar in a bar tube (11090, 23443) and a clip
+    on a bar or handle are tested for fit, with each clip's grip found in its real shape; two
+    builder tools with the guide on, `clip` (a clip on a bar at any angle) and `strut` (a bar
+    between two handles); a warning when clips carry more than a thin member; style rule 8
+    rewritten in both copies. Reviewed twice. The second review's three remaining points are
+    committed (stored grips keyed by the library, the load warning, two small tool replies)
+    but not yet measured: the must-hold numbers (18 official models 226 problems, no official
+    clip or bar-tube fit lost, stored builds unchanged but for the Cessna's third attempt, no
+    mutation catch lost) and the whole test run are still owed on that tip.
+  - `wip/Alec-42-style-techniques` (tip 2bbaca0, built on thin members at 5039120): every
+    technique the style guide teaches is a test (`tests/test_lab_style_techniques.py`). Fixed
+    from what those found: a stud beside a wedge plate's cut corner or under a windscreen is
+    no longer a "no socket" problem (35 false problems gone from the official models, 226 to
+    191); 16 parts, wings among them, sit on the stud grid; `place` offers only sockets a
+    stud can enter, says when another turn would catch more studs, and with the guide on
+    turns a part on one stud by an angle; three wrong part descriptions and the aircraft
+    body's width in the style guide. The second review blocked on two things, both committed
+    since: the hinge-line rule is withdrawn (it called a correct locking hinge a problem) and
+    the socket test asks the drawn surface (it had dropped true sockets on 66 parts, 4595
+    among them). Still to do there: pin or remove the stud-test constants the review found
+    unpinned (STUD_CORE_R, STUD_MIDDLE_R and its count, STUD_CORE_H, HALF_STUD_TOL); the
+    notes it was asked to log; check the angle and guide-off parts of its last commit are
+    complete; merge thin members' new tip; the must-hold numbers (191 and 13, every one of
+    the 11,335 seated studs in the official models and library assemblies still offered its
+    socket, no mutation catch lost) and the whole test run.
+  - Then: a short third review of only what changed since 9c98c4d, the squash merge of the
+    techniques branch (it contains thin members) through the full checks, and the task
+    file `the-checkers-older-joint-rules.md` on those branches carries what is left over.
+  - Decided on the way, to record as a decision when it merges: the clip-load warning stays
+    though three official models trip it, as a warning that says what the checker cannot
+    judge, never a problem.
+- Still waiting for Alec's yes: rebuilding the Cessna with the art direction (300 parts,
+  600, both or neither). No AI build has been made since the art direction went in.
+- 25 November: both branches above are merged (squashed into one commit on `main`) after a third,
+  independent review and the whole test run on the combined branch (3,938 passed). From the third
+  review: `place` no longer offers the extra checker-grid cells (half went into tube walls; logged in
+  `the-checkers-older-joint-rules.md`), and the clip-load warning measures reach from the grip, on
+  groups held by several clips, and carries hanging weight to the clips nearer the ground. The owner
+  then gave standing leave to run AI builds (25 November) and set the direction: one prompt bar, words
+  or pictures in, the AI builds it; see the decision of that date.

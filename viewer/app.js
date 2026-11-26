@@ -32,27 +32,42 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** What a person is told before an AI build of n parts: the same numbers, by the same
  * whole-number rules, as freebuild.estimate (bricksnap/lab/freebuild.py); a test holds the
- * two equal at every size from 20 to 600. */
+ * two equal at every size from 20 to 600, for each model. */
 export const FREE_SIZES = { min: 20, max: 600, fallback: 80, onRecord: 290 };
-export function freeEstimate(n) {
+/** The Claude models a free build may be made with, the default first (freebuild.MODELS),
+ * and their list price as a share of the default's (freebuild.PRICE_SHARE). */
+export const FREE_MODELS = { 'claude-fable-5-2': 'Claude Fable 5.2', 'claude-opus-5-5': 'Claude Opus 5.5' };
+export const FREE_DEFAULT_MODEL = 'claude-fable-5-2';
+const PRICE_SHARE = { 'claude-opus-5-5': [1, 2] };
+export function freeModelName(model) {
+  const id = model || FREE_DEFAULT_MODEL;
+  return FREE_MODELS[id] || String(id);
+}
+export function freeEstimate(n, model = null) {
   const v = Number(n);
   const parts = Number.isInteger(v) ? Math.min(FREE_SIZES.max, Math.max(FREE_SIZES.min, v)) : FREE_SIZES.fallback;
   const five = (hundredths) => 5 * Math.floor((hundredths + 250) / 500);
   const low = Math.max(5, five(parts * 9));
   const high = Math.max(low + 5, five(parts * 20));
   const stop = Math.max(90, Math.ceil((parts * 18) / 60));
-  const d0 = Math.floor((parts * 2 + 50) / 100);
-  const d1 = Math.floor((parts * 7 + 50) / 100);
+  const [num, den] = PRICE_SHARE[model || ''] || [1, 1];
+  const d0 = Math.floor((parts * 2 * num + 50 * den) / (100 * den));
+  const d1 = Math.floor((parts * 7 * num + 50 * den) / (100 * den));
   const dollars = [Math.max(1, d0), Math.max(d0 + 1, d1)];
   return { parts, minutes: [low, high], stop_minutes: stop, dollars, estimated: parts > FREE_SIZES.onRecord };
 }
 
 /** The sentence a person reads before a build (as freebuild.time_and_cost says it). */
-export function freeTimeAndCost(n) {
-  const e = freeEstimate(n);
-  const guess = e.estimated ? ' (an estimate: no build this large is on record)' : '';
+export function freeTimeAndCost(n, model = null) {
+  const e = freeEstimate(n, model);
   const dollars = `$${e.dollars[0]} to $${e.dollars[1]}`;
-  return `A model of about ${e.parts} parts usually takes ${e.minutes[0]} to ${e.minutes[1]} minutes and is stopped at ${e.stop_minutes} minutes; builds this size have used about ${dollars} of your Claude subscription at list prices${guess}.`;
+  const start = `A model of about ${e.parts} parts usually takes ${e.minutes[0]} to ${e.minutes[1]} minutes and is stopped at ${e.stop_minutes} minutes; `;
+  if (PRICE_SHARE[model || '']) {
+    const large = e.estimated ? '; no build this large is on record' : '';
+    return `${start}with ${freeModelName(model)} it should use about ${dollars} of your Claude subscription at list prices, about half what builds this size have used with ${freeModelName(null)} (an estimate: its list price is half, and one build with it is on record${large}).`;
+  }
+  const guess = e.estimated ? ' (an estimate: no build this large is on record)' : '';
+  return `${start}builds this size have used about ${dollars} of your Claude subscription at list prices${guess}.`;
 }
 
 export function plural(n, word) {

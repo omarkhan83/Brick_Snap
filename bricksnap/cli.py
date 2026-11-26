@@ -48,7 +48,7 @@ PROJECT is a path to a project folder; a bare name is looked up under ./projects
 EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricksnap.lab``)
 
     bricksnap make "WORDS" [--name NAME] [--parts N] [--reference PROJECT] [--model ID]
-                   [--guide] [--dir projects]
+                   [--guide] [--picture FILE ...] [--dir projects]
         A new free-build project (``bricksnap.lab.freebuild``): one AI session builds the
         model WORDS describe from the whole LDraw parts library, about N parts (20 to 600,
         default 80). With --reference, the AI is also shown that ordinary project's 3D model
@@ -66,10 +66,18 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
         (experimental) the builder designs it first and builds it the way set designers do
         (``lab.guide``, ``lab.style``, ``lab.art``: an art direction before the first part,
         the guides' rules, a critique of its own pictures before it finishes): the project
-        remembers it, and every later change to it has the guide too.
+        remembers it, and every later change to it has the guide too. With --picture (up to
+        four; JPEG, PNG or WebP) the AI is also shown those pictures, made safe and kept in the
+        project (``freebuild.clean_picture``: re-drawn as PNG, at most 1,600 pixels a side,
+        nothing but the pixels); a picture BrickSnap cannot use is a mistake (2). WORDS may
+        then be left out: the AI builds what the pictures show. --model is any model id
+        (``freebuild.MODELS`` names the two the web app offers); the cost line is for it.
     bricksnap make --change PROJECT "WORDS" [--model ID]
         The same, starting from that free-build project's current model, with WORDS as one
-        change; the result is kept as a new run.
+        change; the result is kept as a new run. The AI is shown the project's own
+        references again (``freebuild.references_of``). When the subscription's usage limit
+        stops a run, it says so, when it resets, and the --model that chooses the other
+        model; it never switches by itself.
     bricksnap make --import SOURCE [--name NAME] [--dir projects] ["WORDS"]
         No AI: keep a finished lab run folder (``python -m bricksnap.lab.run --out ...``) or
         an .ldr file (with ``<stem>-report.txt`` beside it) as a new free-build project,
@@ -2286,18 +2294,26 @@ def _make(args: argparse.Namespace) -> int:
     from bricksnap.lab import freebuild
 
     words = (args.words or "").strip()
+    pictures = list(args.picture or [])
     if args.import_from:
-        if args.change or args.parts is not None or args.reference or args.model or args.guide:
+        if (
+            args.change
+            or args.parts is not None
+            or args.reference
+            or args.model
+            or args.guide
+            or pictures
+        ):
             raise UserError("--import goes only with --name, --dir and the words (optional).")
         folder = freebuild.import_run(
             Path(args.dir), Path(args.import_from), name=args.name, words=words or None
         )
         return _made(folder, imported=True)
     if args.change:
-        if args.name or args.parts is not None or args.reference or args.guide:
+        if args.name or args.parts is not None or args.reference or args.guide or pictures:
             raise UserError(
-                "--name, --parts, --reference and --guide go only with a new model (a change "
-                "keeps the model's own choice of guide)."
+                "--name, --parts, --reference, --guide and --picture go only with a new model "
+                "(a change keeps the model's own choice of guide, and its pictures)."
             )
         if not words:
             raise UserError(
@@ -2305,7 +2321,7 @@ def _make(args: argparse.Namespace) -> int:
                 '"make the roof blue"'
             )
         folder = _free_project(args.change)
-    elif not words:
+    elif not words and not pictures:
         raise UserError(f'Say what to build, in quotes: {RUN} make "a small red fire truck"')
     parts = freebuild.DEFAULT_PARTS if args.parts is None else args.parts
     if not freebuild.MIN_PARTS <= parts <= freebuild.MAX_PARTS:
@@ -2316,6 +2332,18 @@ def _make(args: argparse.Namespace) -> int:
     reference = open_project(args.reference) if args.reference else None
     if reference is not None and not reference.has_design():
         raise UserError(f"{args.reference} has no 3D model to show the AI.")
+    if len(pictures) > freebuild.MAX_PICTURES:
+        raise UserError(f"Give at most {freebuild.MAX_PICTURES} pictures with --picture.")
+    picture_data = []
+    for given in pictures:
+        path = Path(given)
+        if not _is_file(path):
+            raise UserError(f"There is no picture at {_show(path)}.")
+        if path.stat().st_size > freebuild.MAX_PICTURE_BYTES:
+            freebuild.clean_picture(b"x" * (freebuild.MAX_PICTURE_BYTES + 1))  # says why
+        data = path.read_bytes()
+        freebuild.clean_picture(data)  # a picture it cannot use is said before anything starts
+        picture_data.append(data)
     problem = freebuild.missing()
     if problem:
         raise UserError(problem)
@@ -2341,23 +2369,33 @@ def _make(args: argparse.Namespace) -> int:
             reference=reference.path.name if reference else None,
             model=args.model,
             guide=args.guide,
+            pictures=picture_data,
         )
         name = str(freebuild.read_meta(folder).get("name"))
         print(f'The AI will build "{name}" from parts, about {parts} of them.')
         if args.guide:
             print(GUIDE_WORDS)
-        sent = "the words you typed"
-    references = []
+        sent = "the words you typed" if words else "no words"
+        if picture_data:
+            sent += (
+                f" and your {_plural(len(picture_data), 'picture')} (re-drawn, without "
+                "the details files carry, such as where a photo was taken)"
+            )
     if reference is not None:
-        references.append(freebuild.reference_sheet(reference.path, folder / "reference.png"))
+        freebuild.reference_sheet(reference.path, folder / freebuild.REFERENCE_SHEET)
         sent += f" and pictures of the 3D model of {reference.name}"
+    elif args.change and freebuild.references_of(folder):
+        sent += " and the pictures it was built from"
     print(
         f"This sends {sent} to the AI provider, Anthropic, through Claude Code. Nothing else in "
         "BrickSnap sends anything off your computer."
     )
     print(
         "It is one AI run that uses your own Claude Code login. "
-        + freebuild.time_and_cost(freebuild.next_size(freebuild.read_meta(folder)))
+        + freebuild.time_and_cost(
+            freebuild.next_size(freebuild.read_meta(folder)),
+            freebuild.read_meta(folder).get("model"),
+        )
         + " Press Ctrl+C to stop it."
     )
     print(FREE_EXPERIMENTAL)
@@ -2368,10 +2406,13 @@ def _make(args: argparse.Namespace) -> int:
         print(f"  {line}", flush=True)
 
     try:
-        freebuild.build(folder, words if args.change else None, on_say=say, references=references)
+        freebuild.build(folder, words if args.change else None, on_say=say)
     except freebuild.FreeBuildError as e:
         print()
         print(f"The AI build did not work: {e}")
+        if isinstance(e, freebuild.UsageLimitError) and e.other:
+            again = f"--change {shlex.quote(folder.name)}" if args.change else "..."
+            print(f"To use {freebuild.model_name(e.other)}: {RUN} make {again} --model {e.other}")
         print(f"The project is {_show(folder)}.")
         return 1
     return _made(folder)
@@ -2640,6 +2681,12 @@ def _parser() -> _Parser:
         help="show the AI pictures of this project's 3D model, to make it look like it",
     )
     p.add_argument("--model", metavar="ID", help="which AI model to use (default: Fable 5.2)")
+    p.add_argument(
+        "--picture",
+        action="append",
+        metavar="FILE",
+        help="a picture (photo or drawing; JPEG, PNG or WebP) to build from; up to four",
+    )
     p.add_argument(
         "--guide",
         action="store_true",

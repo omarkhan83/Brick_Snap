@@ -13,9 +13,13 @@ is replaced, and pictures are drawn by stand-ins for ``picture.model_sheet`` and
 A free-build project is a folder ``<projects>/<slug>/`` holding:
 
     project.json   {"kind": "free", "experimental": true, "name", "words" (what the person
-                   typed), "parts_wanted" (or null), "reference" (the folder name of the
-                   project whose pictures the AI was shown, or null), "model" (the AI model
-                   asked for, or null), "created" (seconds since 1970), "guide" (whether
+                   typed; may be "" when there are pictures or a 3D model), "parts_wanted"
+                   (or null), "reference" (the folder name of the project whose pictures
+                   the AI was shown, or null), "reference_pictures" (["picture-1.png", ...],
+                   in references/), "reference_model" ({"file", "name" as the person gave
+                   it, "sheet"}, or null), "model" (the AI model asked for, or null: the
+                   default, ``DEFAULT_MODEL``; a change that names one makes it the
+                   project's), "created" (seconds since 1970), "guide" (whether
                    the builder is given the set designers' guide, ``lab.guide``; false
                    when missing), "runs": [...], "current": the number of the run shown
                    now, or null}
@@ -33,6 +37,11 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
                    opened as far as the check says it goes (``movement.open_angles``: a swing
                    to the end of what it really reaches, a spin an eighth of a turn, a joint
                    that cannot move left shut), when it could be drawn
+    references/    what the person gave to build from: picture-1.png to picture-4.png (each
+                   ``clean_picture``'s PNG), their 3D model file under a name chosen here,
+                   and model-sheet.png (it from five sides, ``model_sheet``). Every run, a
+                   change too, is shown these (``references_of``), with reference.png (the
+                   five sides of the "reference" project) when there is one.
     runs/NNNN/     each run (the first build, each change, an imported model): the same
                    files, record.json (what the run entry says), and for a run made here
                    work/, the lab's work folder (attempts, calls.jsonl, the redacted
@@ -40,8 +49,9 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
 
 A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" | "change" |
 "imported", "words", "created", "ok", "error", "has_model", "parts", "kinds", "summary",
-"clean", "problems", "unchecked", "moves", "seconds", "turns", "cost_usd_reported",
-"pictures" (whether they were drawn), "picture_problem", "guide" (whether the run had the
+"clean", "problems", "unchecked", "moves", "seconds", "turns", "cost_usd_reported", "model"
+(the session's, or null), "pictures" (whether they were drawn), "picture_problem", "guide"
+(whether the run had the
 guide: true or false, or null for an imported model whose run did not say), "playbook" (the
 title of the playbook the builder asked for last, or null)}``; a run made with the guide
 whose record has the art direction (``lab.art.record``) also has "art": true, "brief"
@@ -71,10 +81,21 @@ the lines are simply empty.
 Functions
 - ``is_free(folder)``: whether a project folder is a free-build project (never raises).
 - ``create(projects_dir, words, name=..., parts=..., reference=..., model=..., folder=...,
-  guide=False)``: a new project with no runs yet, remembering whether to give the builder
-  the guide; the folder is ``folder`` when given (it must not exist),
-  else ``slug(name or words)`` made unique with a number. Words and names are cut to
-  ``MAX_WORDS`` and ``MAX_NAME`` characters, control characters removed.
+  guide=False, pictures=None, model_file=None, model_name=None)``: a new project with no
+  runs yet, remembering whether to give the builder the guide; the folder is ``folder`` when
+  given (it must not exist), else ``slug(name or words)`` made unique with a number (with no
+  words: the 3D file's name, or "Built from pictures"). Words and names are cut to
+  ``MAX_WORDS`` and ``MAX_NAME`` characters, control characters removed. Words may be empty
+  only with something else to build from. Pictures (at most ``MAX_PICTURES``, together
+  ``MAX_PICTURES_BYTES``) go through ``clean_picture``; a 3D file is drawn first, so one that
+  cannot be read makes nothing (``FreeBuildError`` in the converter's words).
+- ``clean_picture(data)``: an untrusted picture as safe PNG bytes (its docstring says how),
+  or ``FreeBuildError`` in plain words. ``model_sheet(file, out_png, shown)``: a 3D model
+  file from five sides. ``references_of(folder)``: what every run is shown.
+- ``MODELS`` (the two Claude models a person may choose, the default first), ``model_name``,
+  ``other_model``; ``estimate`` and ``time_and_cost`` take the model too: for Opus 5.5 the
+  dollars are half of Fable's (its list price is half; one Opus build is on record, at about
+  half), said as an estimate.
 - ``build(folder, words=None, on_say=None, references=None)``: runs one lab session into
   the next ``runs/NNNN/work`` and keeps what it made (``adopt``): the first build from the
   project's words when it has no model yet, otherwise ``words`` is a change to the current
@@ -87,7 +108,15 @@ Functions
   told the size, and a change is given the current run's brief to build to (``lab.art``).
   ``on_say`` gets the progress as plain sentences (``Progress``). Returns the run entry;
   raises ``FreeBuildError`` when the session could not start or made no model, after keeping
-  the run's entry.
+  the run's entry, and ``UsageLimitError`` (its ``model``, ``other`` and ``resets``) when
+  the subscription's usage limit stopped it: said plainly, with when it resets and the
+  other model to choose; it never switches by itself. ``model`` (optional) becomes the
+  project's model before the run; ``references`` default to ``references_of``.
+- Usage limits are remembered for the projects folder in ``.state/usage-limits.json``
+  (``note_limit`` when a run hits one, with its reset time; ``clear_limit`` when a run with
+  that model finishes); ``usage_limits(projects_dir)`` lists those of ``MODELS`` not reset
+  yet, with "until_words" ("1 Dec, 2am") and the other model, for the web app's bar. A limit
+  with no time is taken to last ``LIMIT_GUESS_S`` (a day).
 - ``adopt(folder, n, work, kind, words)``: keep lab work folder ``work`` as run ``n``; when it
   holds a model, the run's files and pictures are written and it becomes the current one.
 - ``import_run(projects_dir, source, name=None, words=None)``: a new project from a
@@ -126,6 +155,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from bricksnap.lab.run import DEFAULT_MODEL
 from bricksnap.project import slug
 
 KIND = "free"
@@ -155,6 +185,31 @@ MINUTES_PER_PART_100 = (9, 20)
 DOLLARS_PER_100_PARTS = (2, 7)
 LARGEST_ON_RECORD = 290
 EFFORT = "high"
+# The Claude models a person may choose for a free build, the default first. Fable 5.2 builds
+# the more refined models (docs/decisions/2026-11-19-the-designer-uses-fable-5-2-unless-told-
+# otherwise.md); Opus 5.5 costs half as much per word at list prices ($4 and $20 for a
+# million words in and out, against $8 and $40), and its one build on record, the sports car
+# of 19 November, used about half of what Fable's took ($4.15 against $8.11).
+MODELS = {DEFAULT_MODEL: "Claude Fable 5.2", "claude-opus-5-5": "Claude Opus 5.5"}
+PRICE_SHARE = {"claude-opus-5-5": (1, 2)}  # list price against Fable 5.2's, as a fraction
+# What a person gives the AI to build from besides words, kept in ``REFS_DIR``: up to
+# ``MAX_PICTURES`` pictures (``clean_picture``) and one 3D model file drawn from five sides.
+REFS_DIR = "references"
+MAX_PICTURES = 4
+PICTURE_FORMATS = ("JPEG", "PNG", "WEBP")
+MAX_PICTURE_BYTES = 8 * 1024 * 1024
+MAX_PICTURES_BYTES = 20 * 1024 * 1024  # all the pictures of one request together
+MAX_PICTURE_PIXELS = 60_000_000
+PICTURE_SIDE = 1600
+MIN_PICTURE_SIDE = 32
+MODEL_SHEET = "model-sheet.png"
+SHEET_STUDS = 24  # the size a 3D model file is drawn at for its sheet
+REFERENCE_SHEET = "reference.png"
+NO_WORDS = "what the reference pictures show"
+STATE_DIR = ".state"  # in the projects folder: what the app remembers between runs
+LIMITS_FILE = "usage-limits.json"
+LIMIT_GUESS_S = 24 * 3600  # how long a usage limit with no reset time is taken to last
+_HEIC = (b"ftypheic", b"ftypheix", b"ftyphevc", b"ftypmif1", b"ftypmsf1")
 SAID_CHARS = 240
 RUNS_DIR = "runs"
 PICTURES_DIR = "pictures"
@@ -170,6 +225,23 @@ _UNCHECKED = re.compile(r"\b(\d+) joints? not checked\b")
 
 class FreeBuildError(Exception):
     """A free build that could not be made or changed; the message is for a person."""
+
+
+class UsageLimitError(FreeBuildError):
+    """A run the subscription's usage limit stopped: ``model`` is the model that was asked
+    for, ``other`` the other one a person may choose (or None), ``resets`` when the limit
+    resets, in words ("" when not known), ``resets_at`` in seconds since 1970 (or None)."""
+
+    def __init__(
+        self,
+        message: str,
+        model: str,
+        other: str | None,
+        resets: str,
+        resets_at: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model, self.other, self.resets, self.resets_at = model, other, resets, resets_at
 
 
 # ---- small helpers ---------------------------------------------------------------------------
@@ -225,6 +297,19 @@ def is_free(folder: Path) -> bool:
     except (OSError, ValueError):
         return False
     return isinstance(meta, dict) and meta.get("kind") == KIND
+
+
+def model_name(model: Any) -> str:
+    """What a person calls an AI model: "Claude Fable 5.2" (the default when ``model`` is
+    None or empty), else the id as given."""
+    model = str(model or DEFAULT_MODEL)
+    return MODELS.get(model, model)
+
+
+def other_model(model: Any) -> str | None:
+    """The other model of ``MODELS`` a person may choose instead of ``model``, or None."""
+    model = str(model or DEFAULT_MODEL)
+    return next((m for m in MODELS if m != model), None) if model in MODELS else None
 
 
 def part_lines(text: str) -> list[tuple[int, str]]:
@@ -375,19 +460,61 @@ def create(
     model: str | None = None,
     folder: str | None = None,
     guide: bool = False,
+    pictures: list[bytes] | None = None,
+    model_file: Path | None = None,
+    model_name: str | None = None,
 ) -> Path:
-    """A new free-build project with no runs yet; returns its folder."""
+    """A new free-build project with no runs yet; returns its folder. ``pictures`` are the
+    pictures the person gave, as they came (each made safe by ``clean_picture`` before it is
+    kept); ``model_file`` a 3D model file (copied in and drawn from five sides,
+    ``model_sheet``), called ``model_name`` by the person. The words may be empty when there
+    is something else to build from."""
     words = clean(words, MAX_WORDS)
-    if not words:
-        raise FreeBuildError('Say what to build, for example "a small red fire truck".')
+    pictures = list(pictures or [])
+    if not words and not (pictures or model_file or reference):
+        raise FreeBuildError(
+            'Say what to build, for example "a small red fire truck", or add a picture or a '
+            "3D model of it."
+        )
     if parts is not None and not MIN_PARTS <= parts <= MAX_PARTS:
         raise FreeBuildError(
             f"Choose about how many parts, a whole number from {MIN_PARTS} to {MAX_PARTS}."
         )
-    shown = clean(name or "", MAX_NAME) or name_from(words)
-    projects_dir.mkdir(parents=True, exist_ok=True)
-    path = projects_dir / folder if folder else _free_folder(projects_dir, shown)
-    path.mkdir()
+    if len(pictures) > MAX_PICTURES:
+        raise FreeBuildError(f"Add at most {MAX_PICTURES} pictures.")
+    if sum(len(p) for p in pictures) > MAX_PICTURES_BYTES:
+        raise FreeBuildError(
+            f"The pictures are too large together: at most {MAX_PICTURES_BYTES // 2**20} MB in "
+            "all. Choose fewer, or smaller ones."
+        )
+    pngs = [clean_picture(p) for p in pictures]
+    shown_file = clean(model_name or (model_file.name if model_file else ""), MAX_NAME)
+    with contextlib.ExitStack() as stack:
+        sheet = None
+        if model_file is not None:  # drawn first, so a file that cannot be read makes nothing
+            import tempfile
+
+            tmp = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="bricksnap-")))
+            sheet = model_sheet(model_file, tmp / MODEL_SHEET, shown_file or model_file.name)
+        fallback = Path(shown_file).stem if shown_file else "Built from pictures"
+        shown = clean(name or "", MAX_NAME) or (name_from(words) if words else fallback)
+        projects_dir.mkdir(parents=True, exist_ok=True)
+        path = projects_dir / folder if folder else _free_folder(projects_dir, shown)
+        path.mkdir()
+        refs = path / REFS_DIR
+        kept_pictures = []
+        for k, png in enumerate(pngs, 1):
+            refs.mkdir(exist_ok=True)
+            (refs / f"picture-{k}.png").write_bytes(png)
+            kept_pictures.append(f"picture-{k}.png")
+        kept_model = None
+        if model_file is not None and sheet is not None:
+            refs.mkdir(exist_ok=True)
+            suffix = model_file.suffix.lower()
+            inside = (slug(Path(shown_file).stem)[:60].strip("-") or "model") + suffix
+            shutil.copyfile(model_file, refs / inside)
+            shutil.copyfile(sheet, refs / MODEL_SHEET)
+            kept_model = {"file": inside, "name": shown_file, "sheet": MODEL_SHEET}
     meta = {
         "kind": KIND,
         "experimental": True,
@@ -395,6 +522,8 @@ def create(
         "words": words,
         "parts_wanted": parts,
         "reference": reference,
+        "reference_pictures": kept_pictures,
+        "reference_model": kept_model,
         "model": model,
         "created": time.time(),
         "guide": bool(guide),
@@ -403,6 +532,146 @@ def create(
     }
     save_meta(path, meta)
     return path
+
+
+# ---- what it is built from ---------------------------------------------------------------
+
+
+def clean_picture(data: bytes) -> bytes:
+    """The picture a person gave, made safe to keep and to show the AI, as PNG bytes.
+
+    Untrusted: at most ``MAX_PICTURE_BYTES``; only what Pillow decodes as JPEG, PNG or WebP
+    (the first frame of a moving one), from ``MIN_PICTURE_SIDE`` pixels a side to
+    ``MAX_PICTURE_PIXELS`` in all; turned upright as the camera was held; transparent parts
+    on white; in sRGB when it carried a colour profile; scaled down so its longest side is
+    at most ``PICTURE_SIDE``; and drawn afresh into a new image, so nothing the file carried
+    besides its pixels (GPS position, camera, date, comments, the profile) is kept. Anything
+    else raises ``FreeBuildError`` with a plain sentence."""
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    mb = MAX_PICTURE_BYTES // (1024 * 1024)
+    if not data:
+        raise FreeBuildError("A picture is empty. Choose another one.")
+    if len(data) > MAX_PICTURE_BYTES:
+        raise FreeBuildError(
+            f"A picture is too large: BrickSnap takes pictures of up to {mb} MB each. Choose "
+            "a smaller one, or save it smaller first."
+        )
+    if data[4:12] in _HEIC:
+        raise FreeBuildError(
+            "That is a HEIC photo, as iPhones save them, which BrickSnap cannot read. Save it "
+            "as JPEG or PNG first, then choose that."
+        )
+    try:
+        with Image.open(io.BytesIO(data), formats=list(PICTURE_FORMATS)) as im:
+            w, h = im.size
+            if w * h > MAX_PICTURE_PIXELS:
+                raise FreeBuildError(
+                    f"A picture is too big ({w:,} x {h:,} pixels): BrickSnap takes pictures "
+                    f"of up to {MAX_PICTURE_PIXELS // 1_000_000} million pixels. Save it "
+                    "smaller first."
+                )
+            if min(w, h) < MIN_PICTURE_SIDE:
+                raise FreeBuildError(
+                    f"A picture is too small ({w} x {h} pixels) to show the AI anything. "
+                    f"Choose one at least {MIN_PICTURE_SIDE} pixels on each side."
+                )
+            im.draft("RGB", (PICTURE_SIDE, PICTURE_SIDE))  # a JPEG is read at a smaller size
+            icc = im.info.get("icc_profile")
+            pic = ImageOps.exif_transpose(im)  # upright, as the camera was held
+            pic = _flat(pic)
+    except FreeBuildError:
+        raise
+    except UnidentifiedImageError:
+        raise FreeBuildError(
+            "That file is not a picture BrickSnap can use. Choose a photo or a drawing saved "
+            "as JPEG, PNG or WebP."
+        ) from None
+    except Exception:  # whatever a damaged or hostile file makes the decoder do
+        raise FreeBuildError(
+            "A picture could not be read: the file may be damaged or incomplete. Choose "
+            "another one."
+        ) from None
+    if isinstance(icc, bytes) and icc:
+        with contextlib.suppress(Exception):  # a profile that cannot be used: as it is
+            from PIL import ImageCms
+
+            source = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+            srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
+            pic = ImageCms.profileToProfile(pic, source, srgb, outputMode="RGB") or pic
+    pic.thumbnail((PICTURE_SIDE, PICTURE_SIDE), Image.Resampling.LANCZOS)
+    fresh = Image.new("RGB", pic.size, "white")  # no info, no EXIF, no profile: pixels only
+    fresh.paste(pic)
+    out = io.BytesIO()
+    fresh.save(out, format="PNG")
+    return out.getvalue()
+
+
+def model_sheet(model_file: Path, out_png: Path, shown: str) -> Path:
+    """A 3D model file (any the converter reads, ``seed.load_seed``) drawn from five sides in
+    one sheet, as ``reference_sheet`` draws an ordinary project's. A file that cannot be read
+    raises ``FreeBuildError`` with the converter's own plain words."""
+    import numpy as np
+
+    from bricksnap.render import contact_sheet, render_seed
+    from bricksnap.seed import load_seed
+    from bricksnap.types import SeedError
+
+    try:
+        seed = load_seed(model_file, studs=SHEET_STUDS)
+    except SeedError as e:
+        raise FreeBuildError(str(e)) from None
+    top = seed.vertices.max(axis=0)
+    shape = (
+        max(1, int(np.ceil(top[0] / 8 - 1e-9))),
+        max(1, int(np.ceil(top[1] / 8 - 1e-9))),
+        max(1, int(np.ceil(top[2] / 3.2 - 1e-9))),
+    )
+    items = [(said, render_seed(seed, view, shape)) for view, said in _FIVE_SIDES.items()]
+    title = f"{shown}: the 3D model to build from, from five sides"
+    contact_sheet(items, columns=3, title=title).save(out_png)
+    return out_png
+
+
+_FIVE_SIDES = {
+    "front": "from the front",
+    "right": "from the right",
+    "back": "from the back",
+    "left": "from the left",
+    "iso": "from the front right, above",
+}
+
+
+def _flat(pic: Any) -> Any:
+    """``pic`` as RGB, with anything transparent on white."""
+    from PIL import Image
+
+    if pic.mode in ("RGBA", "LA", "PA", "RGBa", "La") or (
+        pic.mode == "P" and "transparency" in pic.info
+    ):
+        rgba = pic.convert("RGBA")
+        flat = Image.new("RGB", rgba.size, "white")
+        flat.paste(rgba, mask=rgba.getchannel("A"))
+        return flat
+    return pic.convert("RGB")
+
+
+def references_of(folder: Path) -> list[Path]:
+    """What every run of a project is shown, those files that are there: the person's
+    pictures, the sheet of their 3D model file, and the sheet of an ordinary project's model
+    ("reference"). Only names this module chose are read."""
+    meta = read_meta(folder)
+    refs = folder / REFS_DIR
+    out = []
+    listed = meta.get("reference_pictures") or []
+    for k in range(1, MAX_PICTURES + 1):
+        if f"picture-{k}.png" in listed and (refs / f"picture-{k}.png").is_file():
+            out.append(refs / f"picture-{k}.png")
+    if meta.get("reference_model") and (refs / MODEL_SHEET).is_file():
+        out.append(refs / MODEL_SHEET)
+    if meta.get("reference") and (folder / REFERENCE_SHEET).is_file():
+        out.append(folder / REFERENCE_SHEET)
+    return out
 
 
 def size(parts: Any) -> int:
@@ -440,13 +709,15 @@ def minutes(parts: Any) -> tuple[int, int]:
     return low, max(low + 5, _five(n * MINUTES_PER_PART_100[1]))
 
 
-def estimate(parts: Any) -> dict[str, Any]:
+def estimate(parts: Any, model: Any = None) -> dict[str, Any]:
     """What a person is told before a build of ``parts`` parts: the usual minutes, the
     minutes after which it is stopped, the dollars of their subscription it has used at
-    list prices (low, high), and whether the size is beyond the runs on record."""
+    list prices (low, high), and whether the size is beyond the runs on record. With a
+    model of ``PRICE_SHARE`` the dollars are that share of Fable's (an estimate)."""
     n = size(parts)
     low, high = minutes(n)
-    dollars = [(n * k + 50) // 100 for k in DOLLARS_PER_100_PARTS]
+    num, den = PRICE_SHARE.get(str(model or ""), (1, 1))
+    dollars = [(n * k * num + 50 * den) // (100 * den) for k in DOLLARS_PER_100_PARTS]
     return {
         "parts": n,
         "minutes": [low, high],
@@ -466,11 +737,21 @@ def next_size(meta: dict[str, Any]) -> int:
     return size(meta.get("parts_wanted"))
 
 
-def time_and_cost(parts: Any) -> str:
-    """The sentence a person reads before a build of ``parts`` parts (as the pages say it)."""
-    e = estimate(parts)
+def time_and_cost(parts: Any, model: Any = None) -> str:
+    """The sentence a person reads before a build of ``parts`` parts (as the pages say it),
+    for ``model`` (the default when None)."""
+    e = estimate(parts, model)
     lo, hi = e["minutes"]
     d0, d1 = e["dollars"]
+    if str(model or "") in PRICE_SHARE:
+        large = "; no build this large is on record" if e["estimated"] else ""
+        return (
+            f"A model of about {e['parts']} parts usually takes {lo} to {hi} minutes and is "
+            f"stopped at {e['stop_minutes']} minutes; with {model_name(model)} it should use "
+            f"about ${d0} to ${d1} of your Claude subscription at list prices, about half what "
+            f"builds this size have used with {model_name(None)} (an estimate: its list price "
+            f"is half, and one build with it is on record{large})."
+        )
     guess = " (an estimate: no build this large is on record)" if e["estimated"] else ""
     return (
         f"A model of about {e['parts']} parts usually takes {lo} to {hi} minutes and is "
@@ -480,8 +761,15 @@ def time_and_cost(parts: Any) -> str:
 
 
 def task_words(words: str, parts: int | None) -> str:
-    """What the AI is asked to build: the person's words and about how many parts."""
+    """What the AI is asked to build: the person's words and about how many parts. With no
+    words (there are pictures or a 3D model): to build what the references show and say
+    what it is."""
     words = words.strip()
+    if not words:
+        words = (
+            f"Build {NO_WORDS}. There are no words, so decide what it is from them and say "
+            "what it is in your closing words (and in your brief, if you write one)."
+        )
     if parts:
         words = words.rstrip(".") + f". About {parts} parts."
     return words
@@ -635,6 +923,7 @@ def keep_model(
         "seconds": rec.get("seconds"),
         "turns": rec.get("turns"),
         "cost_usd_reported": rec.get("cost_usd_reported"),
+        "model": rec.get("model") if isinstance(rec.get("model"), str) else None,
         "pictures": problem is None,
         "picture_problem": problem,
         **_guide_fields(rec),
@@ -751,6 +1040,7 @@ def adopt(folder: Path, n: int, work: Path, kind: str, words: str) -> dict[str, 
             "seconds": record.get("seconds"),
             "turns": record.get("turns"),
             "cost_usd_reported": record.get("cost_usd_reported"),
+            "model": record.get("model") if isinstance(record.get("model"), str) else None,
             "pictures": False,
             "picture_problem": None,
             **_guide_fields(record),
@@ -780,14 +1070,18 @@ def build(
     words: str | None = None,
     on_say: Callable[[str], None] | None = None,
     references: list[Path] | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """One AI session: the first build from the project's words, or ``words`` as a change
-    to the current model. Keeps the run and returns its entry."""
+    to the current model. Keeps the run and returns its entry. ``references`` (default: the
+    project's own, ``references``) are shown to the AI; ``model``, when given, becomes the
+    project's model before the run."""
     from bricksnap.lab import run as lab_run
 
     say = on_say or (lambda line: None)
     meta = read_meta(folder)
     current = meta.get("current")
+    refs = references_of(folder) if references is None else list(references)
     start = folder / "model.ldr" if current is not None else None
     if start is not None and not start.is_file():
         start = None
@@ -795,13 +1089,16 @@ def build(
         kind, change_of = "first", None
         asked = clean(words or "", MAX_WORDS) or str(meta.get("words") or "")
         task = task_words(asked, meta.get("parts_wanted"))
+        if not asked and not refs:
+            raise FreeBuildError("Say what to build.")
     else:
         asked = clean(words or "", MAX_WORDS)
         if not asked:
             raise FreeBuildError('Say what to change, for example "make the roof blue".')
-        kind, change_of, task = "change", str(meta.get("words") or ""), asked
-    if not asked:
-        raise FreeBuildError("Say what to build.")
+        kind, change_of, task = "change", str(meta.get("words") or "") or NO_WORDS, asked
+    if model and model != meta.get("model"):  # the model asked for now is kept from now on
+        meta["model"] = model
+        save_meta(folder, meta)
     n = next_run(folder)
     work = run_dir(folder, n) / "work"
     work.parent.mkdir(parents=True, exist_ok=True)
@@ -825,7 +1122,7 @@ def build(
             max_turns=allowed["max_turns"],
             max_checks=allowed["max_checks"],
             timeout=allowed["timeout"],
-            references=references,
+            references=refs,
             start=start,
             change_of=change_of,
             on_event=hear,
@@ -838,6 +1135,15 @@ def build(
         raise FreeBuildError(str(e)) from None
     say("The builder has stopped. Drawing the pictures of what it built")
     entry = adopt(folder, n, work, kind, asked)
+    used = str(meta.get("model") or DEFAULT_MODEL)
+    if record.get("usage_limit"):
+        at = record.get("limit_resets_at")
+        at = float(at) if isinstance(at, int | float) and not isinstance(at, bool) else None
+        error = usage_limit_error(used, str(record.get("limit_resets") or ""), entry, kind, at)
+        note_limit(folder.parent, error)
+        raise error
+    if record.get("ok"):
+        clear_limit(folder.parent, used)
     if not entry["has_model"]:
         raise FreeBuildError(
             f"The builder did not make a model: {entry['error'] or 'it stopped.'} Nothing was "
@@ -850,6 +1156,100 @@ def build(
             + (" and shown now; the earlier runs are still in the list." if n > 1 else ".")
         )
     return entry
+
+
+def usage_limit_error(
+    model: str, resets: str, entry: dict[str, Any], kind: str, resets_at: float | None = None
+) -> UsageLimitError:
+    """What a person is told when the subscription's usage limit stopped run ``entry``."""
+    other = other_model(model)
+    said = f"Your Claude subscription has reached its usage limit for {model_name(model)}"
+    said += f"; it resets {resets}." if resets else ". Claude Code did not say when it resets."
+    if entry.get("has_model"):
+        said += f" What it built is kept as run {entry['n']}."
+    else:
+        said += " Nothing was built." if kind == "first" else " Nothing was changed."
+    if other:
+        said += (
+            f" You can choose {model_name(other)} instead and try again, or wait until the "
+            "limit resets; BrickSnap does not switch by itself."
+        )
+    else:
+        said += " Try again once the limit has reset."
+    return UsageLimitError(said, model, other, resets, resets_at)
+
+
+# ---- usage limits remembered for the projects folder -------------------------------------
+
+
+def _limits_file(projects_dir: Path) -> Path:
+    return projects_dir / STATE_DIR / LIMITS_FILE
+
+
+def _read_limits(projects_dir: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(_limits_file(projects_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def note_limit(projects_dir: Path, error: UsageLimitError) -> None:
+    """Remember that ``error.model`` is at its usage limit, and until when. Never fails."""
+    data = _read_limits(projects_dir)
+    data[error.model] = {"until": error.resets_at, "resets": error.resets, "seen": time.time()}
+    with contextlib.suppress(OSError):
+        _write(_limits_file(projects_dir), json.dumps(data, indent=1) + "\n")
+
+
+def clear_limit(projects_dir: Path, model: str) -> None:
+    """Forget a usage limit of ``model`` (a run with it has finished). Never fails."""
+    data = _read_limits(projects_dir)
+    if data.pop(model, None) is not None:
+        with contextlib.suppress(OSError):
+            _write(_limits_file(projects_dir), json.dumps(data, indent=1) + "\n")
+
+
+def _until_words(at: float) -> str:
+    """'1 Dec, 2am' or '1 Dec, 2:30pm', on this computer's clock."""
+    from datetime import datetime
+
+    t = datetime.fromtimestamp(at)
+    hour = t.hour % 12 or 12
+    minutes = f":{t.minute:02d}" if t.minute else ""
+    return f"{t.day} {t:%b}, {hour}{minutes}{'am' if t.hour < 12 else 'pm'}"
+
+
+def usage_limits(projects_dir: Path, now: float | None = None) -> list[dict[str, Any]]:
+    """The models of ``MODELS`` still at a usage limit a run reported: each ``{"model",
+    "name", "until" (seconds since 1970, or None), "until_words" ("1 Dec, 2am", or Claude
+    Code's own words), "other", "other_name"}``. A limit without a time counts for
+    ``LIMIT_GUESS_S`` after it was seen."""
+    now = time.time() if now is None else now
+    out = []
+    for model, seen in _read_limits(projects_dir).items():
+        if model not in MODELS or not isinstance(seen, dict):
+            continue
+        until = seen.get("until")
+        until = float(until) if isinstance(until, int | float) else None
+        stamp = seen.get("seen")
+        stamp = float(stamp) if isinstance(stamp, int | float) else 0.0
+        over = now >= until if until is not None else now >= stamp + LIMIT_GUESS_S
+        if over:
+            continue
+        other = other_model(model)
+        words = _until_words(until) if until is not None else str(seen.get("resets") or "")
+        out.append(
+            {
+                "model": model,
+                "name": model_name(model),
+                "until": until,
+                "until_words": words,
+                "other": other,
+                "other_name": model_name(other) if other else None,
+            }
+        )
+    return out
 
 
 def import_run(
@@ -941,6 +1341,11 @@ def describe(folder: Path, measure_missing: bool = False) -> dict[str, Any]:
         "words": str(meta.get("words") or ""),
         "parts_wanted": meta.get("parts_wanted"),
         "reference": meta.get("reference"),
+        "reference_pictures": [
+            f"{REFS_DIR}/{p.name}" for p in references_of(folder) if p.name.startswith("picture-")
+        ],
+        "reference_model": _model_reference(folder, meta),
+        "model": meta.get("model") if isinstance(meta.get("model"), str) else None,
         "guide": meta.get("guide") is True,
         "parts": now.get("parts"),
         "kinds": now.get("kinds"),
@@ -963,6 +1368,19 @@ def describe(folder: Path, measure_missing: bool = False) -> dict[str, Any]:
         "picture_problem": now.get("picture_problem"),
         "files": [f for f in ("model.ldr", "parts.csv", "report.txt") if (folder / f).is_file()],
         "created": meta.get("created"),
+    }
+
+
+def _model_reference(folder: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
+    """The 3D model file a project was built from: its name as the person gave it and the
+    path of its sheet (or None when the sheet is not there)."""
+    kept = meta.get("reference_model")
+    if not isinstance(kept, dict):
+        return None
+    sheet = folder / REFS_DIR / MODEL_SHEET
+    return {
+        "name": str(kept.get("name") or kept.get("file") or "a 3D model"),
+        "sheet": f"{REFS_DIR}/{MODEL_SHEET}" if sheet.is_file() else None,
     }
 
 

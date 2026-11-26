@@ -101,6 +101,18 @@ The pages
   what is happening while a job runs (the progress lines, newest first, and that it is safe
   to leave the page), and what to do when something fails.
 - The home page works at phone width. The LEGO trademark line is on every page.
+- (25 November) The home page is one prompt bar
+  (docs/decisions/2026-11-25-the-app-is-one-prompt-bar-and-the-ai-builds-from-parts.md):
+  words, pictures and a 3D model (button or drop), thumbnails with remove, and Build, which
+  sends the form above; Options hold the size (200 parts by default), the model and the guide
+  (on by default) and a name. The agreement is a box under the bar, remembered in the
+  browser (``localStorage``; without it, for the page only), under a line that always says
+  what Build sends, that it is one AI run, which Claude, and ``freebuild.time_and_cost``.
+  After Build the page opens the new model's page, which shows the job. The models are cards
+  under the bar, free builds first, each kind newest first; the upload of a 3D file to turn
+  into bricks is folded away under "Turn a 3D model into bricks (older way)", unchanged. The
+  "look like one of your models" choice is no longer on the page (adding the 3D file does
+  that); ``"reference"`` still works in the request and on the command line.
 
 The command line gains ``bricksnap serve [--port N] [--dir FOLDER] [--no-open]`` (the lead
 wires it in; ``serve_app`` is all it needs).
@@ -118,8 +130,10 @@ Implementation notes
   back to ``/project/`` and ``/project-files.json`` without them, so ``bricksnap view`` is
   unchanged), the token in a ``<meta name="bricksnap-token">`` and ``app.css``/``app.js``
   added. The home page is ``viewer/home.html`` with the token put into its meta tag.
-- ``GET /api/projects`` gives ``{"projects": [...], "jobs": [...]}``: the cards, and the jobs
-  that are waiting or running, so a page opened again still shows a new model being made.
+- ``GET /api/projects`` gives ``{"projects": [...], "jobs": [...], "limits": [...]}``: the
+  cards, the jobs that are waiting or running, so a page opened again still shows a new model
+  being made, and the Claude models still at a usage limit a free build reported
+  (``freebuild.usage_limits``, kept in ``projects_dir/.state/``), so the bar chooses the other.
   A card has ``project`` (the folder name), ``name``, ``studs``, ``parts``, ``valid``,
   ``picture`` (an address, or null), ``updated`` (seconds since 1970: the newest of
   project.json and build.json, which orders the cards), ``job`` (the running job's id, or
@@ -308,11 +322,25 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
 - ``POST /api/free`` (JSON): ``{"words", "name"?, "parts"? (20 to 600, default 80),
   "reference"? (the folder name of an ordinary project with a 3D model, whose pictures from
   five sides the AI is shown), "guide"? (true: build it the way set designers do, with
-  ``lab.guide``; false when left out; anything but true or false is refused), "understood":
-  true, "understood_runs": 1}``. The project remembers "guide" and its changes keep it. Answers
-  ``{"job", "project"}`` (202). ``POST /api/p/<project>/change`` for a free build:
-  ``{"words", "understood": true, "understood_runs": 1}``: one AI session starting from the
-  current model. Both are AI jobs (kinds "free" and "change") under the rules above: token,
+  ``lab.guide``; false when left out; anything but true or false is refused), "model"? (one of
+  ``freebuild.MODELS``: "claude-fable-5-2", the default, or "claude-opus-5-5"; anything else is
+  refused), "understood": true, "understood_runs": 1}``. The project remembers "guide" and
+  "model", and its changes keep them. Answers ``{"job", "project"}`` (202).
+  The same request may come as a multipart form (what the home page's prompt bar sends): the
+  same fields as text ("true"/"false", numbers as digits), with up to ``freebuild.MAX_PICTURES``
+  files "picture" (each at most ``freebuild.MAX_PICTURE_BYTES``, 8 MB, together at most
+  ``MAX_PICTURES_BYTES``, 20 MB; each decoded and drawn afresh by ``freebuild.clean_picture``
+  before anything is made, and refused in plain words when it cannot be) and one file
+  "model_file" (a 3D model, as the upload above: its suffixes, 60 MB, empty and separate-glTF
+  refusals; drawn from five sides by ``freebuild.model_sheet`` in the job, whose failure makes
+  nothing). The body may be at most 60 MB + 20 MB + 1 MB; files go to
+  ``.incoming/<random>/`` under names the server chooses and are removed once the job has
+  made the project (or the request is refused). With pictures, a 3D file or "reference" the
+  words may be empty: the AI is asked to build what they show and to say what it is. Token,
+  Origin, Host and agreement as for JSON. ``POST /api/p/<project>/change`` for a free build:
+  ``{"words", "model"?, "understood": true, "understood_runs": 1}``: one AI session starting
+  from the current model, shown the project's references again; a "model" given becomes the
+  project's. Both are AI jobs (kinds "free" and "change") under the rules above: token,
   Origin and Host; one AI job for the whole server; one job per project; refused without
   the agreement (the same refusal for a wrong ``understood_runs``). The words are untrusted
   text: at most ``MAX_REQUEST_CHARS``, control characters removed, only ever shown as text.
@@ -322,7 +350,9 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
 - Progress lines come from ``freebuild.Progress`` (the builder looking for parts, placing
   parts with the count so far, each check and what it found, what it says, through
   ``runner.redact``). A failed run says why in plain words and keeps what it made as a run
-  (``freebuild.build``).
+  (``freebuild.build``). A run the subscription's usage limit stopped
+  (``freebuild.UsageLimitError``) says so, when it resets, and which other Claude to choose,
+  with a ``todo`` naming where to choose it; nothing is retried on another model.
 - ``POST /api/p/<project>/use`` ``{"run": n}``: a job ("use") that makes run n the current
   model again (``freebuild.restore``); the other runs stay. ``delete`` moves a free build
   to the bin as any other project.
@@ -335,10 +365,14 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   (pictures/card.png), ``updated`` (project.json's time), ``job`` and ``problem``; ``studs``
   is null. Ordinary cards gain ``kind`` "model".
 - ``GET /api/p/<project>`` for a free build: the card, plus ``words``, ``parts_wanted``,
-  ``reference``, ``kinds``, ``summary``, ``report`` (the checker's full report), ``notes``
+  ``reference``, ``reference_pictures`` (addresses of the person's pictures),
+  ``reference_model`` (``{"name", "sheet"}``: the 3D file's name as given and the address of
+  its sheet, or null), ``model`` and ``model_name``, ``kinds``, ``summary``, ``report`` (the
+  checker's full report), ``notes``
   (the AI's closing words, redacted when kept), ``current_run``, ``runs`` (oldest first,
   each ``{"n", "kind", "words", "created", "ok", "error", "has_model", "parts", "kinds",
-  "summary", "clean", "problems", "unchecked", "seconds", "guide", "playbook", "picture"}``:
+  "summary", "clean", "problems", "unchecked", "seconds", "guide", "playbook", "model",
+  "picture"}``:
   ``guide`` true, false or null when not known, ``playbook`` the title of the playbook the
   builder asked for or null), ``guide`` (whether the project's runs have it), the current
   run's art direction as ``freebuild.describe`` gives it (``freebuild.ART_KEYS``: ``art``
@@ -355,7 +389,9 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
 - The page ``/p/<project>`` of a free build is ``viewer/free.html`` (with ``free.js``), not
   the 3D viewer, which cannot draw these parts; ``project-files.json`` is not found for it.
 - Files: for a free build, ``files/`` serves only model.ldr, parts.csv, report.txt,
-  ``pictures/card.png``, ``pictures/sheet.png``, ``pictures/turn-NN.png`` and
+  ``pictures/card.png``, ``pictures/sheet.png``, ``pictures/turn-NN.png``,
+  ``references/picture-1.png`` to ``-4.png`` and ``references/model-sheet.png`` (never the
+  3D file itself), and
   ``runs/<NNNN>/pictures/card.png`` for a run its project.json lists, judged on the
   resolved path as above. Never the runs' work folders, transcripts, calls.jsonl or
   anything ending ``.jsonl``.
@@ -511,6 +547,7 @@ FREE_FILES = frozenset({"model.ldr", "parts.csv", "report.txt"})
 """The files of a free-build project the pages may fetch, besides its pictures."""
 _FREE_PICTURE = re.compile(r"pictures/(?:card|sheet|opened|turn-[0-9]{2})\.png")
 _FREE_RUN_CARD = re.compile(r"runs/([0-9]{4,})/pictures/card\.png")
+_FREE_REFERENCE = re.compile(r"references/(?:picture-[1-4]|model-sheet)\.png")
 NOT_FOR_FREE = (
     "This model was built by the AI from parts (an experimental kind of model), so {what} "
     'does not apply to it. Use "Ask for a change" on its page instead.'
@@ -663,7 +700,7 @@ def served_file(folder: Path, inner: str) -> Path | None:
 def served_free_file(folder: Path, target: Path, rel: str) -> Path | None:
     """For a free-build project: the model, the parts list, the report and the pictures, and
     the card of a run its project.json lists. Nothing else (never a run's work folder)."""
-    if rel in FREE_FILES or _FREE_PICTURE.fullmatch(rel):
+    if rel in FREE_FILES or _FREE_PICTURE.fullmatch(rel) or _FREE_REFERENCE.fullmatch(rel):
         return target
     kept = _FREE_RUN_CARD.fullmatch(rel)
     if kept is None or kept.group(1) != f"{int(kept.group(1)):04d}":
@@ -816,8 +853,9 @@ def read_form(
     rfile: _Reader,
     length: int,
     boundary: bytes,
-    save_file: Callable[[str], Path],
+    save_file: Callable[[str], Path] | None,
     file_field: str = "model",
+    files: Callable[[str, str], tuple[Path, int, str] | None] | None = None,
 ) -> tuple[dict[str, str], str | None, int]:
     """Read a multipart/form-data body of ``length`` bytes from ``rfile``.
 
@@ -826,6 +864,10 @@ def read_form(
     starts; it returns the path to write to, or raises ``Refused`` (a wrong suffix), which
     stops the reading there. The file is written as it arrives and refused once it passes
     ``MAX_UPLOAD_BYTES``. Never reads more than ``length`` bytes.
+
+    With ``files``, every file part goes to ``files(field, browser_name)`` instead, which
+    returns (path to write to, most bytes, message when it is larger), or None to skip the
+    part, or raises ``Refused``.
     """
     chunk = 64 * 1024
     remaining = length
@@ -874,7 +916,13 @@ def read_form(
 
         out = None
         text: bytearray | None = None
-        if name == file_field and filename and file_name is None:
+        cap, too_big, part_size = MAX_UPLOAD_BYTES, too_large_message(), 0
+        if files is not None and filename and name is not None:
+            got = files(name, filename)
+            if got is not None:
+                out = got[0].open("wb")
+                cap, too_big = got[1], got[2]
+        elif files is None and save_file and name == file_field and filename and not file_name:
             file_name = filename
             out = save_file(filename).open("wb")
         elif filename is None and name is not None:
@@ -885,8 +933,9 @@ def read_form(
                 data = bytes(buf[:at]) if at >= 0 else bytes(buf[: max(0, len(buf) - len(sep))])
                 if out is not None:
                     file_size += len(data)
-                    if file_size > MAX_UPLOAD_BYTES:
-                        raise Refused(too_large_message(), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                    part_size += len(data)
+                    if part_size > cap:
+                        raise Refused(too_big, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
                     out.write(data)
                 elif text is not None:
                     text.extend(data)
@@ -911,6 +960,43 @@ def too_large_message() -> str:
         f"The file is too large: BrickSnap takes model files of up to {mb} MB. Save a simpler "
         "version of the model in your 3D program (fewer triangles) and try again."
     )
+
+
+def free_too_large_message() -> str:
+    return (
+        f"That is too much to send at once: at most {MAX_UPLOAD_BYTES // 2**20} MB for a 3D "
+        f"model file and {freebuild.MAX_PICTURES_BYTES // 2**20} MB of pictures. Choose "
+        "smaller files."
+    )
+
+
+def free_form_body(fields: dict[str, str]) -> dict[str, Any]:
+    """The text fields of ``POST /api/free`` sent as a form, as the JSON body would hold
+    them: numbers as numbers, "true" and "false" as true and false; empty fields left out."""
+    body: dict[str, Any] = {}
+    for key, value in fields.items():
+        if (
+            key
+            not in (
+                "words",
+                "name",
+                "parts",
+                "reference",
+                "guide",
+                "model",
+                "understood",
+                "understood_runs",
+            )
+            or value == ""
+        ):
+            continue
+        if key in ("parts", "understood_runs") and value.strip().isdigit():
+            body[key] = int(value.strip())
+        elif key in ("guide", "understood") and value in ("true", "false"):
+            body[key] = value == "true"
+        else:
+            body[key] = value
+    return body
 
 
 def wrong_suffix_message(name: str) -> str:
@@ -1122,15 +1208,27 @@ class App:
                             "seconds",
                             "guide",
                             "playbook",
+                            "model",
                         )
                     },
                     "picture": url(card),
                 }
             )
+        kept_model = about.get("reference_model")
         info.update(
             words=about.get("words", ""),
             parts_wanted=about.get("parts_wanted"),
             reference=about.get("reference"),
+            reference_pictures=[
+                u for u in (url(rel) for rel in about.get("reference_pictures") or []) if u
+            ],
+            reference_model=(
+                {"name": kept_model["name"], "sheet": url(kept_model.get("sheet"))}
+                if isinstance(kept_model, dict)
+                else None
+            ),
+            model=about.get("model"),
+            model_name=freebuild.model_name(about.get("model")),
             guide=about.get("guide") is True,
             kinds=about.get("kinds"),
             summary=about.get("summary", ""),
@@ -1167,7 +1265,7 @@ class App:
                 for j in self.jobs.values()
                 if j.state in ("waiting", "running", "choosing")
             ]
-        return {"projects": cards, "jobs": active}
+        return {"projects": cards, "jobs": active, "limits": freebuild.usage_limits(self.root)}
 
     def clear_stale_uploads(self) -> int:
         """Remove uploads left in ``.incoming`` by a server that stopped while a new model
@@ -2063,10 +2161,10 @@ class App:
             or agreed != 1
         ):
             raise Refused(
-                "The AI builder was not started. It sends the words you typed (and, when you "
-                "chose a model to look like, pictures of it) to the AI provider, starts one AI "
-                "run and uses your own Claude Code login, so it starts only after you have read "
-                "that and agreed. Read the box above the start button and tick it."
+                "The AI builder was not started. It sends the words you typed (and the pictures "
+                "or the 3D model you added) to the AI provider, starts one AI run and uses your "
+                "own Claude Code login, so it starts only after you have read that and agreed. "
+                "Read the line under the Build button and tick it."
             )
 
     @staticmethod
@@ -2087,9 +2185,32 @@ class App:
         if problem:
             raise Refused(problem)
 
-    def new_free(self, body: dict[str, Any]) -> Job:
-        """``POST /api/free``: a new model the AI builds from parts, from the person's words."""
-        words = self._free_words(body, "words", "a small red fire truck")
+    @staticmethod
+    def _free_model(body: dict[str, Any]) -> str | None:
+        model = body.get("model")
+        if model is not None and model not in freebuild.MODELS:
+            names = " or ".join(freebuild.MODELS.values())
+            raise Refused(f"Choose which Claude builds it: {names}.")
+        return model
+
+    def new_free(
+        self,
+        body: dict[str, Any],
+        *,
+        pictures: list[bytes] | None = None,
+        model_file: Path | None = None,
+        model_name: str | None = None,
+        staging: Path | None = None,
+    ) -> Job:
+        """``POST /api/free``: a new model the AI builds from parts, from the person's words
+        and whatever else they gave to build from (pictures, a 3D model file)."""
+        pictures = list(pictures or [])
+        given = body.get("words")
+        has_refs = bool(pictures) or model_file is not None or body.get("reference") is not None
+        if has_refs and (given is None or (isinstance(given, str) and not given.strip())):
+            words = ""  # the AI builds what the pictures or the model show
+        else:
+            words = self._free_words(body, "words", "a small red fire truck")
         name = body.get("name")
         if name is not None and not isinstance(name, str):
             raise Refused("The name must be text.")
@@ -2115,26 +2236,52 @@ class App:
         guide = body.get("guide", False)
         if not isinstance(guide, bool):
             raise Refused("The choice to build it the way set designers do must be on or off.")
+        model = self._free_model(body)
+        if len(pictures) > freebuild.MAX_PICTURES:
+            raise Refused(f"Add at most {freebuild.MAX_PICTURES} pictures.")
         self._free_agreement(body)
         self._free_ready()
+        if sum(len(p) for p in pictures) > freebuild.MAX_PICTURES_BYTES:
+            raise Refused(
+                f"The pictures are too large together: at most "
+                f"{freebuild.MAX_PICTURES_BYTES // 2**20} MB in all. Choose fewer, or smaller "
+                "ones.",
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+        try:  # untrusted: decoded, drawn afresh and checked before anything is made
+            cleaned = [freebuild.clean_picture(p) for p in pictures]
+        except freebuild.FreeBuildError as e:
+            raise Refused(str(e)) from None
         job_id = secrets.token_hex(8)
-        folder = self.reserve(name or freebuild.name_from(words), job_id)
+        fallback = Path(model_name).stem if model_name else "Built from pictures"
+        folder = self.reserve(name or (freebuild.name_from(words) if words else fallback), job_id)
 
         def work(job: Job) -> dict[str, Any]:
-            path = freebuild.create(
-                self.root,
-                words,
-                name=name or None,
-                parts=parts,
-                reference=reference,
-                folder=folder,
-                guide=guide,
-            )
-            references = []
+            try:
+                if model_file is not None:
+                    job.say(
+                        f"Drawing {model_name or 'the 3D model'} from five sides, to show the AI"
+                    )
+                path = freebuild.create(
+                    self.root,
+                    words,
+                    name=name or None,
+                    parts=parts,
+                    reference=reference,
+                    folder=folder,
+                    guide=guide,
+                    model=model,
+                    pictures=cleaned,
+                    model_file=model_file,
+                    model_name=model_name,
+                )
+            finally:
+                if staging is not None:
+                    shutil.rmtree(staging, ignore_errors=True)
             if ref_folder is not None:
                 job.say("Drawing the model to look like from five sides, to show the AI")
-                references.append(freebuild.reference_sheet(ref_folder, path / "reference.png"))
-            return self._free_run(job, path, None, references)
+                freebuild.reference_sheet(ref_folder, path / freebuild.REFERENCE_SHEET)
+            return self._free_run(job, path, None)
 
         try:
             return self.start("free", folder, work, ai=True, job_id=job_id, reserved=True)
@@ -2145,30 +2292,54 @@ class App:
     def change(self, name: str, body: dict[str, Any]) -> Job:
         """``POST /api/p/<project>/change``: the AI changes a model it built, in words."""
         words = self._free_words(body, "words", "make the roof blue")
+        model = self._free_model(body)
         self.free(name)
         self._free_agreement(body)
         self._free_ready()
 
         def work(job: Job) -> dict[str, Any]:
-            return self._free_run(job, self.free(name), words, [])
+            return self._free_run(job, self.free(name), words, model)
 
         return self.start("change", name, work, ai=True)
 
     def _free_run(
-        self, job: Job, folder: Path, words: str | None, references: list[Path]
+        self, job: Job, folder: Path, words: str | None, model: str | None = None
     ) -> dict[str, Any]:
         if words is None:
             job.say("This is a new model: the AI builds it part by part from the parts library")
         else:
             job.say(f'This is one change to the model: "{_short(words, 200)}"')
         meta = freebuild.read_meta(folder)
+        used = model or meta.get("model") or freebuild.DEFAULT_MODEL
         if meta.get("guide") is True:
             job.say(
                 "It designs the model first, then builds it the way set designers do, and "
                 "judges its own pictures before it finishes"
             )
-        job.say("One AI run. " + freebuild.time_and_cost(freebuild.next_size(meta)))
-        entry = freebuild.build(folder, words, on_say=job.say, references=references)
+        refs = freebuild.references_of(folder)
+        if refs:
+            job.say(f"It is shown {_plural(len(refs), 'reference picture')} of what to build")
+        job.say(
+            f"One AI run, by {freebuild.model_name(used)}. "
+            + freebuild.time_and_cost(freebuild.next_size(meta), used)
+        )
+        try:
+            entry = freebuild.build(folder, words, on_say=job.say, model=model)
+        except freebuild.UsageLimitError as e:
+            other = f"“{freebuild.model_name(e.other)}”" if e.other else ""
+            if not other:
+                todo = "Wait until the limit resets, then try again."
+            elif words is None:
+                todo = (
+                    f"Choose {other} under “Options” and press Build again, or wait until the "
+                    "limit resets."
+                )
+            else:
+                todo = (
+                    f"Your model is safe. Choose {other} under “Which Claude makes the change” "
+                    "and ask again, or wait until the limit resets."
+                )
+            raise JobFailed(str(e), todo=todo) from None
         verdict = entry.get("summary") or "not checked"
         job.say(f"Done: {verdict}")
         return {
@@ -2541,7 +2712,8 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._json(HTTPStatus.OK, app.choose(job_id, self._read_json()))
                 return
             if path == "/api/free":
-                job = app.new_free(self._read_json())
+                multipart = self.headers.get("Content-Type", "").lower().startswith("multipart/")
+                job = self._free_upload() if multipart else app.new_free(self._read_json())
                 self._json(HTTPStatus.ACCEPTED, {"job": job.id, "project": job.project})
                 return
             if path is not None and path.startswith("/api/p/"):
@@ -2620,6 +2792,78 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 shutil.rmtree(staging, ignore_errors=True)
                 if folder is not None:
                     app.release(folder, job_id)
+                raise
+
+        def _free_upload(self) -> Job:
+            """``POST /api/free`` as a form: the fields as text, with up to ``MAX_PICTURES``
+            files "picture" and one file "model_file" (a 3D model)."""
+            ctype = Message()
+            ctype["content-type"] = self.headers.get("Content-Type", "")
+            boundary = ctype.get_param("boundary")
+            if ctype.get_content_type() != "multipart/form-data" or not isinstance(boundary, str):
+                self.close_connection = True
+                raise Refused("Send it with the form on the BrickSnap page.")
+            if not 1 <= len(boundary) <= 200:
+                self.close_connection = True
+                raise Refused("The form that was sent could not be read. Try again.")
+            limit = MAX_UPLOAD_BYTES + freebuild.MAX_PICTURES_BYTES + FORM_OVERHEAD
+            length = self._length(limit, free_too_large_message())
+            if length == 0:
+                self.close_connection = True
+                raise Refused(
+                    "The request did not say how long it is. Try again from the BrickSnap page.",
+                    HTTPStatus.LENGTH_REQUIRED,
+                )
+            staging = app.root / INCOMING_DIR / secrets.token_hex(8)
+            pictures: list[Path] = []
+            model: dict[str, Any] = {}
+            mb = freebuild.MAX_PICTURE_BYTES // 2**20
+            picture_too_big = (
+                f"A picture is too large: BrickSnap takes pictures of up to {mb} MB each. "
+                "Choose a smaller one, or save it smaller first."
+            )
+
+            def files(field: str, browser_name: str) -> tuple[Path, int, str] | None:
+                base = browser_name.replace("\\", "/").rsplit("/", 1)[-1]
+                if field == "picture":
+                    if len(pictures) >= freebuild.MAX_PICTURES:
+                        raise Refused(f"Add at most {freebuild.MAX_PICTURES} pictures.")
+                    staging.mkdir(parents=True, exist_ok=True)
+                    pictures.append(staging / f"picture-{len(pictures) + 1}.upload")
+                    return pictures[-1], freebuild.MAX_PICTURE_BYTES, picture_too_big
+                if field == "model_file":
+                    suffix = Path(base).suffix.lower()
+                    if model:
+                        raise Refused("Add one 3D model file at most.")
+                    if suffix not in MODEL_SUFFIXES:
+                        raise Refused(wrong_suffix_message(clean_text(base, 120) or "that file"))
+                    staging.mkdir(parents=True, exist_ok=True)
+                    model.update(path=staging / f"model{suffix}", name=clean_text(base, 120))
+                    return model["path"], MAX_UPLOAD_BYTES, too_large_message()
+                return None
+
+            try:
+                fields, _, _ = read_form(
+                    self.rfile, length, boundary.encode("latin-1"), None, files=files
+                )
+                body = free_form_body(fields)
+                data = [p.read_bytes() for p in pictures]
+                path = model.get("path")
+                if path is not None:
+                    if path.stat().st_size == 0:
+                        raise Refused(f"{model['name']} is empty. Choose another file.")
+                    if path.suffix == ".gltf" and gltf_needs_other_files(path):
+                        raise Refused(GLTF_SEPARATE.format(name=model["name"]))
+                return app.new_free(
+                    body,
+                    pictures=data,
+                    model_file=path,
+                    model_name=model.get("name"),
+                    staging=staging,
+                )
+            except BaseException:
+                self.close_connection = True
+                shutil.rmtree(staging, ignore_errors=True)
                 raise
 
         def _refuse_method(self) -> None:

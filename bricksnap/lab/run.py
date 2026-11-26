@@ -21,10 +21,17 @@ CONTRACT (tests in tests/test_lab.py; no test starts a real session)
   after the session, for the person), and ``session.json`` (ok, error, mode, model, effort,
   turns, seconds, the usage and cost Claude Code reported, the tools called and how often,
   tool errors, how many checks, the final summary line, and the session's closing words,
-  redacted).
+  redacted; and ``usage_limit``, ``limit_resets`` and ``limit_resets_at``, the runner's:
+  Claude Code's line and when the limit resets, in words and in seconds since 1970, when
+  the subscription's usage limit stopped the session, else "", "" and null).
 - The user message is the task, the number of checks allowed, and (with references) the
-  instruction to look at them first. The task is the person's text, sent as the message and
-  never put in the prompt or on a command line.
+  instruction to look at them first: build what they show (a photo, a drawing, or a sheet
+  of views) as a brick model of the size asked for, its outline, proportions, colours and
+  recognisable features, not a background; the words say what it is, and win where the
+  two differ. In a change (below) it says instead that the model was built from them and
+  that reference shows them again when the change is about how it should look. The task
+  is the person's text, sent as the message and never put in the prompt or on a command
+  line.
 - ``--start FILE.ldr``: the session begins with that model (``tools.start_model``): moved
   along x so its middle is at x = 0 (the shift is in config.json), checked as attempt 0 (not
   counted), and, in a blind run, given to the AI in the message since it has no tools to
@@ -121,11 +128,22 @@ def message(
                 "in the work area. Call check first to see it (it is attempt 0; that check "
                 "does not count), then improve it as your instructions say for this case."
             )
-    if references:
+    one = references == 1
+    if references and start is not None and change_of is not None and mode != "blind":
         parts.append(
-            f"There {'is' if references == 1 else 'are'} {references} reference picture"
-            f"{'' if references == 1 else 's'} of what to build: call reference first and "
-            "study them."
+            f"The model was built from {'a reference picture' if one else 'reference pictures'}"
+            f" of what to build. Call reference to see {'it' if one else 'them'} again when the "
+            "change is about how the model should look."
+        )
+    elif references:
+        parts.append(
+            f"There {'is' if one else 'are'} {references} reference picture"
+            f"{'' if one else 's'} of what to build: call reference first and study "
+            f"{'it' if one else 'them'}. Build what {'it shows' if one else 'they show'} as a "
+            "brick model of the size asked for: the outline, the proportions, the colours and "
+            "the features that make it recognisable, not a background or the lighting. The "
+            f"words say what it is; where the words and the picture{'' if one else 's'} "
+            "differ, follow the words."
         )
     if guide and brief and start is not None and change_of is not None and mode != "blind":
         parts.append(
@@ -285,6 +303,9 @@ def finish(
         "mode": mode,
         "ok": run.ok,
         "error": run.error,
+        "usage_limit": run.usage_limit,
+        "limit_resets": run.limit_resets,
+        "limit_resets_at": run.limit_resets_at,
         "turns": run.turns,
         "seconds": round(run.duration_s, 1),
         "cost_usd_reported": run.cost_usd,

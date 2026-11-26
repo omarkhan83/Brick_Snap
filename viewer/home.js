@@ -1,8 +1,9 @@
-// BrickSnap web app: the home page. The projects as cards, newest first, the form that
-// makes a new one from a model file, and the experimental form that lets the AI build one
-// from parts (a "free build"). Text from the server goes in with textContent.
+// BrickSnap web app: the home page. One prompt bar at the top that lets the AI build a model
+// from parts (a "free build", experimental) from words, pictures and a 3D model; the person's
+// models as cards below it, free builds first and newest first; and, folded away, the older
+// form that turns a 3D model file into bricks. Text from the server goes in with textContent.
 
-import { JobView, NOT_ANSWERING, TOKEN, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, freeEstimate, NOT_ANSWERING, TOKEN, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const MAX_UPLOAD_MB = 60;
 const SUFFIXES = ['.stl', '.obj', '.glb', '.gltf', '.3mf', '.ply'];
@@ -85,7 +86,9 @@ function showProjects(list) {
   $('models').hidden = none && followed.size > 0;
   if (key !== lastList) {
     lastList = key;
-    $('cards').replaceChildren(...list.projects.map(card));
+    const free = list.projects.filter((p) => p.kind === 'free');
+    const other = list.projects.filter((p) => p.kind !== 'free');
+    $('cards').replaceChildren(...[...free, ...other].map(card)); // each newest first
   }
   // A new model that is being made (started here or before this page was opened).
   for (const job of list.jobs) {
@@ -93,7 +96,7 @@ function showProjects(list) {
     if (job.kind === 'free' && !followed.has(job.id) && !freeSending) followFree(job.id);
   }
   anyActive = list.jobs.length > 0;
-  showReferences(list.projects);
+  showLimits(list.limits || []);
 }
 
 async function loadProjects() {
@@ -214,6 +217,7 @@ function choosePiece(job) {
 
 function followNew(id, view = null) {
   followed.add(id);
+  $('older').open = true; // a model being made from a file shows where its form is
   const v = view || new JobView(newJobs, { nextStep: openButton, onDone: () => loadProjects(), choose: choosePiece });
   if (view) {
     view.nextStep = openButton;
@@ -294,20 +298,45 @@ form.addEventListener('submit', (e) => {
   xhr.send(data);
 });
 
-// ---- letting the AI build one from parts (experimental) ----
+// ---- the prompt bar: the AI builds a model from parts (experimental) ----
+//
+// Words, up to four pictures and one 3D model, all sent together as one form to /api/free.
+// The agreement the server requires (understood, understood_runs) is the box under the bar:
+// the line above it always says what Build sends, that it is one AI run, which Claude, how
+// long it usually takes and what it uses of the subscription; once ticked it is remembered
+// in this browser, so later builds start with one press.
 
 const freeForm = $('freeForm');
 const freeWords = $('freeWords');
 const freeParts = $('freeParts');
-const freeRef = $('freeRef');
 const freeGuide = $('freeGuide');
-const freeConfirm = $('freeConfirm');
+const freeModel = $('freeModel');
+const freeFiles = $('freeFiles');
+const freeDrop = $('freeDrop');
+const freeThumbs = $('freeThumbs');
 const freeUnderstood = $('freeUnderstood');
-const freeStart = $('freeStart');
 const freeGo = $('freeGo');
 const freeMsg = $('freeMsg');
 const freeJobs = $('freeJobs');
+const MAX_PICTURES = 4;
+const MAX_PICTURE_MB = 8;
+const MAX_PICTURES_MB = 20;
+const PICTURE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const PICTURE_SUFFIXES = ['.jpg', '.jpeg', '.png', '.webp'];
+const AGREED_KEY = 'bricksnap.freeUnderstood';
 let freeSending = false;
+const chosen = { pictures: [], model: null }; // File objects, with a preview address each
+appState.chosen = chosen;
+
+function suffixOf(name) {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+function freeProblem(text) {
+  freeMsg.textContent = text;
+  appState.message = text;
+}
 
 function showParts() {
   const n = Number(freeParts.value);
@@ -318,90 +347,177 @@ function showParts() {
       : n <= 140
         ? 'A medium model, like a small set.'
         : 'A big model: big models take longer and use more of your subscription.';
-  $('freePartsHint').textContent = `${size} ${freeTimeAndCost(n)}`;
-}
-freeParts.addEventListener('input', showParts);
-showParts();
-
-/** The chooser of ordinary models the AI may be shown, kept up to date with the list. */
-let shownRefs = '';
-function showReferences(projects) {
-  const usable = projects.filter((p) => p.kind !== 'free' && !p.problem && typeof p.parts === 'number');
-  const key = JSON.stringify(usable.map((p) => [p.project, p.name]));
-  if (key === shownRefs) return;
-  shownRefs = key;
-  const chosen = freeRef.value;
-  freeRef.replaceChildren(
-    el('option', { value: '', text: 'No, just from my words' }),
-    ...usable.map((p) => el('option', { value: p.project, text: p.name })),
-  );
-  freeRef.value = usable.some((p) => p.project === chosen) ? chosen : '';
+  $('freePartsHint').textContent = size;
+  showSays();
 }
 
-function freeProblem(text) {
-  freeMsg.textContent = text;
-  appState.message = text;
+/** The line under the bar: what Build sends and starts, and what it usually costs. */
+function showSays() {
+  const n = chosen.pictures.length;
+  const what = [];
+  if (freeWords.value.trim()) what.push('your words');
+  if (n) what.push(`your ${n === 1 ? 'picture' : `${n} pictures`}`);
+  if (chosen.model) what.push(`pictures of ${chosen.model.file.name} from five sides`);
+  const sends = what.length > 1 ? `${what.slice(0, -1).join(', ')} and ${what[what.length - 1]}` : what[0] || 'your words';
+  const model = freeModel.value;
+  const parts = Number(freeParts.value);
+  const e = freeEstimate(parts, model);
+  const way = freeGuide.checked ? ', designed first' : '';
+  const guess = model !== FREE_DEFAULT_MODEL || e.estimated ? ' (an estimate)' : '';
+  $('freeSends').textContent = `Build sends ${sends} to Anthropic through Claude Code; nothing else leaves this computer.`;
+  $('freeCost').textContent = `One AI run by ${FREE_MODELS[model] || model}${way}: usually ${e.minutes[0]} to ${e.minutes[1]} minutes, about $${e.dollars[0]} to $${e.dollars[1]} of your Claude subscription${guess}.`;
+  $('freeCostFull').textContent = freeTimeAndCost(parts, model);
 }
 
-function describeFree() {
-  const words = freeWords.value.trim();
-  $('freeWhat').replaceChildren(
-    document.createTextNode('What the AI will build: '),
-    el('span', { className: 'quote', id: 'freeQuote', text: `“${words}”` }),
-    document.createTextNode(`, about ${freeParts.value} parts${freeGuide.checked ? ', designed first and built the way set designers do' : ''}.`),
-  );
-  $('freeTime').textContent = `It is one AI run. ${freeTimeAndCost(Number(freeParts.value))} You can leave this page while it works.`;
-  const ref = freeRef.value ? freeRef.options[freeRef.selectedIndex].text : '';
-  $('freeSends').textContent = ref
-    ? `It sends the words you typed and pictures of “${ref}” from five sides to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.`
-    : 'It sends the words you typed to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.';
+// ---- which Claude: the person's last choice, unless it is at its usage limit ----
+
+const MODEL_KEY = 'bricksnap.freeModel';
+let modelChosenHere = false;
+let limited = new Map();
+
+function rememberedModel() {
+  try {
+    const value = window.localStorage.getItem(MODEL_KEY);
+    return FREE_MODELS[value] ? value : FREE_DEFAULT_MODEL;
+  } catch {
+    return FREE_DEFAULT_MODEL;
+  }
 }
 
-function closeFree() {
-  freeConfirm.hidden = true;
-  freeUnderstood.checked = false;
-  freeStart.disabled = true;
-}
-
-// Whatever changes what would be sent takes the agreement back.
-for (const input of [freeWords, freeParts, freeRef, freeGuide]) {
-  input.addEventListener('input', () => {
-    if (!freeConfirm.hidden) {
-      freeUnderstood.checked = false;
-      freeStart.disabled = true;
-      describeFree();
+/** The server's list of models at a usage limit: the bar chooses the other one, and says why. */
+function showLimits(list) {
+  limited = new Map(list.map((l) => [l.model, l]));
+  if (!modelChosenHere) {
+    let pick = rememberedModel();
+    const at = limited.get(pick);
+    if (at && at.other) pick = at.other;
+    if (freeModel.value !== pick) {
+      freeModel.value = pick;
+      showSays();
     }
+  }
+  showLimitLine();
+}
+
+function showLimitLine() {
+  const line = $('freeLimit');
+  const now = limited.get(freeModel.value);
+  const other = [...limited.values()].find((l) => l.other === freeModel.value);
+  const until = (l) => (l.until_words ? ` until ${l.until_words}` : '');
+  if (now) {
+    const instead = now.other ? ` Choose ${now.other_name} under Options.` : '';
+    line.textContent = `${now.name} is at its usage limit${until(now)}: a build with it would stop at once.${instead}`;
+  } else if (other) {
+    line.textContent = `${other.name} is at its usage limit${until(other)}; ${FREE_MODELS[freeModel.value]} is chosen.`;
+  } else {
+    line.textContent = '';
+  }
+  line.hidden = !line.textContent;
+}
+
+function addFiles(list) {
+  freeProblem('');
+  for (const file of list) {
+    const suffix = suffixOf(file.name);
+    if (PICTURE_TYPES.includes(file.type) || PICTURE_SUFFIXES.includes(suffix)) {
+      if (chosen.pictures.length >= MAX_PICTURES) {
+        freeProblem(`Add at most ${MAX_PICTURES} pictures.`);
+        continue;
+      }
+      if (file.size > MAX_PICTURE_MB * 1024 * 1024) {
+        freeProblem(`${file.name} is too large: BrickSnap takes pictures of up to ${MAX_PICTURE_MB} MB each.`);
+        continue;
+      }
+      const total = chosen.pictures.reduce((sum, p) => sum + p.file.size, 0) + file.size;
+      if (total > MAX_PICTURES_MB * 1024 * 1024) {
+        freeProblem(`The pictures are too large together: at most ${MAX_PICTURES_MB} MB in all.`);
+        continue;
+      }
+      chosen.pictures.push({ file, url: URL.createObjectURL(file) });
+    } else if (SUFFIXES.includes(suffix)) {
+      if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        freeProblem(`${file.name} is too large: BrickSnap takes 3D model files of up to ${MAX_UPLOAD_MB} MB.`);
+        continue;
+      }
+      if (chosen.model && chosen.model.file !== file) freeProblem('Only one 3D model can be added; the new one replaces the old one.');
+      chosen.model = { file };
+    } else {
+      freeProblem(`BrickSnap cannot use ${file.name}. Add pictures (JPEG, PNG or WebP) or a 3D model (STL, OBJ, GLB, GLTF, 3MF or PLY).`);
+    }
+  }
+  showThumbs();
+}
+
+function removeChosen(item) {
+  if (item === chosen.model) chosen.model = null;
+  else {
+    chosen.pictures = chosen.pictures.filter((p) => p !== item);
+    URL.revokeObjectURL(item.url);
+  }
+  showThumbs();
+}
+
+function showThumbs() {
+  const items = [...chosen.pictures, ...(chosen.model ? [chosen.model] : [])];
+  freeThumbs.hidden = items.length === 0;
+  freeThumbs.replaceChildren(
+    ...items.map((item) => {
+      const isModel = item === chosen.model;
+      const pic = el('span', { className: 'tpic' }, [
+        isModel ? el('span', { className: 't3d', text: '⬢', 'aria-hidden': 'true' }) : el('img', { src: item.url, alt: `The picture ${item.file.name}` }),
+      ]);
+      const x = el('button', { type: 'button', className: 'quiet tx', text: '✕', 'aria-label': `Remove ${item.file.name}` });
+      x.addEventListener('click', () => removeChosen(item));
+      return el('li', { className: `thumb${isModel ? ' model3d' : ''}` }, [pic, el('span', { className: 'tname', text: item.file.name }), x]);
+    }),
+  );
+  freeFiles.value = '';
+  showSays();
+}
+
+freeFiles.addEventListener('change', () => addFiles(freeFiles.files || []));
+for (const kind of ['dragenter', 'dragover']) {
+  freeDrop.addEventListener(kind, (e) => {
+    e.preventDefault();
+    freeDrop.classList.add('dragging');
   });
 }
+for (const kind of ['dragleave', 'drop']) {
+  freeDrop.addEventListener(kind, (e) => {
+    e.preventDefault();
+    freeDrop.classList.remove('dragging');
+  });
+}
+freeDrop.addEventListener('drop', (e) => addFiles((e.dataTransfer && e.dataTransfer.files) || []));
 
-freeForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  freeProblem('');
-  if (!freeWords.value.trim()) {
-    freeProblem('Say what to build first, for example “a small red fire truck”.');
-    freeWords.focus();
-    return;
+freeParts.addEventListener('input', showParts);
+freeWords.addEventListener('input', showSays);
+freeModel.addEventListener('change', () => {
+  modelChosenHere = true;
+  try {
+    window.localStorage.setItem(MODEL_KEY, freeModel.value);
+  } catch {
+    // remembered for this page only
   }
-  describeFree();
+  showSays();
+  showLimitLine();
+});
+freeGuide.addEventListener('change', showSays);
+try {
+  freeUnderstood.checked = window.localStorage.getItem(AGREED_KEY) === '1';
+} catch {
   freeUnderstood.checked = false;
-  freeStart.disabled = true;
-  freeConfirm.hidden = false;
-  freeConfirm.scrollIntoView({ block: 'nearest' });
-  freeUnderstood.focus();
-});
+}
 freeUnderstood.addEventListener('change', () => {
-  freeStart.disabled = !freeUnderstood.checked || freeSending;
-});
-$('freeCancel').addEventListener('click', () => {
-  closeFree();
-  freeGo.focus();
-});
-freeConfirm.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    closeFree();
-    freeGo.focus();
+  try {
+    if (freeUnderstood.checked) window.localStorage.setItem(AGREED_KEY, '1');
+    else window.localStorage.removeItem(AGREED_KEY);
+  } catch {
+    // remembered for this page only
   }
 });
+freeModel.value = rememberedModel();
+showParts();
 
 function freeOpenButton(job) {
   const project = job.result && job.result.project ? job.result.project : job.project;
@@ -416,36 +532,77 @@ function followFree(id, view = null) {
   v.follow(id);
 }
 
-freeStart.addEventListener('click', async () => {
-  if (!freeUnderstood.checked || freeSending) return;
-  const body = {
-    words: freeWords.value.trim(),
-    parts: Number(freeParts.value),
-    understood: true,
-    understood_runs: 1,
-  };
-  const name = $('freeName').value.trim();
-  if (name) body.name = name;
-  if (freeRef.value) body.reference = freeRef.value;
-  if (freeGuide.checked) body.guide = true;
-  freeSending = true;
-  freeStart.disabled = true;
-  freeGo.disabled = true;
-  const answer = await postJson('/api/free', body);
-  freeSending = false;
-  freeGo.disabled = false;
-  if (answer.status === 202 && answer.data && answer.data.job) {
-    closeFree();
-    freeForm.reset();
-    showParts();
-    const view = new JobView(freeJobs, { nextStep: freeOpenButton, onDone: () => loadProjects() });
-    followFree(answer.data.job, view);
-    view.box.scrollIntoView({ block: 'nearest' });
-    loadProjects();
-  } else {
-    freeStart.disabled = !freeUnderstood.checked;
-    freeProblem(refusal(answer));
+/** Wait until the new model's page can be opened (its folder is made as the job starts). */
+async function openWhenReady(project) {
+  for (let k = 0; k < 50; k++) {
+    const answer = await getJson('/api/projects');
+    if (answer.status === 200 && answer.data && answer.data.projects.some((p) => p.project === project)) {
+      window.location.href = `/p/${encodeURIComponent(project)}`;
+      return true;
+    }
+    await sleep(200);
   }
+  return false;
+}
+
+freeForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (freeSending) return;
+  freeProblem('');
+  const words = freeWords.value.trim();
+  if (!words && !chosen.pictures.length && !chosen.model) {
+    freeProblem('Say what to build first, for example “a small red fire truck”, or add a picture or a 3D model of it.');
+    freeWords.focus();
+    return;
+  }
+  if (!freeUnderstood.checked) {
+    freeProblem('Tick “I understand…” under the bar first: Build starts a paid AI run with your Claude Code login.');
+    freeUnderstood.focus();
+    return;
+  }
+  const data = new FormData();
+  data.append('words', words);
+  data.append('parts', freeParts.value);
+  data.append('model', freeModel.value);
+  data.append('guide', freeGuide.checked ? 'true' : 'false');
+  const name = $('freeName').value.trim();
+  if (name) data.append('name', name);
+  data.append('understood', 'true');
+  data.append('understood_runs', '1');
+  for (const p of chosen.pictures) data.append('picture', p.file, p.file.name);
+  if (chosen.model) data.append('model_file', chosen.model.file, chosen.model.file.name);
+
+  freeSending = true;
+  freeGo.disabled = true;
+  const view = new JobView(freeJobs);
+  if (chosen.pictures.length || chosen.model) view.sending(0);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/free');
+  xhr.setRequestHeader('X-BrickSnap-Token', TOKEN);
+  xhr.responseType = 'json';
+  xhr.upload.onprogress = (ev) => {
+    if (ev.lengthComputable && (chosen.pictures.length || chosen.model)) view.sending(ev.loaded / ev.total);
+  };
+  xhr.onload = async () => {
+    freeSending = false;
+    freeGo.disabled = false;
+    const answer = { status: xhr.status, data: xhr.response };
+    if (xhr.status === 202 && xhr.response && xhr.response.job) {
+      followFree(xhr.response.job, view);
+      view.box.scrollIntoView({ block: 'nearest' });
+      if (!(await openWhenReady(xhr.response.project))) loadProjects();
+    } else {
+      view.remove();
+      freeProblem(refusal(answer));
+    }
+  };
+  xhr.onerror = () => {
+    freeSending = false;
+    freeGo.disabled = false;
+    view.remove();
+    freeProblem(NOT_ANSWERING);
+  };
+  xhr.send(data);
 });
 
 // ---- start ----
