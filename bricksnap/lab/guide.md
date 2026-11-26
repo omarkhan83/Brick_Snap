@@ -55,7 +55,8 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 [one 94-part car; habits shared by 4 of 4 vehicles]
 
 - **Core:** one base as long as the vehicle: a one-piece car base, or a plate with a wheel-pin plate
-  (4600) under each axle. The wheel sets the scale.
+  (4600) under each axle. The wheel sets the scale. A body on it: fill with sides, then skin, then
+  cap.
 - **Strong:** run a long plate along the top of each side.
 - **Outside:** build one side unit twice and turn the second round. Stand a 1 x 4 side-stud brick (30414)
   across each end of the floor; build lights and grille flat on a plate and press them on. Curved slopes
@@ -82,7 +83,8 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 [seen in 7 aircraft sets of 1987 to 2025; the core in 2 Creator planes, 2020 and 2025]
 
 - **Core:** a spine 2 studs wide of side-stud bricks (87087, 11211, 30414) on a long plate, with a
-  skin one stud thick pressed on each side. The wing sets the scale.
+  skin one stud thick pressed on each side (quickly: fill with sides, then skin, then cap). The
+  wing sets the scale.
 - **Strong:** the wing is one long course of plates passing over or through the body, locked by a
   second layer of plates that overlaps the joint.
 - **Outside:** flanks as panels on the side studs (skin makes each in one call); curved slopes on

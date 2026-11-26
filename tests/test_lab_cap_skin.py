@@ -208,6 +208,48 @@ def test_skin_and_cap_bring_the_looks_into_the_official_ranges():
     )
 
 
+# ---- fill with sides --------------------------------------------------------------------
+
+
+def test_fill_with_sides_then_skin_then_cap_makes_a_modern_body(tmp_path):
+    """A 2 x 8 core, 6 plates tall, in black with side studs on both long faces; one skin call
+    presses a tiled panel on each, and cap tiles the top: no problems, and the flanks' seams
+    and sideways share in the official ranges (studs none)."""
+    folder = _folder(tmp_path, guide=True)
+    (folder / "model.ldr").write_text("")
+    (folder / "art.json").write_text(json.dumps({"build_refused": True}))
+
+    def call(name: str, args: dict) -> str:  # type: ignore[type-arg]
+        return tools.call_tool(folder, name, args)[0]["text"]
+
+    said = call(
+        "fill", {"at": [-20, 0, -80], "size": [2, 8, 6], "colour": 0, "sides": ["-x", "+x"]}
+    )
+    assert "side studs facing out on -x, +x" in said and '"part": "3035.dat"' in said
+    core = (folder / "model.ldr").read_text()
+    assert HELD in check(core).summary()
+    carriers = [n for n, ln in enumerate(core.splitlines(), 1) if ln.endswith("99781.dat")]
+    assert said.count("4 brackets") == 2 and len(carriers) == 8
+    said = call("skin", {"lines": carriers, "colour": 272})
+    assert said.startswith("Skinned 2 panels") and "8 x 2 studs" in said
+    assert "No free side stud faces -z or +z" in said
+    said = call("cap", {"min": [-20, -49, -80], "max": [20, -47, 80], "colour": 272})
+    assert said.startswith("Capped 16 studs")
+    body = check((folder / "model.ldr").read_text())
+    assert HELD in body.summary() and not body.problems
+    lk = looks.measure(body)
+    assert lk is not None and lk.studs_showing == 0
+    assert not looks.outside(lk.seams_per_stud, looks.SEAMS)
+    assert not looks.outside(lk.side_top_faces, looks.SIDE_TOP_FACES)
+
+
+def test_fill_with_sides_puts_a_bracket_layer_every_five_plates():
+    c = cover.core((-40, 0, -40), (4, 4, 10), 0, "all")
+    assert c.layers == [5, 10] and set(c.sides) == {"-z", "+z", "-x", "+x"}
+    assert c.rows["-z"] == [-70, -30]
+    assert HELD in check("\n".join(c.lines)).summary()
+
+
 # ---- the tools -----------------------------------------------------------------------------
 
 

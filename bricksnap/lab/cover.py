@@ -51,6 +51,15 @@ other part's filled body on it, over its tip or under whose underside it is.
   front is within a plate behind the panel's back, sampled every ``FACE_STEP``) still shows
   beside it, and where (``Panel.bare``, ``bare_box``). With no ``facing``, the side faces
   (-z, +z, -x, +x) with no free side stud among the parts named are ``Result.no_studs``.
+- ``core(at, size, colour, sides)`` (guide mode's ``fill`` with "sides"): the box ``edit.fill``
+  would fill, built as a core whose named outer faces ("-z", "+z", "-x", "+x" or "all") carry
+  side studs facing out, ready for ``skin``: a layer of brackets (``BRACKETS``: 99781, and
+  36841 for an odd cell; flange hanging 20 LDU outside the face, side studs 10 LDU below the
+  layer's top) along those faces' edge cells at the top plate and every ``COURSE`` (5) plates
+  below it while at least 3 plates up, so one 2-wide plate on each row of side studs covers
+  two courses; plates (``edit.fill``) inside that layer and ``edit.fill`` boxes between.
+  Corner cells belong to the z faces. It returns the lines (``0 STEP`` between groups), the
+  free top studs, which lines carry each face's side studs and the height of their rows.
 - Both then check the model with the new lines (``validate.check``, no movement): a new part
   with a problem is dropped with the checker's words (and so is what stood on it), and the check
   is repeated, at most ``ROUNDS`` times. They return a ``Result``: the new lines (appended in
@@ -63,6 +72,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cache
+from typing import Any
 
 import numpy as np
 
@@ -1064,3 +1074,161 @@ def _finish(
         pn.held = sum(p.held for p in pn.plates)
     res.panels = [p for p in panels or [] if p.plates]
     return res
+
+
+# ---- a core with side studs: fill's "sides" ----------------------------------------------
+
+BRACKETS = {2: "99781", 1: "36841"}  # 1 x 2 and 1 x 1 brackets whose flange hangs down
+COURSE = 5  # plates between bracket layers: two rows of a panel (40 LDU)
+SIDES = ("-z", "+z", "-x", "+x")
+
+
+@dataclass
+class Core:
+    lines: list[str] = field(default_factory=list)
+    free_studs: list[tuple[float, float, float]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    parts: int = 0
+    sides: dict[str, list[int]] = field(default_factory=dict)  # face -> indexes into lines
+    rows: dict[str, list[float]] = field(default_factory=dict)  # face -> y of its side studs
+    layers: list[int] = field(default_factory=list)  # plates (from 1 at the bottom) with brackets
+
+
+def core(
+    at: tuple[float, float, float],
+    size: tuple[int, int, int],
+    colour: int,
+    sides: list[str] | str,
+    lib: Library | None = None,
+) -> Core:
+    """A box filled as ``edit.fill`` fills it, built as a core whose named outer faces carry
+    side studs facing out (see the contract): a layer of brackets along those faces at the top
+    and every ``COURSE`` plates below it, while at least 3 plates up (a bracket's flange
+    hangs 20 LDU), plates inside that layer, and ``edit.fill`` boxes between."""
+    from bricksnap.lab.edit import EditError, fill
+
+    lib = lib or library()
+    x0, y0, z0 = (float(v) for v in at)
+    w, d, h = (int(v) for v in size)
+    want = list(SIDES) if sides == "all" else list(sides)
+    if not want or any(s not in SIDES for s in want):
+        raise EditError('sides is "all" or a list of "-z", "+z", "-x", "+x".')
+    if h < 3:
+        raise EditError("a core with side studs needs at least 3 plates of height.")
+    if ("-z" in want and "+z" in want and d < 2) or ("-x" in want and "+x" in want and w < 2):
+        raise EditError("side studs on two opposite faces need the box 2 studs across.")
+    layers = [k for k in range(h, 2, -COURSE)]
+    out = Core(layers=sorted(layers))
+
+    def add(f: Any) -> None:
+        if out.lines and out.lines[-1] != "0 STEP":
+            out.lines.append("0 STEP")
+        out.lines.extend(ln for ln in f.lines if ln != "0 STEP")
+        out.parts += f.parts
+        out.notes += f.notes
+
+    # which cells of a bracket layer carry a bracket, by face (corners go to the z faces)
+    cells: dict[str, list[tuple[int, int]]] = {}
+    for face in want:
+        if face in ("-z", "+z"):
+            j = 0 if face == "-z" else d - 1
+            cells[face] = [(i, j) for i in range(w)]
+    for face in want:
+        if face in ("-x", "+x"):
+            i = 0 if face == "-x" else w - 1
+            zs = [
+                j
+                for j in range(d)
+                if not ((j == 0 and "-z" in want) or (j == d - 1 and "+z" in want))
+            ]
+            cells[face] = [(i, j) for j in zs]
+    inner_i = [
+        i for i in range(w) if not (i == 0 and "-x" in want) and not (i == w - 1 and "+x" in want)
+    ]
+    inner_j = [
+        j for j in range(d) if not (j == 0 and "-z" in want) and not (j == d - 1 and "+z" in want)
+    ]
+    bottom = 1
+    for k in sorted(layers):
+        if k > bottom:  # the plain box below this bracket layer
+            add(fill((x0, y0 - 8 * (bottom - 1), z0), (w, d, k - bottom), colour))
+        y = y0 - 8 * (k - 1)  # the layer stands on studs at this height
+        for face, cs in cells.items():
+            for line in _bracket_row(face, cs, x0, y, z0, colour, lib):
+                out.sides.setdefault(face, []).append(len(out.lines))
+                out.lines.append(line)
+                out.parts += 1
+            out.rows.setdefault(face, []).append(y + 2)  # 10 below the layer's top (y - 8)
+        if inner_i and inner_j:
+            add(
+                fill(
+                    (x0 + 20 * inner_i[0], y, z0 + 20 * inner_j[0]),
+                    (len(inner_i), len(inner_j), 1),
+                    colour,
+                )
+            )
+        bottom = k + 1
+    if h >= bottom:
+        add(fill((x0, y0 - 8 * (bottom - 1), z0), (w, d, h - bottom + 1), colour))
+    out.lines.append("0 STEP")
+    for face in out.rows:
+        out.rows[face] = sorted(set(out.rows[face]))
+    _top_studs(out, h, x0, y0, z0, lib)
+    return out
+
+
+def _bracket_row(
+    face: str,
+    cs: list[tuple[int, int]],
+    x0: float,
+    y: float,
+    z0: float,
+    colour: int,
+    lib: Library,
+) -> list[str]:
+    """The bracket lines along one face's cells (1 x 2 brackets, a 1 x 1 for an odd one),
+    each turned so its side studs point out of that face."""
+    out = AXES[face]
+    lines = []
+    k = 0
+    while k < len(cs):
+        n = 2 if k + 1 < len(cs) else 1
+        group = cs[k : k + n]
+        key = BRACKETS[n] + ".dat"
+        part = lib.part(key)
+        side = next(s.axis for s in numbered_studs(part) if abs(s.axis[1]) < 0.5)
+        socks = [s.pos for s in sockets(part) if s.kind == "grid"]
+        studs = [np.array([x0 + 10 + 20 * i, y, z0 + 10 + 20 * j]) for i, j in group]
+        for turn in range(4):
+            m = _clean(np.linalg.matrix_power(QUARTER, turn))
+            if float((m @ side) @ out) < 0.99:
+                continue
+            pos = studs[0] - m @ socks[0]
+            got = sorted(tuple(np.round(pos + m @ s, 1)) for s in socks)
+            if got == sorted(tuple(np.round(s, 1)) for s in studs):
+                lines.append(ldraw_line(colour, pos, m, key))
+                break
+            pos = studs[-1] - m @ socks[0]
+            got = sorted(tuple(np.round(pos + m @ s, 1)) for s in socks)
+            if got == sorted(tuple(np.round(s, 1)) for s in studs):
+                lines.append(ldraw_line(colour, pos, m, key))
+                break
+        else:
+            raise AssertionError(f"no turn of {key} faces {face}")
+        k += n
+    return lines
+
+
+def _top_studs(out: Core, h: int, x0: float, y0: float, z0: float, lib: Library) -> None:
+    top = y0 - 8 * h
+    for ln in out.lines:
+        tok = ln.split()
+        if len(tok) < 15 or tok[0] != "1":
+            continue
+        pos = np.array([float(v) for v in tok[2:5]])
+        m = np.array([float(v) for v in tok[5:14]]).reshape(3, 3)
+        for s in lib.part(tok[14]).top_studs():
+            wpos = m @ s.pos + pos
+            if abs(float(wpos[1]) - top) < 0.5 and float((m @ s.axis)[1]) < -0.99:
+                x, yy, z = (round(float(v), 1) for v in wpos)
+                out.free_studs.append((x, yy, z))
