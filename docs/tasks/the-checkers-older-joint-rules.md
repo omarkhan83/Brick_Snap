@@ -261,3 +261,16 @@ Left:
   (real shapes), and the check says "Slight overlap ... no problems": the rough bodies share
   under 400 LDU^3, so the real shapes are never asked. `place` with an angle now says in its
   reply that the part runs into its neighbour; the overlap rule itself is unchanged.
+- **The tipper bucket 19001's assembly** had a false stud problem that, since the "no socket"
+  fix, is a false overlap instead: the problem changed words, it did not go away.
+- **48729b (a bar with a clip, no primitives)** is placed by the `clip` tool, but the checker
+  joins it to its bar by name only: what the tool put there is not measured.
+- **11 of the 16 parts moved onto the stud grid** have no placement in the official models or
+  the library's assemblies to compare with (the review's count); each now lines up with its
+  own top studs, which is all that could be checked for them.
+- **Sockets the filled body never offers.** Of the 11,335 studs the official files and the
+  library's assemblies seat in an underside, the real-shape socket test drops none. Two kinds
+  were never offered: 30602's front row (the socket grid fell on its cut edge; now added after
+  the other sockets, on the checker's own grid) and one stud of 76897 seated 1 LDU off the
+  centre of 18974's end cell, where the cell centre fails `Part.is_socket`'s ledge rule (a
+  slope 2.4 LDU below the seat beside it); `is_socket` is the checker's too, so it is left.

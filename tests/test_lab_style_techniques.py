@@ -892,3 +892,42 @@ def test_a_curved_slopes_front_row_of_sockets_is_offered():
         (10, -10),
         (10, 10),
     ]
+
+
+# How many sockets place offers, for parts where one of the socket test's limits alone decides
+# (each loosened or tightened in turn, these counts change): the ring STUD_MIDDLE_R 1 or 5
+# (4747, 2855, 3933), the solid's 3 of 12 at 1 or 9 (15208, 4747), the drawn surface's 2 of 6
+# at 1 or 5 (47990, 48168, 4747), the heights STUD_MIDDLE_H without the lowest (47675) or the
+# highest (48168, 61484), the solid's STUD_CORE_H from 2.5 or to 1.5 (88000, 4740, 61484).
+SOCKETS_OFFERED = {
+    "4740": 1, "4595": 2, "4747": 14, "2855": 23, "48168": 17, "15208": 4, "47990": 1,
+    "3933": 28, "88000": 7, "61484": 18, "4596": 2, "47675": 48, "30602": 5,
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("part, n", SOCKETS_OFFERED.items())
+def test_how_many_sockets_place_offers(part, n):
+    assert len(sockets(_part(part + ".dat"))) == n
+
+
+@pytest.mark.parametrize(
+    "part, phase",
+    # 3565's stud is 9.5 LDU from its box's cells along x: within HALF_STUD_TOL of half a
+    # stud, so the box stands there; 30169 and 67638 are 6 LDU off: their top studs decide
+    [("3565", (10.5, 0.0)), ("30169", (10.0, 0.0)), ("67638", (10.0, 10.0))],
+)
+def test_where_the_box_stands_and_where_the_studs_decide(part, phase):
+    assert _part(part + ".dat").socket_phase() == phase
+
+
+@pytest.mark.parametrize(
+    "dx, dy, dz, said",
+    # 41770b on the base, nudged (within the stud test's own grid and seat play): a stud
+    # whose core goes 1 to 3 LDU into the cut wall is "no socket" (missed with STUD_CORE_R at
+    # 3); one that only grazes it is not (called so with STUD_CORE_R at 5.9)
+    [(-1.5, 1, 0, True), (-0.5, 0, -1.5, False), (0, 0, 0, False)],
+)
+def test_a_stud_into_a_cut_wall_and_one_that_grazes_it(dx, dy, dz, said):
+    t = on(base(), "41770b.dat", 4, 1, stud=20)
+    r = check(moved(t, 2, dx=dx, dy=dy, dz=dz), movement=False)
+    assert any("where it has no socket" in i.text for i in r.problems) == said, r.text()
