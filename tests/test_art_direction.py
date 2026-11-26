@@ -663,6 +663,34 @@ def test_a_no_sends_it_back_to_rebuild_once(tmp_path, no_pictures):
     assert record["ended_without_critique"] is False
 
 
+R90 = "0 0 1 0 1 0 -1 0 0"
+FLANKS = "".join(
+    [f"1 7 0 -24 0 {R90} 3001.dat\n"]
+    + [f"1 14 {x} {-8 * k - 8} 0 {R90} 3710.dat\n" for x in (-30, 30) for k in range(3)]
+)  # a brick with three plates stacked on either side: plate seams, nothing sideways
+
+
+def test_flanks_out_of_range_send_the_first_hand_in_back_once_with_where(tmp_path, no_pictures):
+    f = _folder(tmp_path)
+    art.seed(f, GOOD)
+    (f / "model.ldr").write_text(FLANKS)
+    reply = _handed(f)  # every answer yes
+    assert reply.startswith("Critique recorded: 10 yes, 0 no. The flanks are outside")
+    assert "- Plate seams on the sides: 1.04 per stud" in reply and "Where: left/right" in reply
+    assert "- Built sideways: 0% of parts" in reply and "Colour areas" not in reply
+    assert "Rebuild those regions now" in reply and "This is asked once" in reply
+    assert art._state(f)["critiques"][0]["looks_gate"][0].startswith("Plate seams")
+    second = _handed(f)  # nothing rebuilt: accepted, as a no is the second time
+    assert second.startswith("Critique recorded: 10 yes, 0 no. The model is handed in")
+
+
+def test_flanks_out_of_range_are_not_sent_back_with_no_checks_left(tmp_path, no_pictures):
+    f = _folder(tmp_path, max_checks=0)
+    art.seed(f, GOOD)
+    (f / "model.ldr").write_text(FLANKS)
+    assert _handed(f).startswith("Critique recorded: 10 yes, 0 no. The model is handed in")
+
+
 def test_the_record_keeps_the_last_critique(tmp_path, no_pictures):
     f = _folder(tmp_path, max_checks=0)
     art.seed(f, GOOD)
