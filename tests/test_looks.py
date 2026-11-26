@@ -10,6 +10,7 @@ imports that guard too).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
 import time
@@ -582,3 +583,31 @@ def test_an_old_run_that_cannot_be_measured_shows_nothing(
     (folder / "model.ldr").write_text((folder / "model.ldr").read_text() + "\n")
     assert freebuild.describe(folder, measure_missing=True)["looks_lines"] == []
     assert (folder / "project.json").read_bytes() == before
+
+
+# ---- where (the facing pairs) -----------------------------------------------------------------
+
+
+R90 = "0 0 1 0 1 0 -1 0 0"  # turned a quarter about y
+FLANKS = [f"1 7 0 -24 0 {R90} 3001.dat"] + [  # a 2 x 4 brick along z, and either side of it
+    f"1 14 {x} {-8 * k - 8} 0 {R90} 3710.dat" for x in (-30, 30) for k in range(3)
+]  # three 1 x 4 plates stacked: the left and right flanks are plate seams end to end
+
+
+def test_the_seams_line_says_which_flank_and_which_lines_and_how_to_fix_it():
+    got = looks.measure_where(check(ldr(FLANKS), movement=False))
+    assert got is not None
+    lk, fs = got
+    assert fs["left/right"].seams > fs["front/back"].seams > looks.SEAMS[1]
+    first = looks.lines(lk, fs)[0]
+    where = first.split("Where: ")[1]
+    assert where.startswith("left/right 1.39, mostly lines 3, 6, 2, 4 (Plate 1 x 4); front/back")
+    assert 'Skin those flanks: skin with facing "-x" or "+x" or "-z" or "+z"' in first, first
+    assert "Where:" not in looks.lines(lk)[0]  # without the faces, the line as before
+    inside = looks.lines(dataclasses.replace(lk, seams_per_stud=0.3), fs)[0]
+    assert "Where:" not in inside  # in range: nothing to say where
+
+
+def test_the_guide_mode_check_says_where_from_the_first_check():
+    said = tools._looks_section(check(ldr(FLANKS), movement=False))
+    assert "Where: left/right" in said and "Skin those flanks" in said

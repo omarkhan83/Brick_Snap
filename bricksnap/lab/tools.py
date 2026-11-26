@@ -1743,7 +1743,8 @@ def _looks_section(report: Any) -> str:
     from bricksnap.lab import looks
 
     try:
-        got = looks.section(looks.measure(report))
+        got = looks.measure_where(report)
+        got = looks.section(*got) if got else ""
     except Exception:  # advice only: never let it break a check
         return ""
     return "\n\n" + got if got else ""

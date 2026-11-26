@@ -22,14 +22,15 @@ STUDY_GUIDE = ROOT / "docs" / "research" / "2026-11-19-how-real-sets-are-built" 
 # What the builder is given with the guide off, as it was before the switch existed: the
 # baseline of the with-and-without comparison. If you change prompt.md or a tool on purpose,
 # update these, knowing that guide-off runs before and after the change are no longer alike.
-BASELINE_PROMPT_SHA256 = "2b02938cd0fef5504319c883eece158bc27007fafa1d6d28baf48b58b91353d1"
+BASELINE_PROMPT_SHA256 = "151ea0bcd48aa3736678a1eae387fe4e40112c5c8e8cc0c49d5ff4290720b53e"
 BASELINE_TOOLS_SHA256 = "2d3fc284e8048eddf66d45aac47390758487adaa707209360cb0d98053a3f990"
 # On 20 November the colour line was changed on purpose (the style study: a fuller list, true
 # names, trans black for glass). Before it, the prompt's pin was this, with this colour line:
 # putting the old line back must give the old pin, so the change is that one line and no other.
-# (Since then the check tool's sentence on joints changed once more, for clips on bars: this
-# pin is the old colour line with today's sentence.)
-PROMPT_SHA256_BEFORE_COLOURS = "5e5dbc8df68125a531d1a399fdfd9ddec76ddf82614c254c0966024c5ced47d1"
+# (Since then the check tool's sentence on joints changed twice more, for clips on bars, the
+# second time to say a clip on a bar is a proper joint for a thin part: this pin is the old
+# colour line with today's sentence.)
+PROMPT_SHA256_BEFORE_COLOURS = "73eb0d82041a024c123029e0a60bff0b5df4ad139b897f2e86cbe6437349d681"
 OLD_COLOUR_LINE = (
     "- Colours are LDraw codes: 0 black, 1 blue, 2 green, 4 red, 14 yellow, 15 white, 19 tan, "
     "25 orange, 27 lime, 28 dark tan, 70 reddish brown, 71 light bluish grey, 72 dark bluish "

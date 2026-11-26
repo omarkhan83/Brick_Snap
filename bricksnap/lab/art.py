@@ -25,8 +25,11 @@ work folder.
   {...}}`` (``style.CRITIQUE_KEYS``, each ``{"answer": "yes" | "no", "note"}``) answers
   that sheet; a critique with no sheet of the model as it now stands gets the sheet
   instead and is not recorded. A "no" needs a note of at least ``NOTE_WORDS`` words: without
-  one it is refused once, naming the question. The first critique with a "no", while checks
-  remain, is recorded and answered "rebuild those regions, then hand in again" (once per
+  one it is refused once, naming the question. The first critique with a "no", or whose
+  sheet measured seams per stud or the sideways share outside the official range (the
+  facts' ``looks_gate``: those HOW IT LOOKS lines, saying where; not the other measures,
+  which every past final missed on four to nine of ten), while checks remain, is recorded
+  and answered "rebuild those regions, then hand in again", with those lines (once per
   session); later ones are accepted with their "no"s. Answers missing or not yes or no are
   an "ERROR:" naming them. ``{"ldraw": ...}`` replaces the whole model and checks it as
   ``submit`` always did (a critique sent with it is not recorded); before a brief it is
@@ -48,7 +51,8 @@ work folder.
   over (version 1, marked as carried); a new version needs a reason as any change does.
 - ``facts(folder)``: what can be counted on the model as it stands: parts against parts
   asked for, its size in studs, its colours against the brief's, colours over 5% the brief
-  does not name, body colours used, the glass, and the HOW IT LOOKS lines (``looks``). The
+  does not name, body colours used, the glass, and the HOW IT LOOKS lines (``looks``, with
+  where: ``looks.faces``), and ``looks_gate`` when the hand-in sends back on looks. The
   colours are as the five views of ``looks`` see them; when the model cannot be measured,
   by bulk (every part's box).
 - ``playbook_kind(folder, found)`` and ``playbook_style(folder, word, kind)``: the playbook's
@@ -533,7 +537,9 @@ def facts(folder: Path, brief: dict[str, Any] | None) -> dict[str, Any]:
         lo, hi = np.minimum(lo, world.min(axis=0)), np.maximum(hi, world.max(axis=0))
         if names.get(p.colour, "").lower().startswith("trans"):
             glass[p.colour] = glass.get(p.colour, 0) + 1
-    seen, looks = _looks(report)
+    seen, looks, gate = _looks(report)
+    if gate:
+        out["looks_gate"] = gate
     shares = seen or bulk
     total = sum(shares.values()) or 1.0
     colours: list[dict[str, Any]] = [
@@ -570,20 +576,29 @@ def facts(folder: Path, brief: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
-def _looks(report: Any) -> tuple[dict[int, float], list[str]]:
-    """The colours as the five views see them, and the HOW IT LOOKS lines (``looks``);
-    nothing when the model cannot be measured (the hand-in never fails for it)."""
+def _looks(report: Any) -> tuple[dict[int, float], list[str], list[str]]:
+    """The colours as the five views see them, the HOW IT LOOKS lines (``looks``, saying
+    where), and of those the lines the hand-in sends back on (``GATED_LOOKS``: seams per stud
+    and the sideways share, when outside the official range); nothing when the model cannot
+    be measured (the hand-in never fails for it)."""
     from bricksnap.lab import looks
 
     try:
         if not report.placed:
-            return {}, []
+            return {}, [], []
         sk = looks.skin(report.placed)
-        return looks.colour_shares(sk), [
-            str(x) for x in looks.lines(looks.measure_skin(report, sk))
-        ]
+        lk, fs = looks.measure_skin(report, sk), looks.faces(sk)
+        said = [str(x) for x in looks.lines(lk, fs)]
+        gate = []
+        if looks.outside(lk.seams_per_stud, looks.SEAMS):
+            gate.append(said[0])
+        if looks.outside(lk.not_upright, looks.NOT_UPRIGHT) or looks.outside(
+            lk.side_top_faces, looks.SIDE_TOP_FACES
+        ):
+            gate.append(said[1])
+        return looks.colour_shares(sk), said, gate
     except Exception:  # advice only
-        return {}, []
+        return {}, [], []
 
 
 def _pct(share: float) -> str:
@@ -793,14 +808,28 @@ def _submit(
     }
     state["critiques"].append(entry)
     yes = len(answers) - len(no)
-    if no and not state["rebuild_asked"] and _checks_left(folder) > 0:
+    gate = list((sheet.get("facts") or {}).get("looks_gate") or [])
+    if (no or gate) and not state["rebuild_asked"] and _checks_left(folder) > 0:
         state["rebuild_asked"] = True
         entry["sent_back"] = True
-        listed = "; ".join(f"{k}: {dict(style.questions())[k]}" for k in no)
+        if gate:
+            entry["looks_gate"] = gate
+        said = f"Critique recorded: {yes} yes, {len(no)} no."
+        if no:
+            listed = "; ".join(f"{k}: {dict(style.questions())[k]}" for k in no)
+            said += f" You answered no to: {listed}."
+        if gate:
+            said += (
+                " The flanks are outside the official range, measured (the two measures the "
+                "hand-in holds to; the others are advice):\n"
+                + "\n".join(f"- {g}" for g in gate)
+                + "\n"
+            )
         return [
             _text(
-                f"Critique recorded: {yes} yes, {len(no)} no. You answered no to: {listed}. "
-                "Rebuild those regions now (a no means rebuild, not add parts), check, then "
+                said
+                + (" " if not gate else "")
+                + "Rebuild those regions now (a no means rebuild, not add parts), check, then "
                 "hand in again with submit {} and a new critique. This is asked once: the "
                 "next hand-in is accepted with the no's that remain and their reasons."
             )

@@ -25,9 +25,9 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
    build one side and mirror it. [10 of 10]
 5. **One joint for each moving part**, made for moving (wheel pin, clip on a bar, hinge, turntable,
    axle), on something solid. Hold everything else by several studs. [10 of 10] A thin member
-   that carries nothing (a strut, rail, aerial, mirror or blade) may hang on one clip on a bar
-   or handle; a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow.
-   [style study, 2026-11-20]
+   that carries nothing (a strut, rail, aerial, mirror, tail or blade) hangs well on one clip on
+   a bar or handle, and the checker tests that clip for fit as it does studs; a leg the model
+   stands on is fixed by studs, a pin, or a bar seated in a hollow. [style study, 2026-11-20]
 6. **Cover every seam.** Where two parts meet in a layer that carries weight, lay a longer part across
    them in the next layer, and prefer one larger part to several small ones. [9 of 10; LEGO's model
    builders, 1998; J. Berard of LEGO, 2006]

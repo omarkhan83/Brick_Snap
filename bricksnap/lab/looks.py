@@ -75,8 +75,14 @@ The measures (``measure(report)`` -> ``Looks``; ``report`` is ``validate.check``
 percentile) and the side that needs advice. ``lines(looks)`` gives the HOW IT LOOKS lines
 (at most seven): each the number, the official range and, only when it is outside the range
 on the side that matters, one plain sentence of what to do; a measure inside the range (or
-outside on the harmless side) says so in a few words. ``section(looks)`` is the heading and
-the lines; ``record(looks)`` the numbers for project.json. ``page_lines(record)`` gives three
+outside on the harmless side) says so in a few words. ``faces(skin)`` gives the same seams
+and sideways share per facing pair of side views (front/back, left/right) with the lines
+whose edges make the seams there; given them, ``lines(looks, faces)`` adds to the seams and
+the sideways lines, when outside the range, WHERE: the pairs out of range, the first
+``WHERE_LINES`` lines making their seams, and the fix in one line (``skin`` facing that way,
+on side studs). ``section(looks, faces)`` is the heading and the lines (``measure_where
+(report)`` measures both from one skin; the guide-mode check gives them from the first
+check on); ``record(looks)`` the numbers for project.json. ``page_lines(record)`` gives three
 or four short plain sentences with the official range for the free-build page. ``measure_text
 (text)`` checks and measures a model; it never raises and gives None when it cannot measure.
 
@@ -605,6 +611,95 @@ def seams_per_stud(sk: Skin) -> float:
     return seams * 20 / (px * PIX) if px else 0.0
 
 
+# the side views in facing pairs, with the way their faces point (``skin``'s "facing")
+PAIRS = (
+    ("front/back", ("front", "back"), ("-z", "+z")),
+    ("left/right", ("left", "right"), ("-x", "+x")),
+)
+WHERE_LINES = 4  # lines named for a pair's seams
+
+
+@dataclass(frozen=True)
+class Face:
+    """One facing pair of side views: its seams per stud, the share of its skin that is the
+    face of a sideways tile or slope, and the lines whose edges make most of its seams
+    (line number, description, seam pixels), most first."""
+
+    seams: float
+    sideways: float
+    lines: list[tuple[int, str, int]]
+
+
+def faces(sk: Skin) -> dict[str, Face]:
+    """``seams_per_stud`` and ``side_top_faces`` per facing pair (``PAIRS``), with the lines
+    that make the seams."""
+    out = {}
+    for name, views, _ in PAIRS:
+        px = seams = top = 0
+        count: dict[int, int] = {}
+        for s in views:
+            v = sk.views[s]
+            a, b = v.part[:-1], v.part[1:]
+            flush = np.abs(np.nan_to_num(v.depth[:-1]) - np.nan_to_num(v.depth[1:])) <= SEAM_DEPTH
+            m = (a >= 0) & (b >= 0) & (a != b) & v.wall[:-1] & v.wall[1:] & flush
+            seams += int(m.sum())
+            px += int((v.kind > 0).sum())
+            top += int(v.sidetop.sum())
+            for i in np.concatenate([a[m], b[m]]).tolist():
+                count[i] = count.get(i, 0) + 1
+        most = sorted(count.items(), key=lambda kv: (-kv[1], kv[0]))
+        named = [(sk.placed[i].line, _desc(sk.placed[i]), n) for i, n in most]
+        out[name] = Face(
+            seams=round(seams * 20 / (px * PIX), 3) if px else 0.0,
+            sideways=round(top / px, 3) if px else 0.0,
+            lines=named,
+        )
+    return out
+
+
+def _named(lines: list[tuple[int, str, int]]) -> str:
+    """'lines 21, 37 (Plate 1 x 4), 17 (Brick 1 x 2)': the first ``WHERE_LINES``, grouped
+    by description in the order met."""
+    groups: dict[str, list[int]] = {}
+    for line, desc, _ in lines[:WHERE_LINES]:
+        groups.setdefault(desc, []).append(line)
+    return "lines " + ", ".join(
+        ", ".join(str(n) for n in ns) + f" ({d})" for d, ns in groups.items()
+    )
+
+
+def where(lk: Looks, fs: dict[str, Face]) -> tuple[str, str]:
+    """Where the seams and the missing sideways faces are: a sentence for each measure that
+    is outside its range (empty when it is not), naming the facing pairs out of range, the
+    lines that make their seams, and the fix in one line (``skin`` on side studs)."""
+    seams = side = ""
+    facing = {name: f for name, _, f in PAIRS}
+    if outside(lk.seams_per_stud, SEAMS):
+        bad = [(n, f) for n, f in fs.items() if f.seams > SEAMS[1] and f.lines]
+        bad.sort(key=lambda nf: -nf[1].seams)  # the worst first
+        if bad:
+            seams = (
+                " Where: "
+                + "; ".join(f"{n} {f.seams:.2f}, mostly {_named(f.lines)}" for n, f in bad)
+                + (". Skin that flank" if len(bad) == 1 else ". Skin those flanks")
+                + ": skin with facing "
+                + " or ".join(f'"{x}"' for n, _ in bad for x in facing[n])
+                + " on side studs; where the core has none, put side-stud bricks or "
+                "brackets there first."
+            )
+    if outside(lk.not_upright, NOT_UPRIGHT) or outside(lk.side_top_faces, SIDE_TOP_FACES):
+        bad = [(n, f) for n, f in fs.items() if f.sideways < SIDE_TOP_FACES[0]]
+        if bad:
+            side = (
+                " Where: "
+                + "; ".join(f"{n} {_pct(f.sideways)} sideways faces" for n, f in bad)
+                + ". Skin those sides: skin with facing "
+                + " or ".join(f'"{x}"' for n, _ in bad for x in facing[n])
+                + " on side studs (side-stud bricks or brackets in the core first)."
+            )
+    return seams, side
+
+
 def side_top_faces(sk: Skin) -> float:
     side = [sk.views[s] for s in SIDES]
     px = sum(int((v.kind > 0).sum()) for v in side)
@@ -825,10 +920,12 @@ def _state(v: float, r: tuple[float, float, str]) -> str:
     return "in range"
 
 
-def lines(looks: Looks) -> list[str]:
-    """The HOW IT LOOKS lines (see the contract): at most seven."""
+def lines(looks: Looks, fs: dict[str, Face] | None = None) -> list[str]:
+    """The HOW IT LOOKS lines (see the contract): at most seven. With the facing pairs
+    (``faces``), the seams and sideways lines also say where (``where``)."""
     out = []
     lk = looks
+    at_seams, at_side = where(lk, fs) if fs else ("", "")
     s = _state(lk.seams_per_stud, SEAMS)
     out.append(
         f"Plate seams on the sides: {lk.seams_per_stud:.2f} per stud of height (official "
@@ -837,7 +934,7 @@ def lines(looks: Looks) -> list[str]:
             f": {s}."
             if s
             else ". The flanks read as stacked plates: face them with tiles or panels turned "
-            "sideways, or use bricks and curved slopes where plates are stacked."
+            "sideways, or use bricks and curved slopes where plates are stacked." + at_seams
         )
     )
     bad = outside(lk.not_upright, NOT_UPRIGHT) or outside(lk.side_top_faces, SIDE_TOP_FACES)
@@ -848,7 +945,7 @@ def lines(looks: Looks) -> list[str]:
         "the sides)"
         + (
             ". Build the flanks and faces as panels on side studs (brackets, bricks with studs "
-            "on the side) covered with tiles and curved slopes."
+            "on the side) covered with tiles and curved slopes." + at_side
             if bad
             else ": in range."
         )
@@ -919,10 +1016,18 @@ SECTION_HEADING = (
 )
 
 
-def section(looks: Looks | None) -> str:
+def section(looks: Looks | None, fs: dict[str, Face] | None = None) -> str:
     if looks is None:
         return ""
-    return SECTION_HEADING + "\n" + "\n".join("- " + ln for ln in lines(looks))
+    return SECTION_HEADING + "\n" + "\n".join("- " + ln for ln in lines(looks, fs))
+
+
+def measure_where(report: Any, lib: Library | None = None) -> tuple[Looks, dict[str, Face]] | None:
+    """``measure`` and ``faces`` from one skin; None when the model has no parts."""
+    if not report.placed:
+        return None
+    sk = skin(report.placed, lib)
+    return measure_skin(report, sk), faces(sk)
 
 
 def page_lines(rec: dict[str, Any]) -> list[str]:
