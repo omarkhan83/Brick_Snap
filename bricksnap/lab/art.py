@@ -28,7 +28,8 @@ work folder.
   one it is refused once, naming the question. The first critique with a "no", or whose
   sheet measured seams per stud or the sideways share outside the official range (the
   facts' ``looks_gate``: those HOW IT LOOKS lines, saying where; not the other measures,
-  which every past final missed on four to nine of ten), while checks remain, is recorded
+  which every past final missed on four to nine of ten), or whose model uses fewer than
+  ``SHORT_SHARE`` (three quarters) of the parts asked for, while checks remain, is recorded
   and answered "rebuild those regions, then hand in again", with those lines (once per
   session); later ones are accepted with their "no"s. Answers missing or not yes or no are
   an "ERROR:" naming them. ``{"ldraw": ...}`` replaces the whole model and checks it as
@@ -809,7 +810,8 @@ def _submit(
     state["critiques"].append(entry)
     yes = len(answers) - len(no)
     gate = list((sheet.get("facts") or {}).get("looks_gate") or [])
-    if (no or gate) and not state["rebuild_asked"] and _checks_left(folder) > 0:
+    short = _short_of_parts(sheet.get("facts") or {})
+    if (no or gate or short) and not state["rebuild_asked"] and _checks_left(folder) > 0:
         state["rebuild_asked"] = True
         entry["sent_back"] = True
         if gate:
@@ -825,6 +827,9 @@ def _submit(
                 + "\n".join(f"- {g}" for g in gate)
                 + "\n"
             )
+        if short:
+            entry["short_of_parts"] = short
+            said += " " + short + "\n"
         return [
             _text(
                 said
@@ -840,6 +845,28 @@ def _submit(
             "write your closing words now. (If you change it again, hand in again.)"
         )
     ]
+
+
+SHORT_SHARE = 0.75
+"""A first hand-in with fewer than this share of the parts asked for is sent back once (with the
+critique's no's and the looks gate, in the same one send-back): builders stopped at 60% of the
+parts asked and listed in their closing words what they would still improve with the rest."""
+
+
+def _short_of_parts(facts: dict[str, Any]) -> str:
+    """The send-back's words when the model uses too few of the parts asked for, or ""."""
+    wanted, parts = facts.get("parts_wanted"), facts.get("parts")
+    if not isinstance(wanted, int) or not isinstance(parts, int) or wanted <= 0:
+        return ""
+    if parts >= SHORT_SHARE * wanted:
+        return ""
+    return (
+        f"It uses {parts} of about {wanted} parts asked for. Spend the rest where it shows, "
+        "on what you would otherwise list as still to improve: the shapes your brief names "
+        "that are still blocky or stepped (tapers, curves, fairings, a rounded underside), "
+        "detail gathered at the signature shapes, an interior behind clear glass. Do not pad: "
+        "every part you add should change what is seen."
+    )
 
 
 def _changed(state: dict[str, Any]) -> None:

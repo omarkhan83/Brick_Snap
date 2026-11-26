@@ -702,6 +702,24 @@ def test_flanks_out_of_range_send_the_first_hand_in_back_once_with_where(tmp_pat
     assert second.startswith("Critique recorded: 10 yes, 0 no. The model is handed in")
 
 
+def test_a_model_well_short_of_the_parts_asked_for_is_sent_back_once(tmp_path, no_pictures):
+    f = _folder(tmp_path, parts=300)
+    art.seed(f, GOOD)
+    (f / "model.ldr").write_text(BRICK)  # one part of about 300
+    reply = _handed(f)
+    assert reply.startswith("Critique recorded: 10 yes, 0 no.")
+    assert "It uses 1 of about 300 parts asked for. Spend the rest where it shows" in reply
+    assert "This is asked once" in reply
+    assert art._state(f)["critiques"][0]["short_of_parts"].startswith("It uses 1 of about 300")
+    assert _handed(f).startswith("Critique recorded: 10 yes, 0 no. The model is handed in")
+
+
+def test_a_model_near_the_parts_asked_for_is_not_sent_back_for_its_size(tmp_path, no_pictures):
+    assert art._short_of_parts({"parts": 75, "parts_wanted": 100}) == ""
+    assert art._short_of_parts({"parts": 74, "parts_wanted": 100}).startswith("It uses 74")
+    assert art._short_of_parts({"parts": 10, "parts_wanted": None}) == ""
+
+
 def test_flanks_out_of_range_are_not_sent_back_with_no_checks_left(tmp_path, no_pictures):
     f = _folder(tmp_path, max_checks=0)
     art.seed(f, GOOD)
