@@ -879,3 +879,16 @@ def test_place_offers_every_socket_a_library_assembly_seats_a_stud_in():
                 )
                 missing += near > 1.5
     assert seated > 100 and missing == 0, (seated, missing)
+
+
+def test_a_curved_slopes_front_row_of_sockets_is_offered():
+    # 30602's box puts socket_phase's row on its cut front edge; the checker's own grid has
+    # the row, where an official set seats a plate's studs: offered after the others
+    socks = sockets(_part("30602.dat"))
+    assert [s.kind for s in socks] == ["grid", "grid", "tube", "grid", "grid"]
+    assert sorted(tuple(np.round(s.pos[[0, 2]])) for s in socks if s.kind == "grid") == [
+        (-10, -10),
+        (-10, 10),
+        (10, -10),
+        (10, 10),
+    ]

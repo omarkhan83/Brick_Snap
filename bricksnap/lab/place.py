@@ -15,12 +15,14 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   socket then sits on the nearest cell of the grid the checker seats studs on
   (``validate.stud_grid``), which differs only for a part with no top studs whose box is
   not whole studs (a curved slope with a cutout): placed with ``place``, such a part passes
-  the check. Last, a socket must be one the part's REAL shape takes a stud in: the middle of
-  a stud pointing up from it is not in plastic (``solid.stud_middle_blocked``). The filled
-  body calls the corners of a radar dish's (4740) domed underside sockets, and they are not;
-  a rib or wall at one side of a stud (most undersides grip a stud so) leaves a socket a
-  socket.
-  ``sockets(part, real=False)`` leaves that last test out (``Part.has_sockets`` uses it).
+  the check. For such a part, cells of the checker's grid that take a stud and that
+  ``socket_phase``'s grid missed (its row fell on the cut edge) follow, so that the others
+  keep their numbers (30602's front row). Last, a socket must be one the part's REAL shape
+  takes a stud in: the middle of a stud pointing up from it is not in plastic
+  (``solid.stud_middle_blocked``). The filled body calls the corners of a radar dish's
+  (4740) domed underside sockets, and they are not; a rib or wall at one side of a stud
+  (most undersides grip a stud so) leaves a socket a socket.
+  ``sockets(part, real=False)`` leaves those last two out (``Part.has_sockets`` uses it).
   The answer is kept in memory per part. The real test asks the solid (built once, kept on
   disk by ``solid``: 0.03 to 0.4 s for ordinary parts) which sockets to try, then the part's
   drawn surface: a few milliseconds for most parts, 0.6 to 1.7 s for a big curved or wing
@@ -105,44 +107,55 @@ def sockets(part: Part, real: bool = True) -> list[Socket]:
         from bricksnap.lab import solid
 
         up = np.array([0.0, -1.0, 0.0])
+        raw = _sockets(part)
+        raw += _more_on_checker_grid(part, raw)
         _REAL_SOCKETS[part.name] = [
-            s for s in _sockets(part) if not solid.stud_middle_blocked(part.name, s.pos, up)
+            s for s in raw if not solid.stud_middle_blocked(part.name, s.pos, up)
         ]
     return [Socket(s.pos.copy(), s.kind) for s in _REAL_SOCKETS[part.name]]
 
 
+def _grid_bases(part: Part, phase: tuple[float, float]) -> list[np.ndarray]:
+    """The stud cells on the grid ``phase`` where the filled body takes a stud pointing up:
+    each the point under the part where the stud's base goes, row by row."""
+    out: list[np.ndarray] = []
+    if not part.has_body():
+        return out
+    px, pz = phase
+    lo, hi = part.bbox_min, part.bbox_max
+    xs = np.arange(px + 20 * np.floor((lo[0] - px) / 20), hi[0] + 0.01, 20.0)
+    zs = np.arange(pz + 20 * np.floor((lo[2] - pz) / 20), hi[2] + 0.01, 20.0)
+    up = np.array([0.0, -1.0, 0.0])
+    for z in zs:
+        for x in xs:
+            if not (lo[0] < x < hi[0] and lo[2] < z < hi[2]):
+                continue
+            probe_base = np.array([x, 0.0, z])
+            bottoms = []
+            u, v = _perp(up)
+            for p in (
+                probe_base,
+                probe_base + 4 * u,
+                probe_base - 4 * u,
+                probe_base + 4 * v,
+                probe_base - 4 * v,
+            ):
+                b = part.bottom_at(float(p[0]), float(p[2]))
+                if b is not None:
+                    bottoms.append(b)
+            if not bottoms:
+                continue
+            base = np.array([x, max(bottoms), z])
+            if part.inside(_stud_probe(base, up), tol=0.25).any() and part.is_socket(
+                float(x), float(z), float(base[1])
+            ):
+                out.append(base)
+    return out
+
+
 def _sockets(part: Part) -> list[Socket]:
-    out: list[Socket] = []
-    if part.has_body():
-        px, pz = part.socket_phase()
-        lo, hi = part.bbox_min, part.bbox_max
-        xs = np.arange(px + 20 * np.floor((lo[0] - px) / 20), hi[0] + 0.01, 20.0)
-        zs = np.arange(pz + 20 * np.floor((lo[2] - pz) / 20), hi[2] + 0.01, 20.0)
-        up = np.array([0.0, -1.0, 0.0])
-        for z in zs:
-            for x in xs:
-                if not (lo[0] < x < hi[0] and lo[2] < z < hi[2]):
-                    continue
-                probe_base = np.array([x, 0.0, z])
-                bottoms = []
-                u, v = _perp(up)
-                for p in (
-                    probe_base,
-                    probe_base + 4 * u,
-                    probe_base - 4 * u,
-                    probe_base + 4 * v,
-                    probe_base - 4 * v,
-                ):
-                    b = part.bottom_at(float(p[0]), float(p[2]))
-                    if b is not None:
-                        bottoms.append(b)
-                if not bottoms:
-                    continue
-                base = np.array([x, max(bottoms), z])
-                if part.inside(_stud_probe(base, up), tol=0.25).any() and part.is_socket(
-                    float(x), float(z), float(base[1])
-                ):
-                    out.append(Socket(_on_checker_grid(part, base, (px, pz)), "grid"))
+    phase = part.socket_phase()
+    out = [Socket(_on_checker_grid(part, b, phase), "grid") for b in _grid_bases(part, phase)]
     for t in part.tubes:
         if not t.open or t.end is None or t.axis[1] < 0.98:
             continue
@@ -150,6 +163,24 @@ def _sockets(part: Part) -> list[Socket]:
             continue
         out.append(Socket(t.end.copy(), "tube"))
     return out
+
+
+def _more_on_checker_grid(part: Part, found: list[Socket]) -> list[Socket]:
+    """Cells of the checker's own grid (``validate.stud_grid``) that take a stud and that
+    ``socket_phase``'s grid missed (a curved slope with a cutout whose box puts that grid's
+    row on its cut edge: 30602's front row), after the others so that their numbers stay;
+    none within 15 LDU of a grid socket already found (no second cell half a stud off a
+    first)."""
+    grid = stud_grid(part)
+    if tuple(grid) == tuple(part.socket_phase()):
+        return []
+    return [
+        Socket(b, "grid")
+        for b in _grid_bases(part, grid)
+        if all(
+            np.linalg.norm((s.pos - b)[[0, 2]]) >= (15 if s.kind == "grid" else 2) for s in found
+        )
+    ]
 
 
 def _on_checker_grid(part: Part, base: np.ndarray, phase: tuple[float, float]) -> np.ndarray:
