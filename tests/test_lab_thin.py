@@ -317,13 +317,42 @@ def test_a_stored_grip_is_served_only_under_the_key_it_was_found_under(tmp_path,
     assert grips() == wrong  # under today's key the stored grip is used: no search
     stored.write_text(json.dumps(wrong))  # stored with no key (as before it had one)
     assert grips() == real
-    for part in ("library", "solid", "search"):  # another library, solid or search code
+    for part in ("library", "solid", "search", "points", "names"):  # any of the key changed
         stale = {**found["key"], part: "another"}
         stored.write_text(json.dumps({"key": stale, "grips": wrong}))
         assert grips() == real, part
     stored.write_text(json.dumps({"key": found["key"], "grips": wrong}))
     monkeypatch.setattr(validate, "GRIP_TURN", 30.0)  # any number of the search changed
     assert grips() == real
+
+
+
+@pytest.mark.parametrize("change", ["points", "names"])
+def test_a_stored_grip_is_stale_when_the_rings_points_or_the_name_rule_change(
+    tmp_path, monkeypatch, change
+):
+    import json
+
+    from bricksnap.lab import validate
+
+    monkeypatch.setenv("BRICKSNAP_LAB_CACHE", str(tmp_path))
+    monkeypatch.setattr(validate, "_GRIPS", {})
+    key = "15712.dat"  # a clip with no clip primitive: searched only because its name says so
+    assert validate.grip_lines(key)
+    wrong = [[[0.0, 4.0, 15.0], [1.0, 0.0, 0.0]]]
+    stored = tmp_path / "grips" / f"{key}.json"
+    stored.write_text(json.dumps({"key": validate._grip_key(), "grips": wrong}))
+    if change == "points":  # more points on each circle the search tries
+        monkeypatch.setattr(validate, "GRIP_POINTS", 24)
+    else:  # the name rule no longer calls a clip a joint: 15712 is not searched at all
+        words = ldraw_lib.NAME_JOINT_WORDS
+        rule = re.compile(words.pattern.replace("clip|clips|", ""), words.flags)
+        monkeypatch.setattr(ldraw_lib, "NAME_JOINT_WORDS", rule)
+    validate._GRIPS.clear()
+    got = [[x.round(1).tolist(), d.round(3).tolist()] for x, d in validate.grip_lines(key)]
+    assert got != wrong
+    if change == "names":
+        assert got == []
 
 
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])

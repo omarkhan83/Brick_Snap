@@ -1750,6 +1750,7 @@ GRIP_CLEAR = 3.0  # LDU: a grip has none of the clip at this radius (room for a 
 GRIP_REACH = 8.0  # LDU a grip is looked for either side of a clip primitive's point
 GRIP_TURN = 15.0  # degrees between the directions tried square to a clip primitive's axis
 GRIP_STEP = 1.0  # LDU between the points tried
+GRIP_POINTS = 12  # points on each circle the search tries (``_clip_ring``)
 GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
@@ -2046,7 +2047,7 @@ _GRIPS: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {}
 def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ignore[no-untyped-def]
     """``_ring_count`` on a part's own solid, in its own frame."""
     u, v = _perp(d)
-    ang = np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    ang = np.linspace(0, 2 * math.pi, GRIP_POINTS, endpoint=False)
     pts = x + r * (np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * v)
     return int(sol.inside(pts, deep=False).sum())
 
@@ -2054,13 +2055,18 @@ def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ign
 def _grip_key() -> dict[str, object]:
     """What a stored grip was found under (``grip_lines``): if any of it changes, the stored
     grip is stale."""
-    from bricksnap.lab import solid
+    import hashlib
 
+    from bricksnap.lab import ldraw_lib, solid
+
+    words = ldraw_lib.NAME_JOINT_WORDS  # which parts with no clip primitive are searched
     return {
         "library": library().stamp,
         "solid": solid.VERSION,
         "search": GRIP_VERSION,
         "numbers": [GRIP_R, GRIP_RING, GRIP_HALF, GRIP_CLEAR, GRIP_REACH, GRIP_TURN, GRIP_STEP],
+        "points": GRIP_POINTS,
+        "names": hashlib.sha256(f"{words.flags} {words.pattern}".encode()).hexdigest()[:16],
     }
 
 
@@ -2078,8 +2084,10 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     (``_clip_fit``) and the builder's ``clip`` tool both use this. What the search finds is
     kept on disk (``cache_dir()/grips``, a file per part) with the key it was found under
     (``_grip_key``): the library's stamp (as the parts and solids caches are), the solid's
-    version, ``GRIP_VERSION`` and every number the search uses. A stored grip whose key is
-    not today's is searched for again."""
+    version, ``GRIP_VERSION``, every number the search uses (with ``GRIP_POINTS``, the points
+    on each circle) and the name rule that says which parts with no clip primitive are clips
+    (``ldraw_lib.NAME_JOINT_WORDS``). A stored grip whose key is not today's is searched for
+    again."""
     if key in _GRIPS:
         return _GRIPS[key]
     import json
