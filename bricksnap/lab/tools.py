@@ -838,12 +838,34 @@ def _skin_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             f"its face at {ax} {fmt_n(pn.face)}; held by {_n(pn.held, 'side stud')}; "
             f"{_n(len(pn.plates), 'plate')}: {_counted(pn.plates)}{tiles}."
         )
+        names = {"x": ("z", "y"), "z": ("x", "y"), "down": ("x", "z")}
+        nu, nv = names.get(pn.facing.lstrip("+-"), ("x", "z"))
+        if pn.over:
+            body.append(
+                "  It lies over lines "
+                + ", ".join(map(str, pn.over[:16]))
+                + (" and more" if len(pn.over) > 16 else "")
+                + ": what is on those faces is now behind it."
+            )
+        if pn.bare >= 100:
+            bu0, bu1, bv0, bv1 = pn.bare_box
+            body.append(
+                f"  Core still shows on this face beside it: about {fmt_n(pn.bare / 400)} "
+                f"square studs, within {nu} {fmt_n(bu0)}..{fmt_n(bu1)}, {nv} {fmt_n(bv0)}.."
+                f"{fmt_n(bv1)}: a side stud there takes a plate, or build that part of the "
+                "core in the body colour."
+            )
         for p in pn.turnable:
             body.append(
                 f"  A {p.key.removesuffix('.dat')} on one side stud only (line {p.via[0]} stud "
                 f"{p.via[1]}) can turn on it: give it a second side stud, or a longer plate "
                 "across two."
             )
+    if r.no_studs:
+        body.append(
+            f"No free side stud faces {' or '.join(r.no_studs)} among the parts named: put "
+            "side-stud bricks or brackets in the core there to skin those faces too."
+        )
     body += said
     if left:
         body.append(left)
