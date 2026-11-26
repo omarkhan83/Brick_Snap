@@ -881,19 +881,6 @@ def test_place_offers_every_socket_a_library_assembly_seats_a_stud_in():
     assert seated > 100 and missing == 0, (seated, missing)
 
 
-def test_a_curved_slopes_front_row_of_sockets_is_offered():
-    # 30602's box puts socket_phase's row on its cut front edge; the checker's own grid has
-    # the row, where an official set seats a plate's studs: offered after the others
-    socks = sockets(_part("30602.dat"))
-    assert [s.kind for s in socks] == ["grid", "grid", "tube", "grid", "grid"]
-    assert sorted(tuple(np.round(s.pos[[0, 2]])) for s in socks if s.kind == "grid") == [
-        (-10, -10),
-        (-10, 10),
-        (10, -10),
-        (10, 10),
-    ]
-
-
 # How many sockets place offers, for parts where one of the socket test's limits alone decides
 # (each loosened or tightened in turn, these counts change): the ring STUD_MIDDLE_R 1 or 5
 # (4747, 2855, 3933), the solid's 3 of 12 at 1 or 9 (15208, 4747), the drawn surface's 2 of 6
@@ -901,7 +888,7 @@ def test_a_curved_slopes_front_row_of_sockets_is_offered():
 # highest (48168, 61484), the solid's STUD_CORE_H from 2.5 or to 1.5 (88000, 4740, 61484).
 SOCKETS_OFFERED = {
     "4740": 1, "4595": 2, "4747": 14, "2855": 23, "48168": 17, "15208": 4, "47990": 1,
-    "3933": 28, "88000": 7, "61484": 18, "4596": 2, "47675": 48, "30602": 5,
+    "3933": 28, "88000": 7, "61484": 18, "4596": 2, "47675": 48, "30602": 3,
 }  # fmt: skip
 
 
@@ -931,14 +918,3 @@ def test_a_stud_into_a_cut_wall_and_one_that_grazes_it(dx, dy, dz, said):
     t = on(base(), "41770b.dat", 4, 1, stud=20)
     r = check(moved(t, 2, dx=dx, dy=dy, dz=dz), movement=False)
     assert any("where it has no socket" in i.text for i in r.problems) == said, r.text()
-
-
-@pytest.mark.parametrize(
-    "part, n",
-    # cells of the checker's grid the socket grid missed: offered where the cell is wholly
-    # under the part and roofed (2342's two, 4626's two), not where a stud would stand half
-    # outside it (3956, 35463, 19727 keep what they had) or under open space (4508)
-    [("2342", 2), ("4626", 2), ("3956", 3), ("35463", 0), ("19727", 2), ("4508", 1)],
-)
-def test_cells_of_the_checkers_grid_are_offered_only_wholly_under_and_roofed(part, n):
-    assert len(sockets(_part(part + ".dat"))) == n

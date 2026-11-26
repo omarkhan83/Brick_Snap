@@ -277,9 +277,25 @@ Left:
 - **11 of the 16 parts moved onto the stud grid** have no placement in the official models or
   the library's assemblies to compare with (the review's count); each now lines up with its
   own top studs, which is all that could be checked for them.
-- **Sockets the filled body never offers.** Of the 11,335 studs the official files and the
-  library's assemblies seat in an underside, the real-shape socket test drops none. Two kinds
-  were never offered: 30602's front row (the socket grid fell on its cut edge; now added after
-  the other sockets, on the checker's own grid) and one stud of 76897 seated 1 LDU off the
-  centre of 18974's end cell, where the cell centre fails `Part.is_socket`'s ledge rule (a
-  slope 2.4 LDU below the seat beside it); `is_socket` is the checker's too, so it is left.
+- **Sockets `place` does not offer: 7 of the 11,335** studs the official files and the
+  library's assemblies seat in an underside. Six are 30602's front row (the socket grid comes
+  from its box and falls on its cut edge; the checker seats studs on its own grid,
+  `validate.stud_grid`); one is a stud of 76897 seated 1 LDU off the centre of 18974's end
+  cell, whose centre fails `Part.is_socket`'s ledge rule (a slope 2.4 LDU below the seat
+  beside it; `is_socket` is the checker's too). The real-shape socket test drops none of the
+  11,335. A builder who needs one of these uses `add`.
+  Tried and withdrawn (25 November): offering the cells of the checker's grid that the socket
+  grid missed, appended after the others, kept where the cell was wholly under the part and
+  roofed. The checker disagreed (`Part.has_sockets` counts the filled body's sockets only, so
+  it called a part on one of them "no sockets underneath ... the two parts collide": 2342,
+  3496c01, 4626, 98136, 25767, 98127), and 35 of the 69 kept cells put the stud into plastic
+  the middle-only test cannot see (the 4086 roof's, 2.8 LDU into two tube walls; 2672's on
+  ribs; others in 2891, 4022, 51345, 98089, 11568, 67338). A safe version needs a full-radius
+  test (`solid.stud_core_inside` false and a drawn-surface ring at radius 5 clear), calibrated
+  on common parts, and the checker's `has_sockets` agreeing.
+- **Restored sockets with plastic near the stud's side.** 23 of the 237 sockets the drawn-
+  surface test gave back have plastic 4 LDU from the stud's axis (7664's sockets 10 and 11,
+  79851, 45274, 53400, 6057, 30078, 32170, 33122, 8009, 29111); main offered them too. The
+  middle-only test (radius 2.5) cannot see it; the same full-radius test is the candidate fix.
+- **48168's socket at (56, -15, -24)** is dropped, and a 24-ray vote calls that a probable false
+  drop.
