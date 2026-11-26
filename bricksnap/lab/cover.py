@@ -25,7 +25,9 @@ other part's filled body on it, over its tip or under whose underside it is.
   write for socket 1 on its anchor stud with that turn (``New.via``).
   With ``edges="curved"`` each group first gets curved slopes (``CURVES``: 15068 where two
   edge cells pair along the edge, else 11477; two plates tall, two studs deep) along every
-  edge that ends in a DROP, sloping down and outward: an edge cell is one whose neighbour
+  edge that ends in a DROP, sloping down and outward, but never where a curve's side would
+  face a drop (its high half is open underneath for one plate at the sides, ``_side_open``):
+  those edge cells stay flat, tiled and not lifted. An edge cell is one whose neighbour
   outward is not a stud of the group, has no stud of the model at that height, and has no
   part's filled body beside the cover's height there (``_drop``); a run of the group's cells
   inward from it must be at least 4 long when its far end drops too (so curves from both sides
@@ -35,13 +37,29 @@ other part's filled body on it, over its tip or under whose underside it is.
   tiles. ``Height.curved`` names the ways its curves slope down.
 - ``skin(text, colour, lines=None, box=None, facing=None, finish="tiles")``: the free studs
   that do not point up (or only those pointing ``facing``: "+x", "-x", "+z", "-z", "down"),
-  grouped by the way they point and the plane their bases lie in: one panel each. A panel's
-  plates (``PLATES``) go on its side studs as ``place`` puts a part on a side stud (its
-  underside against the side), within the rectangle of the studs' cells; the plate that catches
-  the most studs not yet caught (then the largest) and fits (as above) goes first, until every
-  stud is caught or none fits. A plate may run past the studs it catches inside that rectangle.
-  A plate held by one stud is listed as able to turn. With ``finish="tiles"`` the plates'
-  outward studs are then capped with ``TILES`` as ``cap`` does, in that plane.
+  grouped by the way they point and the plane their bases lie in: one panel each, the one
+  with the fewest studs first (an end before a flank, so the flank's plates can reach over
+  the end panel's edges and close the corner). A panel's plates (``PLATES``) go on its side
+  studs as ``place`` puts a part on a side stud (its underside against the side); every cell
+  of a plate holds one of the studs or has the model's core within ``BEHIND`` (2 to 6 LDU)
+  behind it, so a panel reaches out to the face's outline wherever nothing is in the way. The
+  plate that catches the most studs not yet caught (then the largest) and fits goes first,
+  until every stud is caught or none fits; nothing may go below the ground. A plate held by
+  one stud is listed as able to turn. With ``finish="tiles"`` the plates' outward studs are
+  then capped with ``TILES`` as ``cap`` does, in that plane. Each panel says which lines of
+  the model it now lies over (``Panel.over``) and how much of its face's core (the parts whose
+  front is within a plate behind the panel's back, sampled every ``FACE_STEP``) still shows
+  beside it, and where (``Panel.bare``, ``bare_box``). With no ``facing``, the side faces
+  (-z, +z, -x, +x) with no free side stud among the parts named are ``Result.no_studs``.
+- ``core(at, size, colour, sides)`` (guide mode's ``fill`` with "sides"): the box ``edit.fill``
+  would fill, built as a core whose named outer faces ("-z", "+z", "-x", "+x" or "all") carry
+  side studs facing out, ready for ``skin``: a layer of brackets (``BRACKETS``: 99781, and
+  36841 for an odd cell; flange hanging 20 LDU outside the face, side studs 10 LDU below the
+  layer's top) along those faces' edge cells at the top plate and every ``COURSE`` (5) plates
+  below it while at least 3 plates up, so one 2-wide plate on each row of side studs covers
+  two courses; plates (``edit.fill``) inside that layer and ``edit.fill`` boxes between.
+  Corner cells belong to the z faces. It returns the lines (``0 STEP`` between groups), the
+  free top studs, which lines carry each face's side studs and the height of their rows.
 - Both then check the model with the new lines (``validate.check``, no movement): a new part
   with a problem is dropped with the checker's words (and so is what stood on it), and the check
   is repeated, at most ``ROUNDS`` times. They return a ``Result``: the new lines (appended in
@@ -54,6 +72,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cache
+from typing import Any
 
 import numpy as np
 
@@ -149,6 +168,9 @@ class Panel:
     plates: list[New]
     tiles: list[New]
     turnable: list[New]
+    over: list[int] = field(default_factory=list)  # lines of the model now behind it
+    bare: float = 0.0  # LDU^2 of the face's core beside it still showing
+    bare_box: tuple[float, float, float, float] = (0, 0, 0, 0)  # u lo, u hi, v lo, v hi
 
 
 @dataclass
@@ -161,6 +183,7 @@ class Result:
     kept: list[Stud] = field(default_factory=list)
     taken: int = 0  # studs named that were already covered
     other_way: int = 0  # free studs named that point the other way (side studs for cap)
+    no_studs: list[str] = field(default_factory=list)  # skin: side faces with no free stud
     left: list[tuple[Stud, str]] = field(default_factory=list)
     dropped: list[tuple[New, str]] = field(default_factory=list)
     heights: list[Height] = field(default_factory=list)
@@ -279,6 +302,12 @@ def fits(cand: Placed, near: _Near) -> tuple[str | None, int]:
             return f"{_name(o)} is in the way", 0
     if held == 0:
         return "nothing would hold it", 0
+    lo, hi = cand.part.bbox_min, cand.part.bbox_max
+    corners = np.array(
+        [[a, b, c] for a in (lo[0], hi[0]) for b in (lo[1], hi[1]) for c in (lo[2], hi[2])]
+    )
+    if float(cand.to_world(corners)[:, 1].max()) > 0.5:
+        return "it would go below the ground", 0
     return None, held
 
 
@@ -478,11 +507,14 @@ def _edges(
     new: list[New],
     why: dict[tuple[int, int], str],
     level: set,
-) -> tuple[list[New], list[str]]:
-    """Curved slopes along the edges of this top that end in a drop (see the contract)."""
+) -> tuple[list[New], list[str], set[tuple[int, int]]]:
+    """Curved slopes along the edges of this top that end in a drop (see the contract).
+    Returns them, the ways they slope down, and the edge cells that got no curve (left flat:
+    lifted, they would stand up as a block at the edge)."""
     u, v = _plane(d)
     mine: list[New] = []
     facing: list[str] = []
+    flat: set[tuple[int, int]] = set()
     for du, dv in ((-1, 0), (1, 0), (0, -1), (0, 1)):
         o = du * u + dv * v
         wide = _curve(CURVES[0], d, o, lib)
@@ -513,9 +545,12 @@ def _edges(
                 side = [(p[0] + across[0], p[1] + across[1]) for p in inward]
                 tries.append((wide, inward + side))
             tries.append((one, inward))
+            placed = False
             for sh, need in tries:
                 if not all(x in open_ for x in need):
                     continue
+                if _side_open(need, across, cells, u, v, d, near, level):
+                    continue  # its side would face a drop: the notch under its high end shows
                 a0 = (min(x[0] for x in need), min(x[1] for x in need))
                 r0 = (min(r[0] for r in sh.rel), min(r[1] for r in sh.rel))
                 anchor = (a0[0] - r0[0], a0[1] - r0[1])
@@ -531,8 +566,39 @@ def _edges(
                 name = _axis_name(o)
                 if name and name not in facing:
                     facing.append(name)
+                placed = True
                 break
-    return mine, facing
+            if not placed:
+                flat |= {x for x in inward if x in open_}
+    return mine, facing, flat - {c for n in mine for c in _cells_of(n, cells)}
+
+
+def _cells_of(n: New, cells: dict[tuple[int, int], Stud]) -> list[tuple[int, int]]:
+    ids = {id(s) for s in n.studs}
+    return [c for c, s in cells.items() if id(s) in ids]
+
+
+def _side_open(
+    need: list[tuple[int, int]],
+    across: tuple[int, int],
+    cells: dict[tuple[int, int], Stud],
+    u: np.ndarray,
+    v: np.ndarray,
+    d: np.ndarray,
+    near: _Near,
+    level: set,
+) -> bool:
+    """Whether a curve on these cells would have a side facing a drop. Its high half is open
+    underneath for one plate (8 LDU) at the sides: a tile, plate or curve beside it, or a
+    wall, hides that; a drop does not."""
+    for x in need:
+        for sgn in (1, -1):
+            nb = (x[0] + sgn * across[0], x[1] + sgn * across[1])
+            if nb in need or nb in cells:
+                continue
+            if _drop(cells[x], sgn * (across[0] * u + across[1] * v), d, near, level):
+                return True
+    return False
 
 
 def _cover(
@@ -560,15 +626,18 @@ def _cover(
         why: dict[tuple[int, int], str] = {}
         curves: list[New] = []
         dirs: list[str] = []
+        flat: set[tuple[int, int]] = set()
         if curved:
-            curves, dirs = _edges(
+            curves, dirs, flat = _edges(
                 cells, open_, d, colour, near, lib, next_line, new, why, level or set()
             )
-        if curves and open_:
+        lift = open_ - flat
+        if curves and lift:
             # the middle goes up a plate first, so its tiles are level with the curves' crests
             plates = _fill_cells(
-                cells, open_, _shapes(PLATES, d, lib), colour, near, next_line, new, why
+                cells, lift, _shapes(PLATES, d, lib), colour, near, next_line, new, why
             )
+            open_ = lift | (open_ & flat)
             first = len(new)
             owner: dict[int, int] = {}
             on_plates = []
@@ -615,13 +684,32 @@ def _apart(a: np.ndarray, b: np.ndarray) -> bool:
     )
 
 
+BEHIND = (2.0, 6.0)  # LDU behind a panel's back where the core it may cover must be
+
+
+def _core(w: np.ndarray, d: np.ndarray, near: _Near, memo: dict[tuple, int]) -> int:
+    """The line of a part of the model just behind this point of a panel's back (within
+    ``BEHIND``), or 0: what the panel would lie over there."""
+    key = tuple(np.round(w, 1))
+    if key not in memo:
+        pts = np.array([w - k * d for k in BEHIND])
+        ok = np.all(near.lo <= pts.max(0), axis=1) & np.all(near.hi >= pts.min(0), axis=1)
+        memo[key] = next(
+            (
+                near.parts[i].line
+                for i in np.nonzero(ok)[0]
+                if near.parts[i].line > 0
+                and near.parts[i].part.inside(near.parts[i].to_local(pts)).any()
+            ),
+            0,
+        )
+    return memo[key]
+
+
 def _panel(
     studs: list[Stud], d: np.ndarray, colour: int, near: _Near, lib: Library, next_line: int
 ) -> tuple[list[New], list[tuple[Stud, str]]]:
-    u, v = _plane(d)
-    pu = [float(s.pos @ u) for s in studs]
-    pv = [float(s.pos @ v) for s in studs]
-    region = np.array([min(pu) - 10, max(pu) + 10, min(pv) - 10, max(pv) + 10])
+    behind: dict[tuple, int] = {}
     cands = []
     seen: set[tuple] = set()
     for order, k in enumerate(PLATES):
@@ -638,13 +726,6 @@ def _panel(
                 for j, g in grid:
                     pos = s.pos - m @ g
                     fp = _footprint(part, pos, m, d)
-                    if (
-                        fp[0] < region[0] - 0.5
-                        or fp[1] > region[1] + 0.5
-                        or fp[2] < region[2] - 0.5
-                        or fp[3] > region[3] + 0.5
-                    ):
-                        continue
                     tag = (key, *np.round(fp, 1))
                     if tag in seen:
                         continue
@@ -655,6 +736,11 @@ def _panel(
                         for i, t in enumerate(studs)
                         if any(float(np.linalg.norm(w - t.pos)) < 1.0 for w in world)
                     ]
+                    on = {tuple(np.round(studs[i].pos, 1)) for i in caught}
+                    if not all(
+                        tuple(np.round(w, 1)) in on or _core(w, d, near, behind) for w in world
+                    ):
+                        continue  # a cell with no core within a plate behind it
                     area = (fp[1] - fp[0]) * (fp[3] - fp[2])
                     cands.append(
                         (key, part, pos, m, fp, caught, area, order, (s.line, s.number, j, turn))
@@ -837,7 +923,9 @@ def skin(
     new: list[New] = []
     left: list[tuple[Stud, str]] = []
     panels: list[Panel] = []
-    for (name, _), studs in sorted(by_way.items(), key=lambda kv: kv[0]):
+    # the panel with the fewest studs first (an end): the larger one (a flank) may then reach
+    # over its edges and close the corner
+    for (name, _), studs in sorted(by_way.items(), key=lambda kv: (len(kv[1]), kv[0])):
         d = AXES[name]
         plates, why = _panel(studs, d, colour, near, lib, first + len(new))
         left += why
@@ -860,8 +948,76 @@ def skin(
                 t.on = owner[id(t.studs[0])]
             left += tleft
             new += tiles
-        panels.append(_panel_of(name, d, plates, tiles, lib))
+        pn = _panel_of(name, d, plates, tiles, lib)
+        _face(pn, d, report.placed, lib)
+        panels.append(pn)
+    if facing is None:
+        made = {pn.facing for pn in panels} | {name for name, _ in by_way}
+        res.no_studs = [f for f in ("-z", "+z", "-x", "+x") if f not in made]
     return _finish(text, res, new, left, panels=panels)
+
+
+FACE_STEP = 4.0  # LDU between the points a face is sampled at
+
+
+def _face(pn: Panel, d: np.ndarray, placed: list[Placed], lib: Library) -> None:
+    """What the panel lies over (lines of the model just behind it) and where the core of
+    that face still shows beside it: the points of the face, sampled every ``FACE_STEP``,
+    with a part of the model within ``BEHIND`` of the panel's back and no panel plate in
+    front."""
+    u, v = _plane(d)
+    k = int(np.argmax(np.abs(d)))
+    back = pn.back * float(d[k])  # along d
+    boxes = [(p, *_world_bbox(p, 0.0)) for p in placed]
+    face = [
+        (p, lo, hi)
+        for p, lo, hi in boxes
+        if back - 8 <= _along(lo, hi, d)[1] <= back + 0.5  # its front within a plate behind
+    ]
+    if not face:
+        return
+    us = [float(b) for _, lo, hi in face for b in (lo @ np.abs(u), hi @ np.abs(u))]
+    vs = [float(b) for _, lo, hi in face for b in (lo @ np.abs(v), hi @ np.abs(v))]
+    gu = np.arange(min(us) + FACE_STEP / 2, max(us), FACE_STEP)
+    gv = np.arange(min(vs) + FACE_STEP / 2, max(vs), FACE_STEP)
+    if not len(gu) or not len(gv):
+        return
+    a, b = np.meshgrid(gu, gv, indexing="ij")
+    a, b = a.ravel(), b.ravel()
+    w = np.outer(a, np.abs(u)) + np.outer(b, np.abs(v)) + back * d
+    core = np.zeros(len(w), dtype=int)
+    for p, lo, hi in face:
+        for depth in BEHIND:
+            q = w - depth * d
+            sel = np.nonzero((core == 0) & np.all((q >= lo - 0.5) & (q <= hi + 0.5), axis=1))[0]
+            if len(sel):
+                hit = p.part.inside(p.to_local(q[sel]))
+                core[sel[hit]] = p.line
+    fps = [_footprint(lib.part(x.key), x.pos, x.m, d) for x in pn.plates]
+    # the footprints are in the signed plane axes; the samples in their absolute values
+    su, sv = float(np.sign(u.sum())), float(np.sign(v.sum()))
+    covered = np.zeros(len(w), dtype=bool)
+    for fp in fps:
+        ulo, uhi = sorted((fp[0] * su, fp[1] * su))
+        vlo, vhi = sorted((fp[2] * sv, fp[3] * sv))
+        covered |= (a >= ulo - 0.5) & (a <= uhi + 0.5) & (b >= vlo - 0.5) & (b <= vhi + 0.5)
+    pn.over = sorted({int(x) for x in core[covered & (core > 0)]})
+    bare = (core > 0) & ~covered
+    pn.bare = float(bare.sum()) * FACE_STEP * FACE_STEP
+    if bare.any():
+        h = FACE_STEP / 2
+        pn.bare_box = (
+            float(a[bare].min() - h),
+            float(a[bare].max() + h),
+            float(b[bare].min() - h),
+            float(b[bare].max() + h),
+        )
+
+
+def _along(lo: np.ndarray, hi: np.ndarray, d: np.ndarray) -> tuple[float, float]:
+    """The span of a box along d (lowest, highest)."""
+    x, y = float(lo @ d), float(hi @ d)
+    return min(x, y), max(x, y)
 
 
 def _panel_of(name: str, d: np.ndarray, plates: list[New], tiles: list[New], lib: Library) -> Panel:
@@ -918,3 +1074,161 @@ def _finish(
         pn.held = sum(p.held for p in pn.plates)
     res.panels = [p for p in panels or [] if p.plates]
     return res
+
+
+# ---- a core with side studs: fill's "sides" ----------------------------------------------
+
+BRACKETS = {2: "99781", 1: "36841"}  # 1 x 2 and 1 x 1 brackets whose flange hangs down
+COURSE = 5  # plates between bracket layers: two rows of a panel (40 LDU)
+SIDES = ("-z", "+z", "-x", "+x")
+
+
+@dataclass
+class Core:
+    lines: list[str] = field(default_factory=list)
+    free_studs: list[tuple[float, float, float]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    parts: int = 0
+    sides: dict[str, list[int]] = field(default_factory=dict)  # face -> indexes into lines
+    rows: dict[str, list[float]] = field(default_factory=dict)  # face -> y of its side studs
+    layers: list[int] = field(default_factory=list)  # plates (from 1 at the bottom) with brackets
+
+
+def core(
+    at: tuple[float, float, float],
+    size: tuple[int, int, int],
+    colour: int,
+    sides: list[str] | str,
+    lib: Library | None = None,
+) -> Core:
+    """A box filled as ``edit.fill`` fills it, built as a core whose named outer faces carry
+    side studs facing out (see the contract): a layer of brackets along those faces at the top
+    and every ``COURSE`` plates below it, while at least 3 plates up (a bracket's flange
+    hangs 20 LDU), plates inside that layer, and ``edit.fill`` boxes between."""
+    from bricksnap.lab.edit import EditError, fill
+
+    lib = lib or library()
+    x0, y0, z0 = (float(v) for v in at)
+    w, d, h = (int(v) for v in size)
+    want = list(SIDES) if sides == "all" else list(sides)
+    if not want or any(s not in SIDES for s in want):
+        raise EditError('sides is "all" or a list of "-z", "+z", "-x", "+x".')
+    if h < 3:
+        raise EditError("a core with side studs needs at least 3 plates of height.")
+    if ("-z" in want and "+z" in want and d < 2) or ("-x" in want and "+x" in want and w < 2):
+        raise EditError("side studs on two opposite faces need the box 2 studs across.")
+    layers = [k for k in range(h, 2, -COURSE)]
+    out = Core(layers=sorted(layers))
+
+    def add(f: Any) -> None:
+        if out.lines and out.lines[-1] != "0 STEP":
+            out.lines.append("0 STEP")
+        out.lines.extend(ln for ln in f.lines if ln != "0 STEP")
+        out.parts += f.parts
+        out.notes += f.notes
+
+    # which cells of a bracket layer carry a bracket, by face (corners go to the z faces)
+    cells: dict[str, list[tuple[int, int]]] = {}
+    for face in want:
+        if face in ("-z", "+z"):
+            j = 0 if face == "-z" else d - 1
+            cells[face] = [(i, j) for i in range(w)]
+    for face in want:
+        if face in ("-x", "+x"):
+            i = 0 if face == "-x" else w - 1
+            zs = [
+                j
+                for j in range(d)
+                if not ((j == 0 and "-z" in want) or (j == d - 1 and "+z" in want))
+            ]
+            cells[face] = [(i, j) for j in zs]
+    inner_i = [
+        i for i in range(w) if not (i == 0 and "-x" in want) and not (i == w - 1 and "+x" in want)
+    ]
+    inner_j = [
+        j for j in range(d) if not (j == 0 and "-z" in want) and not (j == d - 1 and "+z" in want)
+    ]
+    bottom = 1
+    for k in sorted(layers):
+        if k > bottom:  # the plain box below this bracket layer
+            add(fill((x0, y0 - 8 * (bottom - 1), z0), (w, d, k - bottom), colour))
+        y = y0 - 8 * (k - 1)  # the layer stands on studs at this height
+        for face, cs in cells.items():
+            for line in _bracket_row(face, cs, x0, y, z0, colour, lib):
+                out.sides.setdefault(face, []).append(len(out.lines))
+                out.lines.append(line)
+                out.parts += 1
+            out.rows.setdefault(face, []).append(y + 2)  # 10 below the layer's top (y - 8)
+        if inner_i and inner_j:
+            add(
+                fill(
+                    (x0 + 20 * inner_i[0], y, z0 + 20 * inner_j[0]),
+                    (len(inner_i), len(inner_j), 1),
+                    colour,
+                )
+            )
+        bottom = k + 1
+    if h >= bottom:
+        add(fill((x0, y0 - 8 * (bottom - 1), z0), (w, d, h - bottom + 1), colour))
+    out.lines.append("0 STEP")
+    for face in out.rows:
+        out.rows[face] = sorted(set(out.rows[face]))
+    _top_studs(out, h, x0, y0, z0, lib)
+    return out
+
+
+def _bracket_row(
+    face: str,
+    cs: list[tuple[int, int]],
+    x0: float,
+    y: float,
+    z0: float,
+    colour: int,
+    lib: Library,
+) -> list[str]:
+    """The bracket lines along one face's cells (1 x 2 brackets, a 1 x 1 for an odd one),
+    each turned so its side studs point out of that face."""
+    out = AXES[face]
+    lines = []
+    k = 0
+    while k < len(cs):
+        n = 2 if k + 1 < len(cs) else 1
+        group = cs[k : k + n]
+        key = BRACKETS[n] + ".dat"
+        part = lib.part(key)
+        side = next(s.axis for s in numbered_studs(part) if abs(s.axis[1]) < 0.5)
+        socks = [s.pos for s in sockets(part) if s.kind == "grid"]
+        studs = [np.array([x0 + 10 + 20 * i, y, z0 + 10 + 20 * j]) for i, j in group]
+        for turn in range(4):
+            m = _clean(np.linalg.matrix_power(QUARTER, turn))
+            if float((m @ side) @ out) < 0.99:
+                continue
+            pos = studs[0] - m @ socks[0]
+            got = sorted(tuple(np.round(pos + m @ s, 1)) for s in socks)
+            if got == sorted(tuple(np.round(s, 1)) for s in studs):
+                lines.append(ldraw_line(colour, pos, m, key))
+                break
+            pos = studs[-1] - m @ socks[0]
+            got = sorted(tuple(np.round(pos + m @ s, 1)) for s in socks)
+            if got == sorted(tuple(np.round(s, 1)) for s in studs):
+                lines.append(ldraw_line(colour, pos, m, key))
+                break
+        else:
+            raise AssertionError(f"no turn of {key} faces {face}")
+        k += n
+    return lines
+
+
+def _top_studs(out: Core, h: int, x0: float, y0: float, z0: float, lib: Library) -> None:
+    top = y0 - 8 * h
+    for ln in out.lines:
+        tok = ln.split()
+        if len(tok) < 15 or tok[0] != "1":
+            continue
+        pos = np.array([float(v) for v in tok[2:5]])
+        m = np.array([float(v) for v in tok[5:14]]).reshape(3, 3)
+        for s in lib.part(tok[14]).top_studs():
+            wpos = m @ s.pos + pos
+            if abs(float(wpos[1]) - top) < 0.5 and float((m @ s.axis)[1]) < -0.99:
+                x, yy, z = (round(float(v), 1) for v in wpos)
+                out.free_studs.append((x, yy, z))

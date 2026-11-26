@@ -87,20 +87,23 @@ def test_cap_says_which_part_is_in_the_way():
 
 
 def test_cap_with_curved_edges_rounds_a_top_off():
-    """A 4 x 6 plate: curved slopes from both sides meet in a crest. A 6 x 8 plate: curves round
-    the rim, the middle lifted a plate and tiled, level with their crests (16 LDU up)."""
+    """A 4 x 6 plate: curved slopes from both sides meet in a crest; the corners, where a
+    curve's side would face a drop and show the opening under its high end, stay flat tiles.
+    A 6 x 8 plate: the middle lifted a plate and tiled, level with the crests (16 LDU up)."""
     narrow = place("", "3032.dat", 71, 0).line
     r = cover.cap(narrow, 15, lines=[1], edges="curved")
     (h,) = r.heights
     assert r.covered == 24 and not r.left and sorted(h.curved) == ["+x", "+z", "-x", "-z"]
-    assert {p.key for p in h.parts} == {"15068.dat"} and HELD in r.report.summary()
+    keys = [p.key for p in h.parts]
+    assert keys.count("15068.dat") == 4 and keys.count("3069b.dat") == 4
+    assert HELD in r.report.summary()
     same_as_place(narrow, h.parts)
     wide = base()
     r = cover.cap(wide, 15, lines=[1], edges="curved")
     (h,) = r.heights
     keys = [p.key for p in h.parts]
     assert r.covered == 48 and not r.left and not r.report.problems and HELD in r.report.summary()
-    assert keys.count("15068.dat") == 10 and "3020.dat" in keys and "87079.dat" in keys
+    assert keys.count("15068.dat") == 8 and "3020.dat" in keys and "87079.dat" in keys
     tops = [looks.world_box(p)[0][1] for p in r.report.placed if p.line > 1]
     assert round(min(tops), 1) == -24  # the crests and the lifted middle: 8 + 16 LDU
 
@@ -117,19 +120,20 @@ def test_cap_curves_no_edge_that_meets_a_wall():
 
 
 @pytest.mark.parametrize(
-    "build, lines",
+    "build, lines, up, plate, tile",
     [
-        (lambda: _row("87087.dat"), [2, 3, 4, 5]),
-        (lambda: _brackets("99780.dat"), [3, 5]),
+        (lambda: _row("87087.dat"), [2, 3, 4, 5], 20, "3710.dat", "2431.dat"),
+        # the bricks under the brackets are core within a plate behind: the panel covers them
+        (lambda: _brackets("99780.dat"), [3, 5], 40, "3020.dat", "87079.dat"),
     ],
     ids=["87087 row", "99780 pair"],
 )
-def test_skin_presses_one_plate_on_four_side_studs_and_tiles_it(build, lines):
+def test_skin_presses_one_plate_on_four_side_studs_and_tiles_it(build, lines, up, plate, tile):
     t = build()
     r = cover.skin(t, 15, lines=lines)
     (pn,) = r.panels
-    assert pn.facing == "-z" and (pn.across, pn.up) == (80, 20) and pn.held == 4
-    assert [p.key for p in pn.plates] == ["3710.dat"] and [p.key for p in pn.tiles] == ["2431.dat"]
+    assert pn.facing == "-z" and (pn.across, pn.up) == (80, up) and pn.held == 4
+    assert [p.key for p in pn.plates] == [plate] and [p.key for p in pn.tiles] == [tile]
     assert not pn.turnable and not r.left and HELD in r.report.summary()
     same_as_place(t, pn.plates)
 
@@ -146,6 +150,13 @@ def _brackets(bracket: str) -> str:
     t = on(t, bracket, 14, 2, stud=1)
     t = on(t, "3004.dat", 4, 1, stud=b(10, -50))
     return on(t, bracket, 14, 4, stud=1)
+
+
+def test_skin_says_which_faces_have_no_side_studs_and_where_core_shows():
+    r = cover.skin(bracket_body(), 15, lines=[3, 4, 5, 6])
+    assert r.no_studs == ["-x", "+x"]
+    for pn in r.panels:  # the brick's lower half under the brackets' flanges still shows
+        assert pn.bare > 0 and pn.bare_box[2:] == (-18, -10) and 2 in pn.over
 
 
 def test_skin_makes_the_aircraft_body_4_studs_wide():
@@ -195,6 +206,48 @@ def test_skin_and_cap_bring_the_looks_into_the_official_ranges():
         f"{before.side_top_faces} -> {after.side_top_faces} (the slab {slab.side_top_faces}; "
         f"official {looks.SIDE_TOP_FACES[0]}..{looks.SIDE_TOP_FACES[1]})"
     )
+
+
+# ---- fill with sides --------------------------------------------------------------------
+
+
+def test_fill_with_sides_then_skin_then_cap_makes_a_modern_body(tmp_path):
+    """A 2 x 8 core, 6 plates tall, in black with side studs on both long faces; one skin call
+    presses a tiled panel on each, and cap tiles the top: no problems, and the flanks' seams
+    and sideways share in the official ranges (studs none)."""
+    folder = _folder(tmp_path, guide=True)
+    (folder / "model.ldr").write_text("")
+    (folder / "art.json").write_text(json.dumps({"build_refused": True}))
+
+    def call(name: str, args: dict) -> str:  # type: ignore[type-arg]
+        return tools.call_tool(folder, name, args)[0]["text"]
+
+    said = call(
+        "fill", {"at": [-20, 0, -80], "size": [2, 8, 6], "colour": 0, "sides": ["-x", "+x"]}
+    )
+    assert "side studs facing out on -x, +x" in said and '"part": "3035.dat"' in said
+    core = (folder / "model.ldr").read_text()
+    assert HELD in check(core).summary()
+    carriers = [n for n, ln in enumerate(core.splitlines(), 1) if ln.endswith("99781.dat")]
+    assert said.count("4 brackets") == 2 and len(carriers) == 8
+    said = call("skin", {"lines": carriers, "colour": 272})
+    assert said.startswith("Skinned 2 panels") and "8 x 2 studs" in said
+    assert "No free side stud faces -z or +z" in said
+    said = call("cap", {"min": [-20, -49, -80], "max": [20, -47, 80], "colour": 272})
+    assert said.startswith("Capped 16 studs")
+    body = check((folder / "model.ldr").read_text())
+    assert HELD in body.summary() and not body.problems
+    lk = looks.measure(body)
+    assert lk is not None and lk.studs_showing == 0
+    assert not looks.outside(lk.seams_per_stud, looks.SEAMS)
+    assert not looks.outside(lk.side_top_faces, looks.SIDE_TOP_FACES)
+
+
+def test_fill_with_sides_puts_a_bracket_layer_every_five_plates():
+    c = cover.core((-40, 0, -40), (4, 4, 10), 0, "all")
+    assert c.layers == [5, 10] and set(c.sides) == {"-z", "+z", "-x", "+x"}
+    assert c.rows["-z"] == [-70, -30]
+    assert HELD in check("\n".join(c.lines)).summary()
 
 
 # ---- the tools -----------------------------------------------------------------------------
