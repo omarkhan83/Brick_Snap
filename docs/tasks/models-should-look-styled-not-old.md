@@ -136,3 +136,12 @@ Done when the same subjects built before and after this work are clearly more st
   Builds of the night and their pictures: `~/.cache/bricksnap/research/overnight/` on the lead's machine.
   Left: aircraft still read boxy (best: 436 parts at 600 asked); studs seen through canopies; whether
   `skin` gets used (the builders mostly did not call it).
+- 26 November, results of the night's 30 AI builds and changes (Opus 5.5, about $237 at list prices):
+  scenes, buildings and vehicles now read as small modern sets (a lighthouse, a corner café, a castle
+  gatehouse of 638 parts, a treehouse, a steam locomotive, a double-decker bus, a sports car). Polish
+  (an outside critic, then one change) improved all ten models it was run on, for $2.50 to $7.70 more, so
+  it is on by default after a build. Building from a photo carries over colours and features. Still
+  weak: animals (three foxes and an owl came out as chunky toys whatever the tools) and aircraft bodies
+  (four Cessnas: the livery, glass and struts are right, the fuselage stays a box). The `cap`, `skin` and
+  `turn` tools work but the builders seldom call them. Next to try for organic shapes: a 3D model as the
+  shape reference, or curved masses from round and dome parts at a larger scale.
