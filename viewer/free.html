@@ -30,12 +30,18 @@
       <h3 id="changeConfirmTitle">Before the AI changes the model</h3>
       <ul>
         <li id="changeWhat"></li>
-        <li>It sends the words you typed, and the words the model was first built from, to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.</li>
+        <li id="changeSends">It sends the words you typed, and the words the model was first built from, to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.</li>
         <li>It uses your own Claude Code login, so it counts towards your Claude subscription.</li>
         <li id="changeTime">It is one AI run, starting from the model as it is now. It can take as long as building it did; you can leave this page while it works.</li>
         <li>The model as it is now stays in the list of runs below, so you can always bring it back.</li>
         <li>This is experimental. Studs, pins, axles, bars, wheels and most clips on bars are checked for fit. Parts joined by hinges, ball joints and the other clips are counted as joined without proof, and nothing judges yet how strong a joint is.</li>
       </ul>
+      <label class="model-pick" for="changeModel">Which Claude makes the change
+        <select id="changeModel">
+          <option value="claude-fable-5-2">Claude Fable 5.2 (default)</option>
+          <option value="claude-opus-5-5">Claude Opus 5.5</option>
+        </select>
+      </label>
       <label class="check"><input id="changeUnderstood" type="checkbox"> <span>I have read this and want the AI to make the change.</span></label>
       <div class="row">
         <button id="changeStart" type="button" class="primary" disabled>Start the change</button>
@@ -51,6 +57,10 @@
       <h2 id="turnTitle" class="sr-only">The model</h2>
       <p id="asked" class="asked" hidden></p>
       <p id="guideNote" class="hint" hidden></p>
+      <div id="builtFrom" class="built-from" hidden>
+        <h3 id="builtFromTitle">Built from</h3>
+        <ul id="refPics" class="refpics" aria-labelledby="builtFromTitle"></ul>
+      </div>
       <div id="turnBox" class="turnbox" tabindex="0" aria-label="The model. Use the left and right arrow keys to turn it.">
         <img id="turn" alt="" hidden>
         <p id="noPicture" class="none" hidden></p>

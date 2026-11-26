@@ -1422,3 +1422,34 @@ def test_run_session_speaks_of_the_judge_not_of_edits(fake_claude, tmp_path: Pat
     fake_claude(FALLBACK_RUN)
     run, _ = judge_session(tmp_path)
     assert "edits" not in run.error
+
+
+LIMIT = "You've hit your Fable limit · resets 2am (Etc/UTC)"
+
+
+def test_run_designer_says_when_the_usage_limit_stopped_it(fake_claude, project: Project):
+    """Claude Code's lines when the subscription's limit was reached (23 November; the time
+    zone and ids changed): its own message instead of the model's, then an error result."""
+    fake_claude(
+        [
+            INIT,
+            {
+                "type": "rate_limit_event",
+                "rate_limit_info": {"status": "rejected", "resetsAt": 1795510800},
+            },
+            {
+                "type": "assistant",
+                "message": {"model": "<synthetic>", "content": [{"type": "text", "text": LIMIT}]},
+                "error": "rate_limit",
+            },
+            {"type": "result", "subtype": "success", "is_error": True, "result": LIMIT},
+        ],
+        mode="crash",
+    )
+    run = run_designer(project)
+    assert not run.ok and run.usage_limit == LIMIT
+    assert run.limit_resets == "2am (Etc/UTC)" and run.limit_resets_at == 1795510800
+    assert run.error == (
+        "Your Claude subscription has reached its Fable usage limit (Claude Code said so "
+        "instead of answering), so the run stopped. The limit resets 2am (Etc/UTC)."
+    )

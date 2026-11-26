@@ -915,47 +915,48 @@ def test_browser_home_form_consent_and_a_running_build(
         page = tab.page
         free_card = page.locator('.pcard[data-kind="free"]')
         assert free_card.count() == 1
+        assert page.locator(".pcard").first.get_attribute("data-kind") == "free"  # first
         assert "Checked: no problems" in (free_card.text_content() or "")
         assert "Experimental" in (free_card.text_content() or "")
-        assert page.locator("#freeRef option").all_text_contents() == [
-            "No, just from my words",
-            "Pawn",
-        ]
+        assert not page.locator("#freeMore").get_attribute("open")  # options folded away
+        assert not page.locator("#older").get_attribute("open")  # the older way too
         page.click("#freeGo")
         assert "Say what to build first" in tab.text("#freeMsg")
         page.fill("#freeWords", f"a sunflower in a pot {MARKUP}")
-        page.locator("#freeMore summary").click()
-        page.select_option("#freeRef", "pawn")
-        page.click("#freeGo")
-        assert page.locator("#freeConfirm").is_visible()
-        assert tab.text("#freeQuote") == f"“a sunflower in a pot {MARKUP}”"
-        assert "pictures of “Pawn” from five sides" in tab.text("#freeSends")
-        assert "hinges, ball joints and the other clips" in tab.text("#freeCaveat")
-        assert page.locator("#freeStart").is_disabled()
-        page.check("#freeUnderstood")
-        page.fill("#freeWords", "a sunflower in a pot")  # a change takes the agreement back
-        assert not page.locator("#freeUnderstood").is_checked()
-        page.check("#freeUnderstood")
-        shot(tab, "home-consent")
-        monkeypatch.setattr(
-            freebuild, "reference_sheet", lambda src, out: Image.new("RGB", (8, 8)).save(out) or out
+        assert tab.text("#freeSends") == (
+            "Build sends your words to Anthropic through Claude Code; nothing else leaves this "
+            "computer."
         )
-        page.click("#freeStart")
-        page.wait_for_selector("#freeJobs .job .progress li")
+        assert tab.text("#freeCost") == (
+            "One AI run by Claude Fable 5.2, designed first: usually 20 to 40 minutes, about "
+            "$4 to $14 of your Claude subscription."
+        )
+        assert tab.text("#freeCostFull") == freebuild.time_and_cost(200)  # 200 unless changed
+        assert "hinges, ball joints and the other clips" in tab.text("#freeCaveat")
+        page.click("#freeGo")  # not agreed yet: nothing starts
+        assert "Tick “I understand" in tab.text("#freeMsg") and fake.calls == []
+        page.check("#freeUnderstood")
+        tab.open()  # the agreement is remembered in this browser
+        assert page.locator("#freeUnderstood").is_checked()
+        page.fill("#freeWords", f"a sunflower in a pot {MARKUP}")
+        shot(tab, "home-bar")
+        page.click("#freeGo")
+        page.wait_for_url("**/p/a-sunflower-in-a-pot-img", timeout=20000)  # its own page
         assert gate.reached.wait(20)
         page.wait_for_function(
-            "() => document.querySelector('#freeJobs .job').textContent.includes('Check 2')"
+            "() => (document.querySelector('#appJob .job') || {}).textContent?.includes('Check 2')"
         )
-        text = page.locator("#freeJobs .job").text_content() or ""
+        text = page.locator("#appJob .job").text_content() or ""
         assert "AI is building a new model from parts" in text
         assert "someone@example.com" not in text
+        assert tab.text("#asked") == f"Asked for: “a sunflower in a pot {MARKUP}”"
         assert page.evaluate("() => window.__pwned") is None
-        page.wait_for_function(
-            "() => document.querySelectorAll('.pcard[data-kind=\"free\"]').length === 2"
-        )
         shot(tab, "job-running")
+        call = fake.calls[0]
+        assert call["guide"] is True and call["max_checks"] == 25  # the guide is on by default
+        assert call["task"].endswith("About 200 parts.")
         gate.open.set()
-        page.wait_for_selector("#freeJobs .job.done a.button")
+        page.wait_for_selector("#appJob .job.done", timeout=30000)
         tab.assert_clean()
     finally:
         gate.open.set()
@@ -963,7 +964,7 @@ def test_browser_home_form_consent_and_a_running_build(
     phone = Tab(browser, running.url, width=390, height=844).open()
     try:
         phone.no_sideways_scroll()
-        shot(phone, "home-phone")
+        shot(phone, "home-phone", full=False)
         phone.assert_clean()
     finally:
         phone.close()
@@ -1153,7 +1154,7 @@ def test_make_with_the_guide(capsys: Any, tmp_path: Path, monkeypatch: pytest.Mo
     assert freebuild.read_meta(projects / "a-fire-truck")["guide"] is True
     monkeypatch.chdir(tmp_path)
     code, out, err = _cli(capsys, "make", "--change", "a-fire-truck", "make it blue", "--guide")
-    assert code == 2 and "--guide go only with a new model" in err
+    assert code == 2 and "--guide and --picture go only with a new model" in err
     code, out, err = _cli(capsys, "make", "--change", "a-fire-truck", "make it blue")
     assert code == 0, err
     assert "the change is made so too" in out and fake.calls[1]["guide"] is True
@@ -1214,35 +1215,35 @@ def test_browser_the_guide_box_and_what_the_page_says(
         page.locator("#freeMore summary").click()
         page.fill("#freeName", "Sunflower")
         box = page.locator("#freeGuide")
-        assert box.is_visible() and not box.is_checked()
+        assert box.is_visible() and box.is_checked()  # on unless taken off: the main way now
         label = page.locator("label:has(#freeGuide)").text_content() or ""
-        assert "Design it first, then build it the way set designers do (experimental)" in label
+        assert "Design it first, then build it the way set designers do" in label
         hint = page.locator("label:has(#freeGuide) + .hint").text_content() or ""
         assert "art direction" in hint and "judges its own pictures" in hint
         page.locator("#freeParts").fill("400")
-        hint400 = tab.text("#freePartsHint")
-        assert freebuild.time_and_cost(400) in hint400 and "an estimate" in hint400
-        assert "largest" not in hint400 and "206" not in hint400
-        assert "big models take longer and use more of your subscription" in hint400
+        assert "big models take longer and use more of your subscription" in tab.text(
+            "#freePartsHint"
+        )
+        assert tab.text("#freeCostFull") == freebuild.time_and_cost(400)
+        assert tab.text("#freeCost").endswith("(an estimate).")  # no build this large on record
         page.locator("#freeParts").fill("80")
-        assert tab.text("#freePartsHint").endswith(freebuild.time_and_cost(80))
+        assert tab.text("#freeCostFull") == freebuild.time_and_cost(80)
+        assert "is stopped at 90 minutes" in tab.text("#freeCostFull")
+        box.uncheck()
+        assert "designed first" not in tab.text("#freeCost")
         box.check()
-        page.click("#freeGo")
-        assert "designed first and built the way set designers do" in tab.text("#freeWhat")
-        assert freebuild.time_and_cost(80) in tab.text("#freeTime")
-        assert "is stopped at 90 minutes" in tab.text("#freeTime")
+        assert "designed first" in tab.text("#freeCost")
+        page.select_option("#freeModel", "claude-opus-5-5")
+        assert tab.text("#freeCostFull") == freebuild.time_and_cost(80, "claude-opus-5-5")
+        assert "$1 to $3 of your Claude subscription (an estimate)" in tab.text("#freeCost")
+        page.select_option("#freeModel", "claude-fable-5-2")
         page.check("#freeUnderstood")
-        box.uncheck()  # a change takes the agreement back
-        assert not page.locator("#freeUnderstood").is_checked()
-        assert "set designers" not in tab.text("#freeWhat")
-        box.check()
-        page.check("#freeUnderstood")
-        page.locator("#freeMore").scroll_into_view_if_needed()
         shot(tab, "home-guide")
-        page.click("#freeStart")
-        page.wait_for_selector("#freeJobs .job.done a.button")
+        page.click("#freeGo")
+        page.wait_for_url("**/p/sunflower", timeout=20000)
+        page.wait_for_selector("#runs li", timeout=30000)
         assert fake.calls[0]["guide"] is True
-        assert not page.locator("#freeGuide").is_checked()  # the form starts afresh
+        assert fake.calls[0]["model"] == "claude-fable-5-2"
         tab.assert_clean()
     finally:
         tab.close()
@@ -1459,5 +1460,478 @@ def test_browser_the_page_and_the_server_give_the_same_time_and_cost(
             assert words == freebuild.time_and_cost(n), n
         assert got[-1][0] == freebuild.estimate(6000)
         assert got[-1][1] == freebuild.time_and_cost("x")
+    finally:
+        tab.close()
+
+
+# ---- what a free build is built from: pictures, a 3D model, the choice of Claude ---------------
+
+
+def photo(size: tuple[int, int] = (80, 40), fmt: str = "JPEG", orientation: int = 6) -> bytes:
+    """A small photo as a phone saves it: EXIF with the camera, a GPS position and a turn."""
+    im = Image.new("RGB", size, (200, 30, 30))
+    im.paste((30, 30, 200), (0, 0, size[0] // 2, size[1]))  # left half blue
+    exif = Image.Exif()
+    exif[0x010F] = "TestCam"  # Make
+    exif[0x0112] = orientation
+    gps = exif.get_ifd(0x8825)
+    gps[1], gps[2] = "N", (51.0, 30.0, 0.0)
+    out = io.BytesIO()
+    im.save(out, fmt, exif=exif.tobytes())
+    return out.getvalue()
+
+
+def form(fields: dict[str, str], files: list[tuple[str, str, bytes]]) -> tuple[bytes, str]:
+    boundary = "FreeBuildTestBoundary"
+    out = io.BytesIO()
+    for name, value in fields.items():
+        out.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+        out.write(value.encode() + b"\r\n")
+    for field, filename, data in files:
+        out.write(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; '
+            f'filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()
+        )
+        out.write(data + b"\r\n")
+    out.write(f"--{boundary}--\r\n".encode())
+    return out.getvalue(), f"multipart/form-data; boundary={boundary}"
+
+
+AGREED_FORM = {"understood": "true", "understood_runs": "1"}
+
+
+def post_form(
+    running: Running, fields: dict[str, str], files: list[tuple[str, str, bytes]], **kw: Any
+) -> tuple[int, Any]:
+    body, ctype = form(fields, files)
+    kw.setdefault("token", True)
+    status, _, data = running.request(
+        "/api/free", "POST", body=body, headers={"Content-Type": ctype}, **kw
+    )
+    return status, json.loads(data) if data.startswith(b"{") else data
+
+
+def test_a_picture_is_turned_upright_shrunk_and_stripped_of_everything_else() -> None:
+    for fmt in ("JPEG", "WEBP"):
+        png = freebuild.clean_picture(photo(fmt=fmt))
+        with Image.open(io.BytesIO(png)) as im:
+            assert im.format == "PNG" and im.size == (40, 80)  # turned as the camera was held
+            assert not im.info.get("exif") and not im.getexif() and "icc_profile" not in im.info
+            blue = im.getchannel("B").getpixel((20, 4))
+            assert isinstance(blue, int) and blue > 150  # the blue half is now on top
+        assert b"TestCam" not in png and b"GPS" not in png and b"Exif" not in png
+    big = io.BytesIO()
+    Image.new("RGBA", (3200, 1000), (0, 0, 0, 0)).save(big, "PNG")
+    with Image.open(io.BytesIO(freebuild.clean_picture(big.getvalue()))) as im:
+        assert im.size == (1600, 500) and im.mode == "RGB"
+        assert im.getpixel((5, 5)) == (255, 255, 255)  # transparent is white
+    for data, words in (
+        (b"", "empty"),
+        (b"GIF89a" + b"\0" * 40, "not a picture BrickSnap can use"),
+        (b"<svg></svg>", "not a picture BrickSnap can use"),
+        (b"\0\0\0\x18ftypheic" + b"\0" * 40, "HEIC"),
+        (photo()[:200], "could not be read"),
+        (b"x" * (freebuild.MAX_PICTURE_BYTES + 1), "up to 8 MB"),
+        (photo(size=(10, 10)), "too small"),
+    ):
+        with pytest.raises(freebuild.FreeBuildError, match=words):
+            freebuild.clean_picture(data)
+
+
+def test_the_cost_words_for_each_model() -> None:
+    fable = freebuild.time_and_cost(80)
+    assert freebuild.time_and_cost(80, "claude-fable-5-2") == fable
+    opus = freebuild.time_and_cost(80, "claude-opus-5-5")
+    assert "with Claude Opus 5.5 it should use about $1 to $3" in opus and "$2 to $6" in fable
+    assert "its list price is half, and one build with it is on record" in opus
+    assert list(freebuild.MODELS)[0] == lab_run.DEFAULT_MODEL == "claude-fable-5-2"
+    assert freebuild.other_model(None) == "claude-opus-5-5"
+    assert freebuild.other_model("claude-opus-5-5") == "claude-fable-5-2"
+
+
+def test_pictures_and_a_3d_model_over_the_web_and_kept_for_a_change(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch, pawn_path: Path
+) -> None:
+    fake = FakeLab()
+    monkeypatch.setattr(lab_run, "build", fake)
+    status, data = post_form(
+        running,
+        {"words": "", "parts": "120", "model": "claude-opus-5-5", "guide": "true", **AGREED_FORM},
+        [
+            ("picture", "IMG_0001.JPG", photo()),
+            ("picture", "../../secret.webp", photo(fmt="WEBP")),
+            ("model_file", "Pawn Piece.stl", pawn_path.read_bytes()),
+        ],
+    )
+    assert status == 202, data
+    assert data["project"] == "pawn-piece"  # no words: named after the 3D file
+    job = running.wait(data["job"])
+    assert job["state"] == "done", job
+    assert "It is shown 3 reference pictures of what to build" in job["progress"]
+    assert any(line.startswith("One AI run, by Claude Opus 5.5.") for line in job["progress"])
+    folder = projects / "pawn-piece"
+    call = fake.calls[0]
+    assert call["model"] == "claude-opus-5-5" and call["guide"] is True
+    assert [p.name for p in call["references"]] == [
+        "picture-1.png",
+        "picture-2.png",
+        "model-sheet.png",
+    ]
+    assert "Build what the reference pictures show" in call["task"]
+    meta = freebuild.read_meta(folder)
+    assert meta["words"] == "" and meta["model"] == "claude-opus-5-5"
+    assert meta["reference_pictures"] == ["picture-1.png", "picture-2.png"]
+    assert meta["reference_model"] == {
+        "file": "pawn-piece.stl",
+        "name": "Pawn Piece.stl",
+        "sheet": "model-sheet.png",
+    }
+    for f in ("picture-1.png", "picture-2.png", "model-sheet.png", "pawn-piece.stl"):
+        assert (folder / "references" / f).is_file()
+    assert b"TestCam" not in (folder / "references" / "picture-1.png").read_bytes()
+    assert not list((projects / ".incoming").glob("*"))  # nothing left behind
+    info = running.get_json("/api/p/pawn-piece")
+    assert info["model"] == "claude-opus-5-5" and info["model_name"] == "Claude Opus 5.5"
+    assert info["reference_model"]["name"] == "Pawn Piece.stl"
+    assert info["runs"][0]["model"] is None  # the fake's record does not say
+    for url in [*info["reference_pictures"], info["reference_model"]["sheet"]]:
+        status, headers, body = running.request(url)
+        assert status == 200 and body.startswith(b"\x89PNG"), url
+    assert running.request("/p/pawn-piece/files/references/pawn-piece.stl")[0] == 404
+
+    status, data = running.post("/api/p/pawn-piece/change", {"words": "make it red", **AGREED})
+    assert running.wait(data["job"])["state"] == "done"
+    call = fake.calls[1]
+    assert call["model"] == "claude-opus-5-5" and len(call["references"]) == 3  # the same
+    assert call["change_of"] == freebuild.NO_WORDS
+    status, data = running.post(
+        "/api/p/pawn-piece/change",
+        {"words": "bluer", "model": "claude-fable-5-2", **AGREED},
+    )
+    assert running.wait(data["job"])["state"] == "done"
+    assert fake.calls[2]["model"] == "claude-fable-5-2"
+    assert freebuild.read_meta(folder)["model"] == "claude-fable-5-2"  # kept from now on
+
+
+@pytest.mark.parametrize(
+    ("fields", "files", "status", "words"),
+    [
+        ({"words": "a cat"}, [("picture", "a.png", b"not a picture")], 400, "not a picture"),
+        (
+            {"words": "a cat"},
+            [("picture", f"{k}.jpg", photo()) for k in range(5)],
+            400,
+            "at most 4",
+        ),
+        ({"words": "a cat"}, [("model_file", "cat.exe", b"x")], 400, "cannot open cat.exe"),
+        ({"words": "a cat"}, [("model_file", "cat.stl", b"")], 400, "is empty"),
+        (
+            {"words": ""},
+            [("model_file", "cat.stl", b"solid x\nendsolid x\n")],
+            202,
+            "",
+        ),
+        ({"words": "a cat", "model": "claude-haiku-5-5"}, [], 400, "Choose which Claude"),
+        ({"words": ""}, [], 400, "Say in words"),
+    ],
+)
+def test_what_a_free_build_is_built_from_is_checked(
+    running: Running,
+    monkeypatch: pytest.MonkeyPatch,
+    fields: dict[str, str],
+    files: list[Any],
+    status: int,
+    words: str,
+) -> None:
+    monkeypatch.setattr(lab_run, "build", FakeLab())
+    got, data = post_form(running, {**fields, **AGREED_FORM}, files)
+    assert got == status, data
+    if status == 202:  # a 3D file the converter cannot read fails the job plainly, makes nothing
+        job = running.wait(data["job"])
+        assert job["state"] == "failed" and "no triangles" in job["error"]
+        assert not (running.app.root / data["project"]).exists()
+    else:
+        assert words in data["error"]
+        assert sorted(p.name for p in running.app.root.iterdir() if p.name[0] != ".") == [
+            "car",
+            "pawn",
+        ]
+    status, data = running.post("/api/free", {"words": "a cat", "model": "gpt", **AGREED})
+    assert status == 400 and "Claude Fable 5.2 or Claude Opus 5.5" in data["error"]
+
+
+def test_a_free_build_form_needs_the_token_and_the_agreement(running: Running) -> None:
+    files = [("picture", "a.jpg", photo())]
+    assert post_form(running, {"words": "a cat", **AGREED_FORM}, files, token=False)[0] == 403
+    status, data = post_form(running, {"words": "a cat"}, files)
+    assert status == 400 and "was not started" in data["error"]
+    status, data = post_form(running, {"words": "a cat", **AGREED_FORM}, files, host="evil.example")
+    assert status == 404
+    assert running.get_json("/api/projects")["jobs"] == []
+
+
+LIMIT_LINE = "You've hit your Fable limit · resets 2am (Etc/UTC)"
+
+
+def test_the_usage_limit_is_said_plainly_with_the_other_model(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Limited(FakeLab):
+        def __call__(self, task: str, out: Path, **kw: Any) -> dict[str, Any]:
+            self.calls.append({"task": task, "out": out, **kw})
+            out.mkdir(parents=True)
+            record = {
+                "ok": False,
+                "error": "Your Claude subscription has reached its Fable usage limit ...",
+                "usage_limit": LIMIT_LINE,
+                "limit_resets": "2am (Etc/UTC)",
+                "turns": 1,
+                "seconds": 1.0,
+            }
+            (out / "session.json").write_text(json.dumps(record), "utf-8")
+            return record
+
+    monkeypatch.setattr(lab_run, "build", Limited())
+    status, data = running.post("/api/free", {"words": "a boat", **AGREED})
+    job = running.wait(data["job"])
+    assert job["state"] == "failed"
+    assert job["error"] == (
+        "Your Claude subscription has reached its usage limit for Claude Fable 5.2; it resets "
+        "2am (Etc/UTC). Nothing was built. You can choose Claude Opus 5.5 instead and try "
+        "again, or wait until the limit resets; BrickSnap does not switch by itself."
+    )
+    assert job["todo"].startswith("Choose “Claude Opus 5.5” under “Options”")
+    status, data = running.post("/api/p/car/change", {"words": "bluer", **AGREED})
+    job = running.wait(data["job"])
+    assert "Nothing was changed." in job["error"] and "Your model is safe" in job["todo"]
+
+
+def test_the_runner_reads_the_usage_limit_from_claude_codes_lines() -> None:
+    """The lines Claude Code printed when the limit was reached on 23 November, as stream-json
+    carries them (the text, its "error" mark and the rejected rate-limit event; the time zone
+    and the ids changed)."""
+    lines = [
+        {"type": "system", "subtype": "init", "model": "claude-fable-5-2", "tools": []},
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "rejected",
+                "resetsAt": 1795510800,
+                "rateLimitType": "seven_day_overage_included",
+                "overageStatus": "rejected",
+                "isUsingOverage": False,
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "id": "00000000-0000-0000-0000-000000000000",
+                "model": "<synthetic>",
+                "role": "assistant",
+                "content": [{"type": "text", "text": LIMIT_LINE}],
+            },
+            "error": "rate_limit",
+        },
+        {"type": "result", "subtype": "success", "is_error": True, "result": LIMIT_LINE},
+    ]
+    parser = runner.StreamParser()
+    for event in lines:
+        parser.feed(json.dumps(event))
+    assert parser.usage_limit == LIMIT_LINE and parser.limit_resets() == "2am (Etc/UTC)"
+    assert parser.limit_error() == (
+        "Your Claude subscription has reached its Fable usage limit (Claude Code said so "
+        "instead of answering), so the run stopped. The limit resets 2am (Etc/UTC)."
+    )
+    quiet = runner.StreamParser()  # no words of when: the event's time, on this clock
+    quiet.feed(json.dumps(lines[1]))
+    quiet.feed(json.dumps({**lines[3], "result": "You've hit your limit"}))
+    assert quiet.usage_limit and quiet.limit_resets().startswith("on ")
+    ordinary = runner.StreamParser()  # the model saying the words is not a limit
+    ordinary.feed(
+        json.dumps({"type": "assistant", "message": {"content": lines[2]["message"]["content"]}})
+    )
+    assert ordinary.usage_limit == ""
+
+
+@pytest.mark.browser
+def test_browser_the_prompt_bar_with_pictures_and_a_3d_model(
+    browser: Any,
+    running: Running,
+    projects: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pawn_path: Path,
+) -> None:
+    fake = FakeLab(
+        model=(STUDY / "flower.ldr").read_text(),
+        report=(STUDY / "flower-report.txt").read_text(),
+    )
+    monkeypatch.setattr(lab_run, "build", fake)
+    with Image.open(STUDY / "flower.png") as sheet:
+        drawn = io.BytesIO()
+        sheet.convert("RGB").crop((0, 0, 560, sheet.height)).save(drawn, "JPEG")
+    tab = Tab(browser, running.url, width=1280, height=900).open()
+    try:
+        page = tab.page
+        page.fill("#freeWords", "a sunflower in a pot, like this drawing")
+        page.set_input_files(
+            "#freeFiles",
+            [
+                {"name": "drawing.jpg", "mimeType": "image/jpeg", "buffer": drawn.getvalue()},
+                {"name": "photo.jpg", "mimeType": "image/jpeg", "buffer": photo((400, 300))},
+            ],
+        )
+        assert page.locator("#freeThumbs li").count() == 2
+        page.locator("#freeThumbs li").nth(1).locator("button").click()  # take one back
+        assert page.locator("#freeThumbs li").count() == 1
+        page.set_input_files("#freeFiles", str(pawn_path))
+        assert page.locator("#freeThumbs li").count() == 2
+        assert "pawn.stl" in tab.text("#freeThumbs .model3d")
+        page.locator("#freeMore summary").click()
+        page.select_option("#freeModel", "claude-opus-5-5")
+        says = tab.text("#freeSays")
+        assert "your words, your picture and pictures of pawn.stl from five sides" in says
+        assert "One AI run by Claude Opus 5.5" in says
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#freeThumbs img')].every(i => i.complete)"
+        )
+        page.check("#freeUnderstood")
+        shot(tab, "home-bar-with-pictures", full=False)
+        page.click("#freeGo")
+        page.wait_for_url("**/p/a-sunflower-in-a-pot", timeout=20000)
+        page.wait_for_selector("#runs li", timeout=30000)
+        page.wait_for_selector("#refPics li")
+        assert page.locator("#refPics li").count() == 2
+        assert "Built from: pawn.stl" in tab.text("#refPics")
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#refPics img')]"
+            ".every(i => i.complete && i.naturalWidth > 0)"
+        )
+        call = fake.calls[0]
+        assert call["model"] == "claude-opus-5-5"
+        assert [p.name for p in call["references"]] == ["picture-1.png", "model-sheet.png"]
+        shot(tab, "project-built-from")
+        page.fill("#askText", "make the pot blue")
+        page.click("#askBtn")
+        assert page.locator("#changeModel").input_value() == "claude-opus-5-5"
+        assert "with the pictures it was built from" in tab.text("#changeSends")
+        assert freebuild.time_and_cost(58, "claude-opus-5-5") in tab.text("#changeTime")
+        tab.assert_clean()
+    finally:
+        tab.close()
+    phone = Tab(browser, running.url, width=390, height=844).open()
+    try:
+        phone.page.set_input_files(
+            "#freeFiles",
+            [{"name": "photo.jpg", "mimeType": "image/jpeg", "buffer": photo((400, 300))}],
+        )
+        phone.no_sideways_scroll()
+        shot(phone, "home-bar-phone", full=False)
+        phone.assert_clean()
+    finally:
+        phone.close()
+
+
+def limited_record(resets_at: float) -> dict[str, Any]:
+    """What lab.run.build records for a session stopped by the usage limit, read by the
+    runner from Claude Code's lines as they came on 23 November (time zone and ids changed)."""
+    parser = runner.StreamParser()
+    for event in (
+        {"type": "system", "subtype": "init", "model": "claude-fable-5-2", "tools": []},
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {"status": "rejected", "resetsAt": resets_at},
+        },
+        {
+            "type": "assistant",
+            "message": {"model": "<synthetic>", "content": [{"type": "text", "text": LIMIT_LINE}]},
+            "error": "rate_limit",
+        },
+        {"type": "result", "subtype": "success", "is_error": True, "result": LIMIT_LINE},
+    ):
+        parser.feed(json.dumps(event))
+    return {
+        "ok": False,
+        "error": parser.limit_error(),
+        "usage_limit": parser.usage_limit,
+        "limit_resets": parser.limit_resets(),
+        "limit_resets_at": parser.resets_at,
+        "turns": 1,
+        "seconds": 1.0,
+    }
+
+
+class LimitedLab(FakeLab):
+    def __init__(self, resets_at: float) -> None:
+        super().__init__()
+        self.resets_at = resets_at
+
+    def __call__(self, task: str, out: Path, **kw: Any) -> dict[str, Any]:
+        self.calls.append({"task": task, "out": out, **kw})
+        out.mkdir(parents=True)
+        record = limited_record(self.resets_at)
+        (out / "session.json").write_text(json.dumps(record), "utf-8")
+        return record
+
+
+def test_a_usage_limit_is_remembered_until_it_resets(
+    running: Running, projects: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    later = time.time() + 3 * 86400
+    monkeypatch.setattr(lab_run, "build", LimitedLab(later))
+    status, data = running.post("/api/free", {"words": "a boat", **AGREED})
+    assert running.wait(data["job"])["state"] == "failed"
+    [limit] = running.get_json("/api/projects")["limits"]
+    assert limit["model"] == "claude-fable-5-2" and limit["until"] == later
+    assert limit["other"] == "claude-opus-5-5" and limit["other_name"] == "Claude Opus 5.5"
+    assert limit["until_words"] == freebuild._until_words(later)
+    assert (projects / ".state" / "usage-limits.json").is_file()
+    assert freebuild.usage_limits(projects, now=later + 1) == []  # over once it has reset
+    names = [c["project"] for c in running.get_json("/api/projects")["projects"]]
+    assert ".state" not in names
+    monkeypatch.setattr(lab_run, "build", FakeLab())  # a run with it that works: forgotten
+    status, data = running.post("/api/free", {"words": "a plane", **AGREED})
+    assert running.wait(data["job"])["state"] == "done"
+    assert running.get_json("/api/projects")["limits"] == []
+
+
+@pytest.mark.browser
+def test_browser_the_bar_chooses_the_other_claude_at_a_usage_limit(
+    browser: Any, running: Running, projects: Path
+) -> None:
+    import time
+
+    tab = Tab(browser, running.url, width=1280, height=900).open()
+    try:
+        page = tab.page
+        assert page.locator("#freeModel").input_value() == "claude-fable-5-2"
+        assert page.locator("#freeLimit").is_hidden()
+        page.locator("#freeMore summary").click()
+        page.select_option("#freeModel", "claude-opus-5-5")
+        tab.open()  # the person's own choice is remembered in this browser
+        assert page.locator("#freeModel").input_value() == "claude-opus-5-5"
+        page.locator("#freeMore summary").click()
+        page.select_option("#freeModel", "claude-fable-5-2")
+        later = time.time() + 3 * 86400
+        error = freebuild.usage_limit_error(
+            "claude-fable-5-2", "2am (Etc/UTC)", {"has_model": False}, "first", later
+        )
+        freebuild.note_limit(projects, error)
+        tab.open()
+        page.wait_for_function("() => !document.querySelector('#freeLimit').hidden")
+        assert page.locator("#freeModel").input_value() == "claude-opus-5-5"
+        when = freebuild._until_words(later)
+        assert tab.text("#freeLimit") == (
+            f"Claude Fable 5.2 is at its usage limit until {when}; Claude Opus 5.5 is chosen."
+        )
+        assert "One AI run by Claude Opus 5.5" in tab.text("#freeCost")
+        shot(tab, "home-bar-usage-limit", full=False)
+        page.locator("#freeMore summary").click()
+        page.select_option("#freeModel", "claude-fable-5-2")  # still allowed, and said
+        assert tab.text("#freeLimit").startswith(
+            f"Claude Fable 5.2 is at its usage limit until {when}: a build with it would stop"
+        )
+        tab.assert_clean()
     finally:
         tab.close()

@@ -6,7 +6,7 @@
 // the downloads, the earlier runs, and the bin. Text from the server, the person and the AI
 // goes in with textContent, never innerHTML.
 
-import { JobView, NOT_ANSWERING, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, NOT_ANSWERING, appState, el, freeModelName, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const $ = (id) => document.getElementById(id);
 const project = document.body.dataset.project;
@@ -379,6 +379,7 @@ function showRuns() {
     else if (r.ok === false) facts.push('stopped before it finished');
     const time = minutes(r.seconds);
     if (time) facts.push(time);
+    if (r.model) facts.push(`by ${freeModelName(r.model)}`);
     const head = el('span', { className: 'vname' }, [
       el('span', { className: 'vn', text: String(r.n) }),
       el('span', { className: 'vlabel', text: RUN_WORDS[r.kind] || r.kind }),
@@ -412,6 +413,44 @@ let pendingWords = null;
 const confirmBox = $('changeConfirm');
 const understood = $('changeUnderstood');
 const startBtn = $('changeStart');
+const changeModel = $('changeModel');
+
+// ---- what it was built from: the person's pictures and 3D model ----
+
+let shownRefs = '';
+function showBuiltFrom() {
+  const pics = info && Array.isArray(info.reference_pictures) ? info.reference_pictures.map(String) : [];
+  const model = info && info.reference_model && typeof info.reference_model === 'object' ? info.reference_model : null;
+  const key = JSON.stringify([pics, model]);
+  if (key === shownRefs) return;
+  shownRefs = key;
+  const items = pics.map((url, k) =>
+    el('li', {}, [el('a', { href: url, target: '_blank', rel: 'noopener' }, [el('img', { src: url, alt: `Picture ${k + 1} it was built from` })])]),
+  );
+  if (model) {
+    const figure = el('figure', { className: 'sheet' }, [
+      model.sheet ? el('img', { src: String(model.sheet), alt: `The 3D model ${model.name} from five sides` }) : null,
+      el('figcaption', { text: `Built from: ${model.name}` }),
+    ]);
+    items.push(el('li', { className: 'sheet' }, [model.sheet ? el('a', { href: String(model.sheet), target: '_blank', rel: 'noopener' }, [figure]) : figure]));
+  }
+  $('refPics').replaceChildren(...items);
+  $('builtFromTitle').textContent = pics.length && !model ? `Built from ${pics.length === 1 ? 'this picture' : 'these pictures'}` : 'Built from';
+  $('builtFrom').hidden = items.length === 0;
+}
+
+function changeWords() {
+  const size = (info && info.parts) || (info && info.parts_wanted) || 80; // the model's own size
+  const model = changeModel.value;
+  $('changeTime').textContent = `It is one AI run by ${freeModelName(model)}, starting from the model as it is now. ${freeTimeAndCost(size, model)} You can leave this page while it works.`;
+  const refs = (info && Array.isArray(info.reference_pictures) && info.reference_pictures.length) || (info && info.reference_model);
+  $('changeSends').textContent = `It sends the words you typed, and the words the model was first built from${refs ? ', with the pictures it was built from,' : ''} to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.`;
+}
+changeModel.addEventListener('change', () => {
+  understood.checked = false;
+  startBtn.disabled = true;
+  changeWords();
+});
 
 function showNextStep() {
   const box = $('nextStep');
@@ -475,8 +514,8 @@ function openConfirm(words) {
     el('span', { className: 'quote', id: 'changeQuote', text: `“${words}”` }),
     document.createTextNode('. The AI makes that change and keeps the rest of the model as it is.'),
   );
-  const size = (info && info.parts) || (info && info.parts_wanted) || 80; // the model's own size
-  $('changeTime').textContent = `It is one AI run, starting from the model as it is now. ${freeTimeAndCost(size)} You can leave this page while it works.`;
+  changeModel.value = info && FREE_MODELS[info.model] ? info.model : FREE_DEFAULT_MODEL;
+  changeWords();
   confirmBox.hidden = false;
   confirmBox.scrollIntoView({ block: 'nearest' });
   understood.focus();
@@ -498,7 +537,7 @@ confirmBox.addEventListener('keydown', (e) => {
 startBtn.addEventListener('click', async () => {
   if (!understood.checked || !pendingWords) return;
   confirmBox.hidden = true;
-  await start('change', { words: pendingWords, understood: true, understood_runs: 1 });
+  await start('change', { words: pendingWords, model: changeModel.value, understood: true, understood_runs: 1 });
   const input = $('askText');
   if (input && following) input.value = '';
 });
@@ -559,6 +598,7 @@ function render(force = false) {
     showChecker();
   }
   showTurntable();
+  showBuiltFrom();
   showBrief();
   showNotes();
   showCritique();

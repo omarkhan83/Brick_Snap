@@ -1413,6 +1413,8 @@ def test_browser_home_page_with_no_projects(browser: Any, tmp_path: Path) -> Non
     tab = Tab(browser, r.url).open()
     try:
         assert tab.page.locator("#empty").is_visible()
+        assert tab.page.locator("#freeGo").is_visible()  # the prompt bar
+        tab.page.locator("#older > summary").click()  # the older way, folded away
         assert tab.page.locator("#go").is_visible()
         tab.shot("home-empty")
         tab.assert_clean()
@@ -1429,6 +1431,7 @@ def test_browser_making_a_new_model(
     tab = Tab(browser, running.url).open()
     try:
         page = tab.page
+        page.locator("#older > summary").click()
         page.locator("#go").click()
         assert "Choose a 3D model file first." in (page.locator("#formMsg").text_content() or "")
         page.set_input_files("#model", str(pawn_path))
@@ -1461,6 +1464,7 @@ def test_browser_a_failed_job_says_what_to_do(
     tab = Tab(browser, running.url).open()
     try:
         page = tab.page
+        page.locator("#older > summary").click()
         page.set_input_files("#model", str(broken))
         page.locator("#go").click()
         page.wait_for_selector(".job.failed")
@@ -2428,6 +2432,7 @@ def test_browser_choosing_a_piece_of_a_kit(
         tab = Tab(browser, running.url, width=width, height=height).open()
         try:
             page = tab.page
+            page.locator("#older > summary").click()
             page.set_input_files("#model", str(kit))
             page.eval_on_selector(
                 "#studs", "e => { e.value = '8'; e.dispatchEvent(new Event('input')); }"

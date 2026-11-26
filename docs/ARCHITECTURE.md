@@ -341,8 +341,13 @@ The web app acts for whoever can reach it, so it is strict about who that is: it
 only, refuses requests that do not name this computer, and refuses every request that changes something
 unless it carries a token that only its own pages are given. It serves a fixed list of files from a
 project and never the AI's transcripts. It starts the AI designer only after the person has read what
-will be sent and has agreed to the number of runs. The rules are in the opening comment of `webapp.py`,
-each with a test.
+will be sent and has agreed to the number of runs. Its home page is one prompt bar
+(`docs/decisions/2026-11-25-the-app-is-one-prompt-bar-and-the-ai-builds-from-parts.md`): words,
+pictures and a 3D model file go to the AI as one free build, which starts when the person presses
+Build with the agreement box ticked (remembered in the browser, beside a line that always says what is
+sent, which Claude, and what it usually costs). Uploaded pictures are decoded and drawn afresh before
+they are kept or sent, so nothing but their pixels leaves the computer. The rules are in the opening
+comment of `webapp.py`, each with a test.
 
 ## The prototype
 
@@ -361,7 +366,8 @@ point for the optional printable output.
   The notes say so.)
 - Every part and colour pair in a Build comes from the parts table.
 - A Build that fails its checks is never presented as finished; the failure is reported in words.
-- Nothing leaves the computer except through the AI design step.
+- Nothing leaves the computer except through an AI run the person started (the design step, or a
+  free build).
 - Text from a file name, file contents, or the AI goes into a web page with `textContent`, never
   `innerHTML`.
 

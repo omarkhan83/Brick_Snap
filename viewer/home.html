@@ -21,13 +21,77 @@
     </div>
     <div class="titles">
       <span class="kicker">BrickSnap</span>
-      <h1>Your brick models</h1>
+      <h1 id="freeTitle">What should the AI build?</h1>
     </div>
   </div>
 </header>
 
-<main>
-  <div id="grid" class="home-grid">
+<main id="grid" class="home-one">
+  <section id="free" class="promptbar" aria-labelledby="freeTitle">
+    <p class="lead"><span class="badge exp">Experimental</span> Describe it, add pictures or a 3D model of it, or both. The AI builds it part by part from the whole LEGO® parts library (wheels, leaves, wings, windscreens), checking and looking at its work as it goes.</p>
+    <form id="freeForm" novalidate>
+      <div id="freeDrop" class="bar-box">
+        <label for="freeWords" class="sr-only">What should it build?</label>
+        <textarea id="freeWords" name="words" rows="3" maxlength="2000" autocomplete="off" placeholder="Describe what to build… for example: a small red fire truck, or a sunflower in a pot"></textarea>
+        <ul id="freeThumbs" class="thumbs" aria-label="What the AI builds from" hidden></ul>
+        <div class="bar-row">
+          <label for="freeFiles" class="button quiet add-files" id="freeAdd"><span aria-hidden="true">+</span> Add pictures or a 3D model</label>
+          <input id="freeFiles" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.stl,.obj,.glb,.gltf,.3mf,.ply">
+          <button id="freeGo" type="submit" class="primary build">Build</button>
+        </div>
+      </div>
+      <p class="hint bar-hint" id="freeFilesHint">Up to 4 pictures (photos or drawings: JPEG, PNG or WebP, up to 8 MB each, 20 MB in all) and one 3D model (STL, OBJ, GLB, GLTF, 3MF or PLY, up to 60 MB). Drop them on the box, or use the button. Pictures are kept with the model, made smaller and without the details photos carry, such as where they were taken.</p>
+      <p id="freeLimit" class="bar-limit" role="status" hidden></p>
+      <div class="bar-says">
+        <p id="freeSays"><span id="freeSends" class="line"></span> <span id="freeCost" class="line"></span></p>
+        <details id="freeCostMore" class="says-more">
+          <summary>More about the time and cost</summary>
+          <p id="freeCostFull"></p>
+        </details>
+      </div>
+      <label class="check agree"><input id="freeUnderstood" type="checkbox"> <span>I understand that Build starts a paid AI run with my own Claude Code login. <span class="muted">(Remembered on this computer.)</span></span></label>
+      <p id="freeMsg" class="formmsg" role="alert"></p>
+      <details class="more options" id="freeMore">
+        <summary>Options</summary>
+        <div class="field">
+          <label for="freeParts">About how many parts?</label>
+          <div class="size-row">
+            <input id="freeParts" name="parts" type="range" min="20" max="600" step="10" value="200">
+            <output id="freePartsOut" for="freeParts">200 parts</output>
+          </div>
+          <p class="hint" id="freePartsHint">A big model. Big models take longer and use more of your subscription.</p>
+        </div>
+        <div class="field">
+          <label for="freeModel">Which Claude builds it?</label>
+          <select id="freeModel" name="model">
+            <option value="claude-fable-5-2">Claude Fable 5.2 (default)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5</option>
+          </select>
+          <p class="hint">Fable 5.2 builds the more refined models. Opus 5.5 uses about half as much of your subscription. If one has reached its usage limit, choose the other.</p>
+        </div>
+        <div class="field">
+          <label class="check"><input id="freeGuide" name="guide" type="checkbox" value="1" checked> <span>Design it first, then build it the way set designers do</span></label>
+          <p class="hint">The AI first writes an art direction (the scale, two or three colours, the shapes that make the subject), then builds a core with sides pressed on, as official sets are built, and judges its own pictures against a style guide before it finishes. Later changes to the model keep this choice.</p>
+        </div>
+        <div class="field">
+          <label for="freeName">Name (you can leave this empty)</label>
+          <input id="freeName" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The first few words are used">
+        </div>
+        <p class="hint" id="freeCaveat">This is experimental. A checker makes sure every part is held, nothing overlaps and the model stands. It checks studs, pins, axles, bars, wheels and most clips on bars for fit. But parts joined by hinges, ball joints and the other clips are counted as joined without proof, and nothing judges yet how strong a joint is.</p>
+      </details>
+    </form>
+    <div id="freeJobs"></div>
+  </section>
+
+  <section id="models" class="models" aria-labelledby="modelsTitle">
+    <h2 id="modelsTitle">Your models</h2>
+    <p id="empty" class="empty-note" hidden>No models yet. Describe one above and press Build to make your first one.</p>
+    <p id="loading" class="muted">Looking for your models…</p>
+    <ul id="cards" class="cards"></ul>
+  </section>
+
+  <details id="older" class="older">
+    <summary>Turn a 3D model into bricks (older way)</summary>
     <section id="start" class="card start" aria-labelledby="startTitle">
       <h2 id="startTitle">Make a new model</h2>
       <p class="lead">Choose a 3D model file and BrickSnap turns it into a set of real bricks.</p>
@@ -68,69 +132,7 @@
       </form>
       <div id="newJobs"></div>
     </section>
-
-    <section id="free" class="card start free-start" aria-labelledby="freeTitle">
-      <h2 id="freeTitle">Or describe it and let the AI build it <span class="badge exp">Experimental</span></h2>
-      <p class="lead">No file needed. The AI builds the model itself, part by part, from the whole LEGO® parts library (wheels, leaves, wings, windscreens), checking and looking at its work as it goes.</p>
-      <form id="freeForm" novalidate>
-        <div class="field">
-          <label for="freeWords">1. What should it build?</label>
-          <textarea id="freeWords" name="words" rows="2" maxlength="2000" autocomplete="off" placeholder="For example: a small red fire truck, or a sunflower in a pot"></textarea>
-        </div>
-        <div class="field">
-          <label for="freeParts">2. About how many parts?</label>
-          <div class="size-row">
-            <input id="freeParts" name="parts" type="range" min="20" max="600" step="10" value="80">
-            <output id="freePartsOut" for="freeParts">80 parts</output>
-          </div>
-          <p class="hint" id="freePartsHint">A medium model, like a small set. Big models take longer and use more of your subscription.</p>
-        </div>
-        <div class="field">
-          <label class="check"><input id="freeGuide" name="guide" type="checkbox" value="1"> <span>Design it first, then build it the way set designers do (experimental)</span></label>
-          <p class="hint">The AI first writes an art direction (the scale, two or three colours, the shapes that make the subject), then builds a core with sides pressed on, as official sets are built, and judges its own pictures against a style guide before it finishes. Later changes to the model keep this choice. Leave it off to build the usual way.</p>
-        </div>
-        <details class="more" id="freeMore">
-          <summary>More choices</summary>
-          <div class="field">
-            <label for="freeRef">Make it look like one of my models (you can leave this)</label>
-            <select id="freeRef" name="reference">
-              <option value="">No, just from my words</option>
-            </select>
-            <p class="hint">The AI is then also shown pictures of that model's 3D shape from five sides.</p>
-          </div>
-          <div class="field">
-            <label for="freeName">Name (you can leave this empty)</label>
-            <input id="freeName" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The first few words are used">
-          </div>
-        </details>
-        <button id="freeGo" type="submit" class="primary">Let the AI build it…</button>
-        <div id="freeConfirm" class="confirm" hidden role="dialog" aria-labelledby="freeConfirmTitle">
-          <h3 id="freeConfirmTitle">Before the AI starts building</h3>
-          <ul>
-            <li id="freeWhat"></li>
-            <li id="freeSends"></li>
-            <li>It uses your own Claude Code login, so it counts towards your Claude subscription.</li>
-            <li id="freeTime">It is one AI run. The more parts, the longer it takes and the more of your Claude subscription it uses; you can leave this page while it works.</li>
-            <li id="freeCaveat">This is experimental. A checker makes sure every part is held, nothing overlaps and the model stands. It checks studs, pins, axles, bars, wheels and most clips on bars for fit. But parts joined by hinges, ball joints and the other clips are counted as joined without proof, and nothing judges yet how strong a joint is.</li>
-          </ul>
-          <label class="check"><input id="freeUnderstood" type="checkbox"> <span>I have read this and want the AI to build it.</span></label>
-          <div class="row">
-            <button id="freeStart" type="button" class="primary" disabled>Start building</button>
-            <button id="freeCancel" type="button" class="quiet">Cancel</button>
-          </div>
-        </div>
-        <p id="freeMsg" class="formmsg" role="alert"></p>
-      </form>
-      <div id="freeJobs"></div>
-    </section>
-
-    <section id="models" class="card models" aria-labelledby="modelsTitle">
-      <h2 id="modelsTitle">Your models</h2>
-      <p id="empty" class="empty-note" hidden>No models yet. Choose a 3D model file in “Make a new model” to make your first one.</p>
-      <p id="loading" class="muted">Looking for your models…</p>
-      <ul id="cards" class="cards"></ul>
-    </section>
-  </div>
+  </details>
 </main>
 
 <footer class="foot">

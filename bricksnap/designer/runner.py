@@ -104,6 +104,19 @@ Implementation notes
   (the edits and the reply are still kept). ``DesignerRun.models_used`` lists the models that
   answered. The expected model is the one the ``init`` event names (Claude Code resolves
   aliases such as "opus" there); a dated name of the same model counts as the same.
+- A usage limit: when the subscription's usage limit for the model is reached, Claude Code
+  answers with a message of its own instead of the model (an assistant event marked
+  ``"error": "rate_limit"``, model ``<synthetic>``, text "You've hit your Fable limit ·
+  resets 2am (Europe/London)"), often after a ``rate_limit_event`` whose ``rate_limit_info``
+  has ``"status": "rejected"`` and ``resetsAt`` (seconds since 1970), and then a result
+  with ``is_error`` and the same text. The parser keeps that line (``usage_limit``) and
+  when the limit resets (``limit_resets``: the words after "resets", else the ``resetsAt``
+  time on this computer's clock, "on 1 December at 02:00", else ""); a result whose text is
+  such a line counts too. ``run_session`` then gives ``ok=False``, an ``error`` that says
+  the limit was reached and when it resets, and ``DesignerRun.usage_limit``,
+  ``limit_resets`` (redacted) and ``limit_resets_at`` (the ``resetsAt``, or None), so
+  callers can say what to do. It never retries, and never
+  on another model.
 - The stdout reader never dies silently: if reading an event or writing the transcript
   fails, the failure becomes the run's error, the process is stopped, and the rest of the
   output is still drained so the child cannot block on a full pipe.
@@ -205,6 +218,12 @@ SET_ENV = {
 _EMAIL = re.compile(
     r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
 )
+# Claude Code's own line when the subscription's usage limit is reached: "You've hit your
+# Fable limit · resets 2am (Europe/London)" (also "your limit", "your weekly limit").
+_USAGE_LIMIT = re.compile(
+    r"You(?:'|’)ve hit your (?:(?P<what>[^\n·]*?) )?limit\b(?:\s*·\s*resets\s+(?P<when>[^\n]+))?",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -221,6 +240,9 @@ class DesignerRun:
     cost_usd: float | None = None
     models_used: list[str] = field(default_factory=list)
     kind: str = FIRST_PASS  # FIRST_PASS or EDIT
+    usage_limit: str = ""  # Claude Code's line when the usage limit stopped the session
+    limit_resets: str = ""  # when that limit resets, in words ("" when not known)
+    limit_resets_at: float | None = None  # and as seconds since 1970, when Claude Code said
 
 
 # ---- the message ----------------------------------------------------------------------------
@@ -372,6 +394,8 @@ class StreamParser:
         self.not_json = 0
         self.models_used: list[str] = []  # every model that answered, in order of appearance
         self.switches: list[str] = []  # plain-language notes of Claude Code changing course
+        self.usage_limit = ""  # Claude Code's line when the subscription's usage limit was hit
+        self.resets_at: float | None = None  # a rejected rate_limit_event's resetsAt
         self._pending: dict[str, str] = {}  # tool_use id -> tool name
 
     def _model_seen(self, model: object) -> None:
@@ -408,10 +432,19 @@ class StreamParser:
                 f"to {event.get('fallback_model', 'another model')} after a safety check stopped "
                 f"a reply (scope: {event.get('scope', 'unknown')})."
             )
+        elif kind == "rate_limit_event":
+            info = event.get("rate_limit_info")
+            if isinstance(info, dict) and info.get("status") == "rejected":
+                resets = info.get("resetsAt")
+                if isinstance(resets, int | float) and not isinstance(resets, bool):
+                    self.resets_at = float(resets)
         elif kind == "assistant":
             message = event.get("message")
             if isinstance(message, dict):
                 self._model_seen(message.get("model"))
+            synthetic = event.get("error") == "rate_limit" or (
+                isinstance(message, dict) and message.get("model") == "<synthetic>"
+            )
             for item in self._content(event):
                 if item.get("type") == "tool_use":
                     name = str(item.get("name", ""))
@@ -420,6 +453,8 @@ class StreamParser:
                         self._pending[str(item["id"])] = name
                 elif item.get("type") == "text" and item.get("text"):
                     self.texts.append(str(item["text"]))
+                    if synthetic:  # Claude Code speaking for the model: a usage limit?
+                        self._limit_seen(item["text"])
                 elif item.get("type") == "fallback":
                     self._switch(
                         f"Claude Code fell back from {self._model_name(item.get('from'))} to "
@@ -444,7 +479,29 @@ class StreamParser:
             if isinstance(usage, dict):
                 for model in usage:
                     self._model_seen(model)
+            if event.get("is_error"):
+                self._limit_seen(event.get("result"))
         return event
+
+    def _limit_seen(self, text: object) -> None:
+        if not self.usage_limit and isinstance(text, str):
+            m = _USAGE_LIMIT.search(text)
+            if m:
+                self.usage_limit = _short(m.group(0), 200)
+
+    def limit_resets(self) -> str:
+        """When the usage limit resets, in words: Claude Code's ("2am (Europe/London)"),
+        else the rejected ``rate_limit_event``'s time on this computer's clock, else ""."""
+        m = _USAGE_LIMIT.search(self.usage_limit) if self.usage_limit else None
+        when = (m.group("when") or "") if m else ""
+        when = re.sub(r"\s*\(error type\b.*$", "", when).strip().rstrip(".")
+        if when:
+            return when
+        if self.resets_at is not None:
+            with contextlib.suppress(OverflowError, OSError, ValueError):
+                at = datetime.fromtimestamp(self.resets_at)
+                return f"on {at.day} {at:%B} at {at:%H:%M}"
+        return ""
 
     @staticmethod
     def _model_name(side: object) -> str:
@@ -532,6 +589,19 @@ class StreamParser:
             detail = "; ".join(str(e) for e in errors) if isinstance(errors, list) else ""
         detail = _short(redact(detail or subtype or "unknown problem"))
         return f"Claude Code reported a problem: {detail}"
+
+    def limit_error(self) -> str:
+        """The plain error for a session the usage limit stopped (see the contract)."""
+        m = _USAGE_LIMIT.search(self.usage_limit)
+        what = (m.group("what") or "").strip() if m else ""
+        resets = self.limit_resets()
+        said = (
+            f"Your Claude subscription has reached its {what + ' ' if what else ''}usage limit "
+            "(Claude Code said so instead of answering), so the run stopped."
+        )
+        if resets:
+            return redact(f"{said} The limit resets {resets}.")
+        return redact(f"{said} Claude Code did not say when it resets.")
 
 
 def _same_model(used: str, expected: str) -> bool:
@@ -775,6 +845,9 @@ def run_session(
     run.cost_usd = parser.cost_usd
     run.models_used = list(parser.models_used)
     run.duration_s = time.monotonic() - started
+    run.usage_limit = redact(parser.usage_limit)
+    run.limit_resets = redact(parser.limit_resets()) if parser.usage_limit else ""
+    run.limit_resets_at = parser.resets_at if parser.usage_limit else None
     switched = parser.model_switch_note(model)
 
     if server_failed.is_set():
@@ -799,6 +872,8 @@ def run_session(
         )
     elif timed_out:
         run.error = role.timeout.format(duration=_duration_words(timeout_s))
+    elif parser.usage_limit:
+        run.error = parser.limit_error()
     elif parser.result is not None and parser.result_error(max_turns):
         run.error = parser.result_error(max_turns)
         if role.max_turns and parser.result.get("subtype") == "error_max_turns":
