@@ -821,17 +821,17 @@ def test_a_session_without_the_guide_records_no_art_direction(tmp_path, session)
 @pytest.mark.parametrize(
     ("parts", "replies", "checks", "minutes"),
     [
-        (None, 90, 25, 90),
-        (20, 90, 25, 90),
-        (80, 90, 25, 90),
-        (206, 90, 26, 90),
-        (257, 90, 33, 90),
-        (300, 105, 38, 90),
-        (400, 140, 50, 120),
-        (600, 210, 75, 180),
-        (6000, 210, 75, 180),  # a hand-edited project.json is held to 600
-        (-5, 90, 25, 90),
-        ("300", 90, 25, 90),
+        (None, 120, 25, 90),
+        (20, 120, 25, 90),
+        (80, 120, 25, 90),
+        (206, 206, 26, 90),
+        (257, 257, 33, 90),
+        (300, 300, 38, 90),
+        (400, 400, 50, 120),
+        (600, 600, 75, 180),
+        (6000, 600, 75, 180),  # a hand-edited project.json is held to 600
+        (-5, 120, 25, 90),
+        ("300", 120, 25, 90),
     ],
 )
 def test_the_limits_grow_with_the_parts_asked_for(parts, replies, checks, minutes):

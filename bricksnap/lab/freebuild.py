@@ -132,15 +132,18 @@ KIND = "free"
 MAX_WORDS = 2000
 MAX_NAME = 80
 MIN_PARTS, MAX_PARTS, DEFAULT_PARTS = 20, 600, 80
-MAX_TURNS = 90  # the least a session gets; ``limits`` gives more for more parts
+MAX_TURNS = 120  # the least a session gets; ``limits`` gives more for more parts
 MAX_CHECKS = 25
 TIMEOUT_S = 5400
 # Claude Code's --max-turns limits the model's replies (one reply may call several tools);
 # the "turns" a session reports (num_turns) count its tool calls and its answer. The Cessna of
 # 20 November reported 103 turns under a limit of 90 and finished: its 102 tool calls came in
 # 43 replies. Replies per part on record: 0.21 (Cessna, 206 parts), 0.08 (guitar, 283), 0.32
-# (cat, 96); ``REPLIES_PER_PART`` leaves room above the most.
-REPLIES_PER_PART = 0.35
+# (cat, 96). On 25 November a guide-mode build on Opus 5.5 (a sports car asked at 300 parts) used
+# all of its 105 replies at 174 parts, about 0.6 a part: Opus makes fewer calls in each reply,
+# and guide mode adds the brief, the halfway look and the critique. ``REPLIES_PER_PART`` leaves
+# room above that, so a build stops because it is done, not because its replies ran out.
+REPLIES_PER_PART = 1.0
 PARTS_PER_CHECK = 8  # no run on record used more than 7 checks
 SECONDS_PER_PART = 18
 # How long builds took (minutes per part, low and high, in hundredths): 71 parts in 5
@@ -413,8 +416,8 @@ def size(parts: Any) -> int:
 def limits(parts: Any) -> dict[str, int]:
     """What one session may use for a model of about ``parts`` parts (``size``): replies
     (``--max-turns``), checks and seconds, each the larger of the fixed least (``MAX_TURNS``,
-    ``MAX_CHECKS``, ``TIMEOUT_S``) and a share per part (0.35 replies, one check for every 8
-    parts, 18 seconds). 600 parts get 210 replies, 75 checks and three hours."""
+    ``MAX_CHECKS``, ``TIMEOUT_S``) and a share per part (one reply, one check for every 8
+    parts, 18 seconds). 600 parts get 600 replies, 75 checks and three hours."""
     n = size(parts)
     return {
         "max_turns": max(MAX_TURNS, math.ceil(n * REPLIES_PER_PART)),

@@ -418,7 +418,7 @@ def test_a_big_model_gets_more_turns_checks_and_time(
     folder = freebuild.create(tmp_path, "a Cessna 172", parts=600)
     freebuild.build(folder)
     call = fake.calls[0]
-    assert (call["max_turns"], call["max_checks"], call["timeout"]) == (210, 75, 3 * 3600)
+    assert (call["max_turns"], call["max_checks"], call["timeout"]) == (600, 75, 3 * 3600)
     assert "parts" not in call  # told only in guide mode
     assert call["task"].endswith("About 600 parts.")
 
