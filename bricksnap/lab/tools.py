@@ -1420,9 +1420,16 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
                 raise ValueError("angle must be a number of degrees.")
             where["angle"] = float(angle)
         part, renamed = _current_part(part)
-        result = place(_model(folder), part, **where)
+        model = _model(folder)
+        result = place(model, part, **where)
     except (PlaceError, ValueError) as e:
         return _error(str(e))
+    n = len(model.splitlines()) + 1
+    trial = "\n".join([*model.splitlines(), result.line]) + "\n"
+    report = _report_for(trial, [n])
+    refused = _covered(trial, report, n, part, where)
+    if refused:
+        return _error(renamed + refused)
     text, numbers = _append(folder, [result.line])
     sideways = ""
     if _config(folder).get("guide") is True:
@@ -1431,9 +1438,105 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         _text(
             f"{renamed}Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the "
             "checker says "
-            f"about it:\n{_quick(folder, text, numbers)}{sideways}"
+            f"about it:\n{_quick(folder, text, numbers, report=report)}{sideways}"
         )
     ]
+
+
+def _covered(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> str:
+    """Why place adds nothing, or "": the new part (line ``n`` of ``trial``) would share space
+    with a part already there (an overlap the checker reports as a problem): the stud named
+    already has a part on it, or the new part reaches into a neighbour. Says what is there
+    and which free studs of the same line take the part with the same socket and turn."""
+    hits = [i for i in report.problems if i.kind == "overlap" and n in i.lines]
+    if not hits:
+        return ""
+    by = {p.line: p for p in report.placed}
+    line, stud = where.get("line"), where.get("stud")
+    others = sorted({m for i in hits for m in i.lines if m != n})
+    on_stud = [
+        m
+        for m in others
+        if stud is not None
+        and any(x.holder == line and x.held == m and stud in x.studs for x in report.links)
+    ]
+
+    def name(m: int) -> str:
+        p = by.get(m)
+        return f"line {m} ({p.key} {p.part.description})" if p else f"line {m}"
+
+    if on_stud:
+        out = f"Not added: stud {stud} of line {line} already has {name(on_stud[0])} on it."
+    else:
+        out = (
+            f"Not added: placed so, {part} would go into "
+            + ", ".join(name(m) for m in others[:4])
+            + " (they would share space)."
+        )
+    if stud is None or not line:
+        return out + " Choose another place for it."
+    free = _free_studs(trial, report, n, part, where)
+    if free:
+        return (
+            out
+            + f" Free studs of line {line} that take it with this socket and turn, nearest first: "
+            + (", ".join(map(str, free)) + ".")
+        )
+    return out + (
+        f" No free stud of line {line} takes it with this socket and turn; part_info with line "
+        f"{line} shows which studs are taken."
+    )
+
+
+def _free_studs(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> list[int]:
+    """Studs of the line named, free in the model, onto which ``part`` goes with the same
+    socket and turn without sharing space with a neighbour: up to 5, nearest the stud asked
+    for first (each tried against the parts near it only)."""
+    from bricksnap.lab.place import PlaceError, place
+    from bricksnap.lab.validate import _world_bbox, check, numbered_studs
+
+    line, stud = where["line"], where["stud"]
+    by = {p.line: p for p in report.placed}
+    target = by.get(line)
+    if target is None:
+        return []
+    model_lines = trial.splitlines()[:-1]
+    model = "\n".join(model_lines) + "\n"
+    taken = {k for x in report.links if x.holder == line and x.held != n for k in x.studs}
+    studs = numbered_studs(target.part)
+    asked = target.to_world(studs[stud - 1].pos[None, :])[0] if 1 <= stud <= len(studs) else None
+    order = [k for k in range(1, len(studs) + 1) if k != stud and k not in taken]
+    if asked is not None:
+        order.sort(
+            key=lambda k: float(
+                ((target.to_world(studs[k - 1].pos[None, :])[0] - asked) ** 2).sum()
+            )
+        )
+    out: list[int] = []
+    for k in order[:16]:
+        try:
+            kw: dict[str, Any] = {**where, "stud": k}
+            cand = place(model, part, **kw)
+        except PlaceError:
+            continue
+        mine = check(cand.line, movement=False).placed
+        if not mine:
+            continue
+        lo, hi = _world_bbox(mine[0], 4.0)
+        near = []
+        for p in report.placed:
+            if p.line == n:
+                continue
+            plo, phi = _world_bbox(p, 0.0)
+            if (plo <= hi).all() and (phi >= lo).all():
+                near.append(model_lines[p.line - 1])
+        mini = check("\n".join([*near, cand.line]), movement=False)
+        last = len(near) + 1
+        if not any(i.kind == "overlap" and last in i.lines for i in mini.problems):
+            out.append(k)
+        if len(out) == 5:
+            break
+    return out
 
 
 def _sideways_studs(text: str, line: int) -> str:

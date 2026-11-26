@@ -70,3 +70,25 @@ def test_current_number_follows_a_move_and_leaves_a_current_part_alone():
     got = ldraw_lib.current_number("3023")
     assert got is not None and got[0] == "3023b.dat"
     assert ldraw_lib.current_number("3023b") is None and ldraw_lib.current_number("nosuch") is None
+
+
+def test_place_refuses_a_covered_stud_and_names_free_ones(tmp_path):
+    f = folder(tmp_path)
+    tools._place(f, {"part": "3003", "colour": 4, "line": 1, "stud": 1})  # studs 1, 2, 9, 10
+    reply = said(tools._place(f, {"part": "3069b", "colour": 1, "line": 1, "stud": 2}))
+    assert reply.startswith(
+        "ERROR: Not added: stud 2 of line 1 already has line 2 (3003.dat Brick 2 x 2) on it."
+    )
+    assert "Free studs of line 1 that take it with this socket and turn, nearest first: 3," in reply
+    assert len(lines(f)) == 2  # nothing added
+
+
+def test_place_refuses_a_part_that_would_go_into_a_neighbour(tmp_path):
+    f = folder(tmp_path)
+    tools._place(f, {"part": "3005", "colour": 4, "line": 1, "stud": 3})  # a 1 x 1 brick
+    # a 2 x 4 brick on stud 1 reaches over stud 3 and into the 1 x 1 brick
+    reply = said(tools._place(f, {"part": "3001", "colour": 1, "line": 1, "stud": 1}))
+    assert "Not added:" in reply and "line 2 (3005.dat Brick 1 x 1)" in reply
+    assert len(lines(f)) == 2
+    ok = said(tools._place(f, {"part": "3001", "colour": 1, "line": 1, "stud": 17}))
+    assert ok.startswith("Added as line 3")
