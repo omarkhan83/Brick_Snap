@@ -2151,8 +2151,15 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
 
 
 def _clip_fit(p: Placed, q: Placed) -> float | None:
+    """``_clip_hold``'s distance: None when it is not a fit."""
+    got = _clip_hold(p, q)
+    return None if got is None else got[0]
+
+
+def _clip_hold(p: Placed, q: Placed) -> tuple[float, np.ndarray] | None:
     """A clip of p measured on a bar of q: how far the clip's grip (``grip_lines``) is from
-    the bar's centre line, at the bar's point nearest it; None when it is not a fit. For each
+    the bar's centre line, and the point on the bar where it holds (world), at the bar's
+    point nearest it; None when it is not a fit. For each
     grip of p: on each bar of q (``_bar_lines``) that runs along the grip's direction within
     ``CLIP_DEG`` degrees, the bar's point nearest the grip's point; when q has no bar the
     checker can find (23443's handle), the grip's own line. There the grip must hold
@@ -2163,13 +2170,13 @@ def _clip_fit(p: Placed, q: Placed) -> float | None:
         return None
     bars = _bar_lines(q)
     cos = math.cos(math.radians(CLIP_DEG))
-    best = None
+    best: tuple[float, np.ndarray] | None = None
     for gx, gd in grips:
         o = p.to_world(gx)
         d = p.m @ gd
         if not bars:
             if _grip_holds(p, q, o, d):
-                best = 0.0
+                best = (0.0, o)
             continue
         for e0, e1 in bars:
             length = float(np.linalg.norm(e1 - e0))
@@ -2181,7 +2188,8 @@ def _clip_fit(p: Placed, q: Placed) -> float | None:
             x = e0 + float(np.dot(o - e0, u)) * u
             if _grip_holds(p, q, x, u):
                 dist = float(np.linalg.norm(o - x))
-                best = dist if best is None else min(best, dist)
+                if best is None or dist < best[0]:
+                    best = (dist, x)
     return best
 
 
@@ -2775,7 +2783,18 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
 
 LOAD_PER_GRIP = 76800.0  # LDU^3 (filled bodies) a clip may carry: a 2 x 4 brick's
 LOAD_ONE_GRIP = 2_500_000.0  # LDU^4: held out on one clip, volume times its reach from it
-# (a 1 x 8 tile as a blade, 2.15 million, is not told; a 2 x 6 plate as a wing, 2.83, is)
+# from the grip: a 1 x 8 tile or plate held straight out, 2.37 million, is not told; a 2 x 6
+# plate held straight out, 2.78, is. The same 2 x 6 along the bar is 2.27 and is not: no one
+# number tells every 2 x 6 wing and no 1 x 8 blade, and blades are what rule 8 allows.
+
+
+def _grip_point(fit: Issue, by_line: dict[int, Placed]) -> np.ndarray:
+    """Where a clip fit holds: the point on the bar inside the clip's grip (``_clip_hold``),
+    world."""
+    a, b = (by_line[n] for n in fit.lines)
+    clip, bar = (a, b) if f"by the clip of line {a.line} " in fit.text else (b, a)
+    got = _clip_hold(clip, bar)
+    return got[1] if got is not None else clip.pos
 
 
 def clip_loads(report: Report) -> None:
@@ -2786,8 +2805,8 @@ def clip_loads(report: Report) -> None:
     its edge. Its load is the filled volume of all its parts (a strut or an aerial is light
     by its own volume). It is too much when each clip carries more than ``LOAD_PER_GRIP`` (a
     table on clip-held legs), or when one clip holds it and its load times its reach from
-    the clip (to the middle of the load, across) is more than ``LOAD_ONE_GRIP`` (a wing held
-    out on one clip)."""
+    the grip (from where the clip holds the bar to the middle of the load, across) is more
+    than ``LOAD_ONE_GRIP`` (a wing held out on one clip)."""
     report.issues = [i for i in report.issues if i.kind != "held by clips"]
     by_line = {p.line: p for p in report.placed}
     clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
@@ -2816,8 +2835,7 @@ def clip_loads(report: Report) -> None:
             continue
         too_much = vol / len(cross) > LOAD_PER_GRIP
         if len(cross) == 1:
-            i = cross[0]
-            clip = by_line[i.lines[0] if i.lines[0] not in comp else i.lines[1]]
+            grip = _grip_point(cross[0], by_line)
             mid = (
                 sum(
                     p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume()
@@ -2825,7 +2843,7 @@ def clip_loads(report: Report) -> None:
                 )
                 / vol
             )
-            reach = float(np.linalg.norm((mid - clip.pos)[[0, 2]]))
+            reach = float(np.linalg.norm((mid - grip)[[0, 2]]))
             too_much = too_much or vol * reach > LOAD_ONE_GRIP
         if too_much:
             lines = sorted(comp)

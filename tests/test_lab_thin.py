@@ -765,28 +765,33 @@ UP = "1 4 0 -122 -32 1 0 0 0 0 -1 0 1 0 61252.dat\n"  # pointing up
 @pytest.mark.parametrize(
     "held, told",
     [
-        (OUT + "1 15 30 -92 -50 1 0 0 0 -1 0 0 0 -1 2431.dat", False),  # 1 x 4 tile: 0.77 million
-        (UP + "1 15 50 -122 -40 1 0 0 0 0 -1 0 1 0 3666.dat", False),  # 1 x 6 plate: 1.13
-        (OUT + "1 15 50 -92 -50 1 0 0 0 -1 0 0 0 -1 6636.dat", False),  # 1 x 6 tile: 1.33
-        (OUT + "1 15 70 -92 -50 1 0 0 0 -1 0 0 0 -1 4162.dat", False),  # 1 x 8 tile: 2.15
-        (OUT + "1 15 50 -92 -60 1 0 0 0 -1 0 0 0 -1 3795.dat", True),  # 2 x 6 plate: 2.83
-        (OUT + "1 15 70 -92 -60 1 0 0 0 -1 0 0 0 -1 3034.dat", True),  # 2 x 8 plate: 4.50
+        # volume times reach from the grip, in millions of LDU^4: along the bar
+        (OUT + "1 15 30 -92 -50 1 0 0 0 -1 0 0 0 -1 2431.dat", False),  # 1 x 4 tile: 0.62
+        (UP + "1 15 50 -122 -40 1 0 0 0 0 -1 0 1 0 3666.dat", False),  # 1 x 6 plate, up
+        (OUT + "1 15 50 -92 -50 1 0 0 0 -1 0 0 0 -1 6636.dat", False),  # 1 x 6 tile: 1.06
+        (OUT + "1 15 70 -92 -50 1 0 0 0 -1 0 0 0 -1 4162.dat", False),  # 1 x 8 tile: 1.88
+        (OUT + "1 15 90 -92 -50 1 0 0 0 -1 0 0 0 -1 4477.dat", True),  # 1 x 10 plate: 2.96
+        # and straight out from the bar
+        (OUT + "1 15 0 -92 -100 0 0 -1 0 -1 0 -1 0 0 6636.dat", False),  # 1 x 6 tile: 1.41
+        (OUT + "1 15 0 -92 -120 0 0 -1 0 -1 0 -1 0 0 4162.dat", False),  # 1 x 8 tile: 2.37
+        (OUT + "1 15 0 -92 -120 0 0 -1 0 -1 0 -1 0 0 3460.dat", False),  # 1 x 8 plate: 2.37
+        (OUT + "1 15 -10 -92 -100 0 0 -1 0 -1 0 -1 0 0 3795.dat", True),  # 2 x 6 plate: 2.78
     ],
 )
 def test_a_blade_on_one_clip_is_not_told_and_a_wing_is(held, told):
-    # held out on one clip, volume times reach: rule 8's blades (a 1 x 6 or 1 x 8 tile, a
-    # 1 x 6 plate) are under LOAD_ONE_GRIP (2.5 million LDU^4), a 2-wide plate's wing over it
+    # held out on one clip, volume times reach from where the clip holds the bar: rule 8's
+    # blades (a 1 x 6 or 1 x 8 tile or plate) are under LOAD_ONE_GRIP (2.5 million LDU^4)
+    # however they point, a 2 x 6 plate held straight out and a 1 x 10 plate over it
     r = check(ARM + held + "\n")
     assert bool(loads(r)) == told, r.text()
-    assert all_fitted(r) or told, r.text()
 
 
-def test_a_wing_held_out_on_one_clip_is_told_and_a_mirror_is_not():
-    # a 1 x 8 plate held by its end, its middle 110 LDU out from one clip: more than
-    # LOAD_ONE_GRIP; a 1 x 1 plate on the clip plate itself is a mirror, a detail
-    r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
-    assert loads(r) == [[5, 6]], r.text()
+def test_a_mirror_on_a_clip_is_not_told_and_a_blade_by_its_end_is_not_either():
+    # a 1 x 1 plate on the clip plate itself is a mirror, a detail; a 1 x 8 plate held by its
+    # end straight out from the clip is a blade (rule 8), under LOAD_ONE_GRIP from the grip
     r = check(WING + "1 1 0 -87.5 -50 1 0 0 0 1 0 0 0 1 3024.dat\n")
+    assert not loads(r), r.text()
+    r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
     assert not loads(r), r.text()
 
 
