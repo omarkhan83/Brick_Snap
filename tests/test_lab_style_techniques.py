@@ -931,3 +931,14 @@ def test_a_stud_into_a_cut_wall_and_one_that_grazes_it(dx, dy, dz, said):
     t = on(base(), "41770b.dat", 4, 1, stud=20)
     r = check(moved(t, 2, dx=dx, dy=dy, dz=dz), movement=False)
     assert any("where it has no socket" in i.text for i in r.problems) == said, r.text()
+
+
+@pytest.mark.parametrize(
+    "part, n",
+    # cells of the checker's grid the socket grid missed: offered where the cell is wholly
+    # under the part and roofed (2342's two, 4626's two), not where a stud would stand half
+    # outside it (3956, 35463, 19727 keep what they had) or under open space (4508)
+    [("2342", 2), ("4626", 2), ("3956", 3), ("35463", 0), ("19727", 2), ("4508", 1)],
+)
+def test_cells_of_the_checkers_grid_are_offered_only_wholly_under_and_roofed(part, n):
+    assert len(sockets(_part(part + ".dat"))) == n

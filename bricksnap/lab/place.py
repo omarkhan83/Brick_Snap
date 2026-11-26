@@ -17,9 +17,10 @@ Numbering (the same everywhere: ``part_info``, the checker's report, here):
   not whole studs (a curved slope with a cutout): placed with ``place``, such a part passes
   the check. For such a part, cells of the checker's grid that take a stud and that
   ``socket_phase``'s grid missed (its row fell on the cut edge) follow, so that the others
-  keep their numbers (30602's front row). Last, a socket must be one the part's REAL shape
-  takes a stud in: the middle of a stud pointing up from it is not in plastic
-  (``solid.stud_middle_blocked``). The filled body calls the corners of a radar dish's
+  keep their numbers (30602's front row), each only when it is wholly under the part and
+  plastic stands above the stud's top (``_whole_and_roofed``). Last, a socket must be one
+  the part's REAL shape takes a stud in: the middle of a stud pointing up from it is not in
+  plastic (``solid.stud_middle_blocked``). The filled body calls the corners of a radar dish's
   (4740) domed underside sockets, and they are not; a rib or wall at one side of a stud
   (most undersides grip a stud so) leaves a socket a socket.
   ``sockets(part, real=False)`` leaves those last two out (``Part.has_sockets`` uses it).
@@ -97,6 +98,7 @@ class Placement:
 
 
 _REAL_SOCKETS: dict[str, list[Socket]] = {}
+ROOF_REACH = 36  # LDU above a stud's top where ``_whole_and_roofed`` looks for plastic
 
 
 def sockets(part: Part, real: bool = True) -> list[Socket]:
@@ -170,7 +172,8 @@ def _more_on_checker_grid(part: Part, found: list[Socket]) -> list[Socket]:
     ``socket_phase``'s grid missed (a curved slope with a cutout whose box puts that grid's
     row on its cut edge: 30602's front row), after the others so that their numbers stay;
     none within 15 LDU of a grid socket already found (no second cell half a stud off a
-    first)."""
+    first), and only a cell that is wholly under the part and roofed (``_whole_and_roofed``).
+    Each then faces the real-shape test as every socket does."""
     grid = stud_grid(part)
     if tuple(grid) == tuple(part.socket_phase()):
         return []
@@ -180,7 +183,24 @@ def _more_on_checker_grid(part: Part, found: list[Socket]) -> list[Socket]:
         if all(
             np.linalg.norm((s.pos - b)[[0, 2]]) >= (15 if s.kind == "grid" else 2) for s in found
         )
+        and _whole_and_roofed(part, b)
     ]
+
+
+def _whole_and_roofed(part: Part, base: np.ndarray) -> bool:
+    """Is the stud cell at ``base`` wholly under the part (its filled body has an underside at
+    8 points 9 LDU round the stud's axis: no cut edge or curve leaves the stud half outside),
+    and does plastic of the part's drawn surface stand somewhere on the stud's axis above its
+    top, within ``ROOF_REACH`` (an underside the stud's top meets or is housed under, not a
+    slope's open underside or open sky)?"""
+    from bricksnap.lab import solid
+
+    for a in np.linspace(0, 2 * np.pi, 8, endpoint=False):
+        if part.bottom_at(float(base[0] + 9 * np.cos(a)), float(base[2] + 9 * np.sin(a))) is None:
+            return False
+    up = np.array([0.0, -1.0, 0.0])
+    axis = np.array([base + (h + 0.5) * up for h in np.arange(4.0, 4.0 + ROOF_REACH)])
+    return bool(solid.drawn_inside(part.name, axis).any())
 
 
 def _on_checker_grid(part: Part, base: np.ndarray, phase: tuple[float, float]) -> np.ndarray:
