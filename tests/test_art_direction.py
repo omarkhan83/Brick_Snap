@@ -141,6 +141,14 @@ def test_the_parts_of_the_style_guide():
     assert style.critique_intro().startswith("Look at your pictures and answer yes or no.")
 
 
+def test_a_stripe_is_tiles_on_a_skin_or_a_sideways_band_not_a_stack_of_plates():
+    rule = next(ln for ln in style.text().splitlines() if ln.startswith("6. **One livery.**"))
+    division = rule.split("Carry a division unbroken across parts: ")[1]
+    assert division.startswith("a row of tiles of the stripe's colour on a skin, a sideways band")
+    assert "Never a stripe as a stack of plate courses" in rule
+    assert "a plate course only where it is hidden or holds the structure" in rule
+
+
 def test_scale_is_the_largest_the_parts_pay_for():
     scale = dict((k, w) for k, _, w in style.brief_lines())["scale"]
     assert "the largest scale the parts asked for will pay for" in scale
