@@ -744,9 +744,9 @@ def _cap_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         return _error(str(e))
     said = []
     if r.taken:
-        said.append(f"{r.taken} of the studs named were already covered.")
+        said.append(f"Already covered: {r.taken} of the studs named.")
     if r.other_way:
-        said.append(f"{r.other_way} free studs named do not point up (skin is for those).")
+        said.append(f"Not pointing up: {r.other_way} free studs named (skin is for those).")
     if r.kept:
         said.append(
             f"Left showing as you asked: {len(r.kept)} ("
@@ -785,11 +785,11 @@ def _skin_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         return _error(str(e))
     said = []
     if r.taken:
-        said.append(f"{r.taken} of the studs named were already covered.")
+        said.append(f"Already covered: {r.taken} of the studs named.")
     if r.other_way:
         said.append(
-            f"{r.other_way} free studs named point another way"
-            + (" (up: cap is for those)." if facing is None else f" than {facing}.")
+            f"Pointing another way: {r.other_way} free studs named"
+            + (" (up: cap is for those)." if facing is None else f" (not {facing}).")
         )
     left = _left_text(r.left, "Not covered")
     if not r.lines:
