@@ -151,6 +151,10 @@ What it reports, each item naming the line number, the part and its position:
     ``GRIP_HALF`` either side, which also keeps the grip off the bar's end. On a bar the
     library does not draw (23443's handle) the grip's own line is measured. Any angle
     about the bar's line is a fit;
+  - a peg in its hole, for parts made for each other whose peg and hole the library draws
+    as plain shapes (``PEGS``, ``PEG_HOLES``: the steering wheel 30663 on its holder 30640):
+    the peg's base and tip on the hole's line within ``AXLE_LDU``, sharing ``PEG_IN`` LDU of
+    its length (``_peg_fit``);
   each on the line within ``AXLE_DEG`` degrees and ``AXLE_LDU`` LDU. Every other joint is
   KNOWN BY NAME ONLY (severity "not checked", the NOT CHECKED section): a clip with no closed
   grip (the thick U-clip 4085c) or not round its bar, hinge halves, finger hinges, ball and
@@ -175,7 +179,11 @@ What it reports, each item naming the line number, the part and its position:
   stud problem between them and no pin, axle or hole in either (those go into one another
   by design: the library may only lack the joint), for the first ``SUNK_LOOKS`` such parts
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
-  real move onto studs are kept. Parts that reach the ground only through clip grips tested
+  real move onto studs are kept. A loose part touching another where both their names say a
+  joint may be, with no joint the checker knows between them, is told that the checker does
+  not recognise that kind of joint and that moving it a little will not help; a part made for
+  a peg touching its peg's part but off the peg is given the line that puts it on
+  (``_joint_not_known``, ``_on_peg``). Parts that reach the ground only through clip grips tested
   for fit and carry more than a strut, a rail, an aerial, a blade or a mirror
   (``clip_loads``: the filled volume of all of them more than ``LOAD_PER_GRIP`` per clip,
   or held out on one clip beyond ``LOAD_ONE_GRIP``) get a warning naming them and a word in
@@ -1473,7 +1481,38 @@ def _joint_words(a: Placed, b: Placed, region: np.ndarray | None) -> list[str]:
             word = _END_WORDS[x.rstrip("+-")]
             if word not in found:
                 found.append(word)
+    if any(_peg_fit(p, q) is not None for p, q in ((a, b), (b, a))):
+        found.append("peg in its hole")
     return found
+
+
+# Pegs and holes the library draws as plain shapes, with no connector primitive, for a pair
+# of parts made for each other: in the part's own frame, a peg's base and tip, a hole's mouth
+# and end (read from the part files' cylinders).
+PEGS = {
+    "30640.dat": (np.array([0.0, -16.97, 8.686]), np.array([0.0, -24.395, 16.111])),
+}  # the steering wheel holder's pin, 4 LDU round, leaning 45 degrees forward
+PEG_HOLES = {
+    "30663.dat": (np.array([0.0, 4.0, 0.0]), np.array([0.0, -6.5, 0.0])),
+}  # the steering wheel's hole, 4 LDU round, up its own y from its underside
+PEG_IN = 6.0  # LDU of a peg that must be in its hole
+
+
+def _peg_fit(p: Placed, q: Placed) -> float | None:
+    """A peg of p (``PEGS``) in a hole of q (``PEG_HOLES``): the peg's base and tip on the
+    hole's line (within ``AXLE_LDU``, so parallel), sharing at least ``PEG_IN`` LDU of its
+    length: how far it is in; None otherwise."""
+    if p.key not in PEGS or q.key not in PEG_HOLES:
+        return None
+    base, tip = (p.to_world(x) for x in PEGS[p.key])
+    mouth, end = (q.to_world(x) for x in PEG_HOLES[q.key])
+    length = float(np.linalg.norm(end - mouth))
+    u = (end - mouth) / length
+    ta, tb = (float(np.dot(x - mouth, u)) for x in (base, tip))
+    if any(float(np.linalg.norm(x - mouth - t * u)) > AXLE_LDU for x, t in ((base, ta), (tip, tb))):
+        return None
+    got = min(max(ta, tb), length) - max(min(ta, tb), 0.0)
+    return got if got >= PEG_IN else None
 
 
 def _axle_in_hole(p: Placed, q: Placed) -> bool:
@@ -1679,6 +1718,14 @@ def _fit_of(a: Placed, b: Placed, words: list[str]) -> tuple[int, int, str] | No
     only."""
     for word in words:
         for p, q in ((a, b), (b, a)):
+            if word == "peg in its hole":
+                got = _peg_fit(p, q)
+                if got is not None:
+                    return (
+                        p.line,
+                        q.line,
+                        f"on the peg of line {p.line} (in {fmt(round(got, 1))} LDU of its hole)",
+                    )
             if word == "wheel pin":
                 got = _wheel_pin_fit(p, q)
                 if got is not None:
@@ -2965,6 +3012,75 @@ def _way_out(part: Placed, into: Placed) -> tuple[np.ndarray, float] | None:
     return None
 
 
+def _on_peg(part: Placed, holder: Placed) -> str:
+    """The line that puts ``part`` (a ``PEG_HOLES`` part) on ``holder``'s peg (``PEGS``): its
+    hole along the peg, its mouth at the peg's base, turned as little as can be from where
+    it is."""
+    from bricksnap.lab.place import ldraw_line
+
+    base, tip = (holder.to_world(x) for x in PEGS[holder.key])
+    mouth, end = PEG_HOLES[part.key]
+    u = (tip - base) / np.linalg.norm(tip - base)
+    c = part.m @ ((end - mouth) / np.linalg.norm(end - mouth))
+    axis = np.cross(c, u)
+    sin, cos = float(np.linalg.norm(axis)), float(np.dot(c, u))
+    if sin < 1e-9:
+        turn = np.eye(3) if cos > 0 else np.diag([1.0, -1.0, -1.0])
+    else:
+        k = axis / sin
+        kx = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+        turn = np.eye(3) + sin * kx + (1 - cos) * (kx @ kx)
+    m = turn @ part.m
+    return ldraw_line(part.colour, base - m @ mouth, m, part.file)
+
+
+def _unknown_joint_words(p: Placed) -> list[str]:
+    """The words of p's name that say it joins some way the checker has no rule for: a word
+    with no joint end (``_NAME_END``: a chain, a hose, a rotor, a swivel...), or "wheel" on a
+    part that is not a wheel (a steering wheel); none when the part also has a joint the
+    checker knows (a connector, or a word such as "pins")."""
+    desc = p.part.description.lower()
+    words = p.part.name_joint_words()
+    unknown = [
+        w
+        for w in words
+        if _NAME_END.get(w) is None or (_NAME_END[w] == "rim" and not desc.startswith("wheel"))
+    ]
+    if any(c.kind in _GEO_END for c in p.part.others) or len(unknown) < len(words):
+        return []  # it has a joint the checker knows: its other words are about that one
+    return unknown
+
+
+def _joint_not_known(comp, others, by_line, lab) -> str:  # type: ignore[no-untyped-def]
+    """For a loose group: words when one of its parts touches another part where both their
+    names say a joint may be (``name_joint_words``), one of them a kind the checker has no
+    rule for (``_unknown_joint_words``), and no joint the checker knows joins them, so
+    nudging coordinates will not help; for a part made for a peg (``PEG_HOLES``) touching
+    its peg (``PEGS``) but off it, the line that puts it on."""
+    for n in comp:
+        part = by_line[n]
+        for o in others:
+            if not _touches(part, o) and not _touches(o, part):
+                continue
+            if part.key in PEG_HOLES and o.key in PEGS:
+                return (
+                    f" It touches {lab(o)}, made to take it on its peg, but is not on the peg: "
+                    f"its hole must run along the peg. This line puts it there: {_on_peg(part, o)}"
+                )
+            mine, theirs = part.part.name_joint_words(), o.part.name_joint_words()
+            words = sorted(set(mine) | set(theirs))
+            unknown = _unknown_joint_words(part) + _unknown_joint_words(o)
+            if mine and theirs and unknown and not _joint_words(part, o, None):
+                return (
+                    f" It touches {lab(o)}, where their names say a joint may be "
+                    f"({', '.join(words)}), but the checker does not recognise that kind of "
+                    "joint between these parts, so moving it a little will not help. Hold it by "
+                    "studs or by a joint the checker knows (a pin, an axle, a bar in a clip or "
+                    "a hollow), or choose parts made to join that way."
+                )
+    return ""
+
+
 def _loose_text(comp, placed, by_line, bottom_pts, lab) -> str:  # type: ignore[no-untyped-def]
     first = by_line[comp[0]]
     others = [p for p in placed if p.line not in comp]
@@ -2976,7 +3092,12 @@ def _loose_text(comp, placed, by_line, bottom_pts, lab) -> str:  # type: ignore[
         f"Loose: {who} {'is' if len(comp) == 1 else 'are'} not connected to anything that "
         "reaches the ground; nothing holds " + ("it" if len(comp) == 1 else "them") + "."
     )
-    if not len(pts) or not others:
+    if not others:
+        return text
+    said = _joint_not_known(comp, others, by_line, lab)
+    if said:
+        return text + said
+    if not len(pts):
         return text
     low_y = float(pts[:, 1].max())
     lo, hi = pts[:, [0, 2]].min(0), pts[:, [0, 2]].max(0)
