@@ -177,13 +177,15 @@ What it reports, each item naming the line number, the part and its position:
   of a check, with at most 2 + ``WAY_TRIES`` real-shape measurements each; words that name a
   real move onto studs are kept. Parts that reach the ground only through clip grips tested
   for fit and carry more than a strut, a rail, an aerial, a blade or a mirror
-  (``clip_loads``: the filled volume of all of them more than ``LOAD_PER_GRIP`` per clip,
-  or held out on one clip beyond ``LOAD_ONE_GRIP``) get a warning naming them and a word in
+  (``clip_loads``: the filled volume of all of them, with all that hangs from them, more
+  than ``LOAD_PER_GRIP`` per clip, or that volume times its reach from the grips more than
+  ``LOAD_ONE_GRIP`` per clip) get a warning naming them and a word in
   the summary: they reach the ground only through N clips, and the checker cannot judge
-  whether clips will carry that much. Two official models trip it (75075 and 31066: their
-  designers carry weight on several clips; 40379 did under the first, stricter limit for one
-  clip); it was kept on purpose, for every model, as a warning that never becomes a problem:
-  it is not a false alarm to fix.
+  whether clips will carry that much. Three official models trip it (75075 and 31066: their
+  designers carry weight on several clips; 40433: a windscreen and a wedge as a canopy on
+  two clips, its middle 50 LDU out from them); it was kept on
+  purpose, for every model, as a warning that never becomes a problem: it is not a false
+  alarm to fix.
 - Whether it stands: the centre of the filled bodies (taken as the centre of mass) must lie
   over the convex outline of what touches the ground.
 - What moves (``movement.apply``): when the model has joint lines (``joints``), whether each
@@ -1764,6 +1766,7 @@ GRIP_CLEAR = 3.0  # LDU: a grip has none of the clip at this radius (room for a 
 GRIP_REACH = 8.0  # LDU a grip is looked for either side of a clip primitive's point
 GRIP_TURN = 15.0  # degrees between the directions tried square to a clip primitive's axis
 GRIP_STEP = 1.0  # LDU between the points tried
+GRIP_POINTS = 12  # points on each circle the search tries (``_clip_ring``)
 GRIP_RING = 7  # of 12 points on that circle the clip must fill: more than half, a closed grip
 BAR_BOX = 13.0  # LDU: a bar part's box is no wider than this across (a bar with a stop: 12)
 JOINT_SNUG_DEPTH = 1.5  # LDU: a joint known only by name may share a piece less deep than this
@@ -2060,7 +2063,7 @@ _GRIPS: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {}
 def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ignore[no-untyped-def]
     """``_ring_count`` on a part's own solid, in its own frame."""
     u, v = _perp(d)
-    ang = np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    ang = np.linspace(0, 2 * math.pi, GRIP_POINTS, endpoint=False)
     pts = x + r * (np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * v)
     return int(sol.inside(pts, deep=False).sum())
 
@@ -2068,13 +2071,18 @@ def _clip_ring(sol, x: np.ndarray, d: np.ndarray, r: float) -> int:  # type: ign
 def _grip_key() -> dict[str, object]:
     """What a stored grip was found under (``grip_lines``): if any of it changes, the stored
     grip is stale."""
-    from bricksnap.lab import solid
+    import hashlib
 
+    from bricksnap.lab import ldraw_lib, solid
+
+    words = ldraw_lib.NAME_JOINT_WORDS  # which parts with no clip primitive are searched
     return {
         "library": library().stamp,
         "solid": solid.VERSION,
         "search": GRIP_VERSION,
         "numbers": [GRIP_R, GRIP_RING, GRIP_HALF, GRIP_CLEAR, GRIP_REACH, GRIP_TURN, GRIP_STEP],
+        "points": GRIP_POINTS,
+        "names": hashlib.sha256(f"{words.flags} {words.pattern}".encode()).hexdigest()[:16],
     }
 
 
@@ -2092,8 +2100,10 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
     (``_clip_fit``) and the builder's ``clip`` tool both use this. What the search finds is
     kept on disk (``cache_dir()/grips``, a file per part) with the key it was found under
     (``_grip_key``): the library's stamp (as the parts and solids caches are), the solid's
-    version, ``GRIP_VERSION`` and every number the search uses. A stored grip whose key is
-    not today's is searched for again."""
+    version, ``GRIP_VERSION``, every number the search uses (with ``GRIP_POINTS``, the points
+    on each circle) and the name rule that says which parts with no clip primitive are clips
+    (``ldraw_lib.NAME_JOINT_WORDS``). A stored grip whose key is not today's is searched for
+    again."""
     if key in _GRIPS:
         return _GRIPS[key]
     import json
@@ -2165,8 +2175,15 @@ def grip_lines(key: str) -> list[tuple[np.ndarray, np.ndarray]]:
 
 
 def _clip_fit(p: Placed, q: Placed) -> float | None:
+    """``_clip_hold``'s distance: None when it is not a fit."""
+    got = _clip_hold(p, q)
+    return None if got is None else got[0]
+
+
+def _clip_hold(p: Placed, q: Placed) -> tuple[float, np.ndarray] | None:
     """A clip of p measured on a bar of q: how far the clip's grip (``grip_lines``) is from
-    the bar's centre line, at the bar's point nearest it; None when it is not a fit. For each
+    the bar's centre line, and the point on the bar where it holds (world), at the bar's
+    point nearest it; None when it is not a fit. For each
     grip of p: on each bar of q (``_bar_lines``) that runs along the grip's direction within
     ``CLIP_DEG`` degrees, the bar's point nearest the grip's point; when q has no bar the
     checker can find (23443's handle), the grip's own line. There the grip must hold
@@ -2177,13 +2194,13 @@ def _clip_fit(p: Placed, q: Placed) -> float | None:
         return None
     bars = _bar_lines(q)
     cos = math.cos(math.radians(CLIP_DEG))
-    best = None
+    best: tuple[float, np.ndarray] | None = None
     for gx, gd in grips:
         o = p.to_world(gx)
         d = p.m @ gd
         if not bars:
             if _grip_holds(p, q, o, d):
-                best = 0.0
+                best = (0.0, o)
             continue
         for e0, e1 in bars:
             length = float(np.linalg.norm(e1 - e0))
@@ -2195,7 +2212,8 @@ def _clip_fit(p: Placed, q: Placed) -> float | None:
             x = e0 + float(np.dot(o - e0, u)) * u
             if _grip_holds(p, q, x, u):
                 dist = float(np.linalg.norm(o - x))
-                best = dist if best is None else min(best, dist)
+                if best is None or dist < best[0]:
+                    best = (dist, x)
     return best
 
 
@@ -2789,19 +2807,66 @@ def check(text: str, lib: Library | None = None, movement: bool = True) -> Repor
 
 LOAD_PER_GRIP = 76800.0  # LDU^3 (filled bodies) a clip may carry: a 2 x 4 brick's
 LOAD_ONE_GRIP = 2_500_000.0  # LDU^4: held out on one clip, volume times its reach from it
-# (a 1 x 8 tile as a blade, 2.15 million, is not told; a 2 x 6 plate as a wing, 2.83, is)
+# from the grip: a 1 x 8 tile or plate held straight out, 2.37 million, is not told; a 2 x 6
+# plate held straight out, 2.78, is. The same 2 x 6 along the bar is 2.27 and is not: no one
+# number tells every 2 x 6 wing and no 1 x 8 blade, and blades are what rule 8 allows.
+
+
+def _grip_point(fit: Issue, by_line: dict[int, Placed]) -> np.ndarray:
+    """Where a clip fit holds: the point on the bar inside the clip's grip (``_clip_hold``),
+    world."""
+    a, b = (by_line[n] for n in fit.lines)
+    clip, bar = (a, b) if f"by the clip of line {a.line} " in fit.text else (b, a)
+    got = _clip_hold(clip, bar)
+    return got[1] if got is not None else clip.pos
+
+
+def _reach_out(mid: np.ndarray, grips: list[np.ndarray]) -> float:
+    """How far a load's middle is, across (x and z), outside what holds it: from one grip,
+    the distance to it; from several, to the outline round them (none when it is inside)."""
+    pts = [(float(g[0]), float(g[2])) for g in grips]
+    m = (float(mid[0]), float(mid[2]))
+
+    def cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def to_edge(a: tuple[float, float], b: tuple[float, float]) -> float:
+        ab = (b[0] - a[0], b[1] - a[1])
+        n = ab[0] ** 2 + ab[1] ** 2
+        t = 0.0 if n < 1e-12 else ((m[0] - a[0]) * ab[0] + (m[1] - a[1]) * ab[1]) / n
+        t = min(1.0, max(0.0, t))
+        return math.hypot(m[0] - a[0] - t * ab[0], m[1] - a[1] - t * ab[1])
+
+    hull: list[tuple[float, float]] = []  # the convex outline, anticlockwise (Andrew's chain)
+    for side in (sorted(set(pts)), sorted(set(pts))[::-1]):
+        part: list[tuple[float, float]] = []
+        for q in side:
+            while len(part) >= 2 and cross(part[-2], part[-1], q) <= 1e-9:
+                part.pop()
+            part.append(q)
+        hull += part[:-1]
+    if len(hull) <= 1:
+        return math.hypot(m[0] - pts[0][0], m[1] - pts[0][1])
+    edges = list(zip(hull, hull[1:] + hull[:1], strict=True))
+    if len(hull) >= 3 and all(cross(a, b, m) >= 0 for a, b in edges):
+        return 0.0
+    return min(to_edge(a, b) for a, b in edges)
 
 
 def clip_loads(report: Report) -> None:
     """Parts that reach the ground only through clip grips tested for fit, when they are more
     than a strut, a rail, an aerial, a blade or a mirror: a warning of kind "held by clips"
     naming them, and the summary says so. Group the parts joined by anything but clip grips;
-    a group that is not on the ground that way but is with them hangs on the clips that cross
-    its edge. Its load is the filled volume of all its parts (a strut or an aerial is light
-    by its own volume). It is too much when each clip carries more than ``LOAD_PER_GRIP`` (a
-    table on clip-held legs), or when one clip holds it and its load times its reach from
-    the clip (to the middle of the load, across) is more than ``LOAD_ONE_GRIP`` (a wing held
-    out on one clip)."""
+    a group that is not on the ground that way hangs on the clips toward the ground (to the
+    groups the fewest clips from it), and carries its share of every group hanging from it,
+    so weight added at the end of an arm reaches the clip that holds the arm. Its load is the
+    filled volume of all those parts (a strut or an aerial is light by its own volume). It is
+    too much when each clip carries more than ``LOAD_PER_GRIP`` (a
+    table on clip-held legs), or when its load times its reach, shared among its clips, is
+    more than ``LOAD_ONE_GRIP`` a clip (a wing held out on one clip or on two side by side).
+    Reach is across (x and z), from the middle of the load to where the clips hold their bars
+    (``_grip_point``): to the one grip, or to the outline round several (``_reach_out``; none
+    when the load is over it, as a table on its legs)."""
     report.issues = [i for i in report.issues if i.kind != "held by clips"]
     by_line = {p.line: p for p in report.placed}
     clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
@@ -2809,51 +2874,70 @@ def clip_loads(report: Report) -> None:
         return
     joints = [i for i in report.issues if i.kind == "joint" and len(i.lines) == 2]
 
-    def grouped(with_clips: bool) -> _Groups:
+    def grouped() -> _Groups:  # joined by anything but clip grips
         g = _Groups(list(by_line))
         for link in report.links:
             g.join(link.holder, link.held)
         for i in joints:
-            if with_clips or i not in clip_fits:
+            if i not in clip_fits:
                 g.join(i.lines[0], i.lines[1])
         return g
 
+    told: list[tuple[list[int], int]] = []
     ground = set(report.grounded)
-    held = [c for c in grouped(True).groups() if ground & set(c)]
-    for comp in grouped(False).groups():
-        if ground & set(comp) or not any(set(comp) <= set(c) for c in held):
+    groups = [sorted(c) for c in grouped().groups()]
+    of = {n: k for k, c in enumerate(groups) for n in c}
+    edges = [(of[i.lines[0]], of[i.lines[1]], i) for i in clip_fits]
+    edges = [e for e in edges if e[0] != e[1]]
+    depth = {k: 0 for k, c in enumerate(groups) if ground & set(c)}
+    todo = list(depth)
+    while todo:  # how many clips each group is from the ground, the fewest
+        nxt = []
+        for k in todo:
+            for x, y, _ in edges:
+                for here, there in ((x, y), (y, x)):
+                    if here == k and there not in depth:
+                        depth[there] = depth[k] + 1
+                        nxt.append(there)
+        todo = nxt
+    # each group carries itself and its share of every group hanging from it, to the clips
+    # toward the ground: (volume, volume times middle, lines)
+    carried: dict[int, list] = {}
+    for k in sorted((k for k in depth if depth[k] > 0), key=lambda k: -depth[k]):
+        own = [by_line[n] for n in groups[k]]
+        vol = sum(p.part.volume() for p in own) + sum(c[0] for c in carried.get(k, []))
+        mass = sum(
+            (p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume() for p in own),
+            np.zeros(3),
+        ) + sum((c[1] for c in carried.get(k, [])), np.zeros(3))
+        lines = set(groups[k]).union(*(c[2] for c in carried.get(k, [])))
+        up = [(x if y == k else y, i) for x, y, i in edges if k in (x, y)]
+        up = [(g, i) for g, i in up if depth[g] == depth[k] - 1]
+        for g, _ in up:
+            carried.setdefault(g, []).append((vol / len(up), mass / len(up), lines))
+        if vol <= 0:
             continue
-        cross = [i for i in clip_fits if (i.lines[0] in comp) != (i.lines[1] in comp)]
-        load = [by_line[n] for n in comp]
-        vol = sum(p.part.volume() for p in load)
-        if not cross or vol <= 0:
+        reach = _reach_out(mass / vol, [_grip_point(i, by_line) for _, i in up])
+        if vol / len(up) > LOAD_PER_GRIP or vol * reach / len(up) > LOAD_ONE_GRIP:
+            told.append((sorted(lines), len(up)))
+    kept: list[tuple[list[int], int]] = []
+    for lines, n in sorted(told, key=lambda t: -len(t[0])):  # the nearest the ground first
+        if any(set(lines) <= set(k) for k, _ in kept):
             continue
-        too_much = vol / len(cross) > LOAD_PER_GRIP
-        if len(cross) == 1:
-            i = cross[0]
-            clip = by_line[i.lines[0] if i.lines[0] not in comp else i.lines[1]]
-            mid = (
-                sum(
-                    p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume()
-                    for p in load
-                )
-                / vol
+        kept.append((lines, n))
+        report.issues.append(
+            Issue(
+                "warning",
+                "held by clips",
+                lines,
+                f"{_lines(lines).capitalize()} reach the ground only through "
+                f"{'a clip' if n == 1 else f'{n} clips'}. The checker cannot judge whether "
+                "clips will carry this much. If it has to bear weight, hold it with studs or "
+                "a pin.",
             )
-            reach = float(np.linalg.norm((mid - clip.pos)[[0, 2]]))
-            too_much = too_much or vol * reach > LOAD_ONE_GRIP
-        if too_much:
-            lines = sorted(comp)
-            report.issues.append(
-                Issue(
-                    "warning",
-                    "held by clips",
-                    lines,
-                    f"{_lines(lines).capitalize()} reach the ground only through "
-                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. The checker "
-                    "cannot judge whether clips will carry this much. If it has to bear "
-                    "weight, hold it with studs or a pin.",
-                )
-            )
+        )
+    # a warning names the group nearest the ground with all it carries: one inside it is not
+    # named again
 
 
 def held_only_item(
