@@ -6,9 +6,10 @@ sessions into projects a person keeps: in the same projects folder as the models
 pictures, and every run kept so an earlier one can be brought back. It holds no web code, so
 the command line (``bricksnap make``) and the web app use the same functions.
 
-CONTRACT (tests in tests/test_freebuild.py; no test starts a real AI session: ``lab.run.build``
-is replaced, and pictures are drawn by stand-ins for ``picture.model_sheet`` and
-``picture.turntable``)
+CONTRACT (tests in tests/test_freebuild.py, the outside eye and polishing in
+tests/test_polish.py; no test starts a real AI session: ``lab.run.build`` and
+``runner.run_session`` are replaced, and pictures are drawn by stand-ins for
+``picture.model_sheet`` and ``picture.turntable``)
 
 A free-build project is a folder ``<projects>/<slug>/`` holding:
 
@@ -45,7 +46,9 @@ A free-build project is a folder ``<projects>/<slug>/`` holding:
     runs/NNNN/     each run (the first build, each change, an imported model): the same
                    files, record.json (what the run entry says), and for a run made here
                    work/, the lab's work folder (attempts, calls.jsonl, the redacted
-                   transcript). Nothing in work/ is ever shown by the web app.
+                   transcript). Nothing in work/ is ever shown by the web app. A run an
+                   outside eye looked at (``critique``) also has critique.json (its answer)
+                   and critic/ (what it was shown and its redacted transcript; never served).
 
 A run entry (``project.json`` "runs", oldest first) is ``{"n", "kind": "first" | "change" |
 "imported", "words", "created", "ok", "error", "has_model", "parts", "kinds", "summary",
@@ -58,7 +61,8 @@ whose record has the art direction (``lab.art.record``) also has "art": true, "b
 (its last, or null), "brief_story" (versions, whether it was carried from an earlier run and
 which, how many parts were in when it was first written, the last reason), "critique" (its
 last, with the facts it answered and their mismatches with the brief, or null), "critiques",
-"first_no", "built_without_brief" and "ended_without_critique". ``summary`` is the checker's
+"first_no", "built_without_brief" and "ended_without_critique". A change made by ``polish``
+also has "polish" (the outside eye's fixes it was asked for, below). ``summary`` is the checker's
 one-line summary; ``clean`` is true when it found no problems; ``unchecked`` counts the
 joints known by name only, whose fit it has not measured (hinges, ball joints: counted as
 joined without proof). Since 20 November studs, pins, axles, bars, wheels and most clips on bars
@@ -127,8 +131,31 @@ Functions
 - ``restore(folder, n)``: make run ``n`` the current one again (its files copied back to the
   top of the folder); the other runs stay.
 - ``describe(folder)``: everything a page or the command line shows about the project
-  (with ``moves`` and ``opened``, the path of pictures/opened.png or None, ``guide``, and
-  the current run's art direction fields, ``ART_KEYS``, each None when it has none).
+  (with ``moves`` and ``opened``, the path of pictures/opened.png or None, ``guide``, the
+  current run's art direction fields, ``ART_KEYS``, each None when it has none, and its
+  ``polish``, or None).
+- An outside eye (25 November; the builder's own critique is lenient). ``critique(folder,
+  on_say=None, model=None)``: one short clean-room session (``lab.critic``: our tools only,
+  the person's own login, the project's model unless ``model``, ``critic.MAX_TURNS`` replies
+  and ``critic.TIMEOUT_S`` seconds) shown only ``critic_inputs``: the current run's
+  pictures/sheet.png and turn views ``CRITIC_VIEWS``, the reference pictures, the project's
+  words and the person's changes since (the latest ``MAX_CHANGES_SHOWN``; never a polish's
+  words), the run's brief (``art.brief_lines``) and its HOW IT LOOKS lines (``looks.section``
+  of the run's record, else measured as ``remembered_looks``). Never the builder's
+  transcript, notes, report or self-critique. It answers with up to five fixes, each
+  ``{"where", "fix"}``, the most visible first, and what to ``keep``, kept as
+  runs/NNNN/critique.json of the run it looked at and returned. No model, no pictures, or no
+  list (a session that failed or never called its tool) is a ``FreeBuildError`` and the
+  usage limit a ``UsageLimitError``, as for ``build``; nothing is changed.
+- ``polish(folder, on_say=None, on_critique=None, model=None)``: ``critique``, then one change
+  (``build``) whose words are ``polish_words``: the fixes numbered, what to keep, and
+  ``POLISH_TAIL`` ("Keep everything else as it is; then look from every side and hand it
+  in."). The new run's entry and record get "polish" (``{"of_run", "fixes", "keep", "model",
+  "seconds", "cost_usd_reported"}``); ``on_critique`` gets the critique as soon as it exists.
+  No fix asked for: ``NothingToPolish`` (with the critique) and no change run.
+  ``critic_time_and_cost``, ``polish_time_and_cost(parts, model)`` and ``polish_estimate(parts,
+  model, after_build)`` say what it costs (``CRITIC_MINUTES``, ``CRITIC_DOLLARS``: an
+  estimate, none on record), the page by the same arithmetic.
 - ``missing()``: None when a run can start, else what is missing (the LDraw library zip,
   LeoCAD, xvfb-run) and exactly where to put it, in plain words.
 - ``reference_sheet(project_folder, out_png)``: pictures of an ordinary project's 3D model
@@ -162,15 +189,18 @@ KIND = "free"
 MAX_WORDS = 2000
 MAX_NAME = 80
 MIN_PARTS, MAX_PARTS, DEFAULT_PARTS = 20, 600, 80
-MAX_TURNS = 90  # the least a session gets; ``limits`` gives more for more parts
+MAX_TURNS = 120  # the least a session gets; ``limits`` gives more for more parts
 MAX_CHECKS = 25
 TIMEOUT_S = 5400
 # Claude Code's --max-turns limits the model's replies (one reply may call several tools);
 # the "turns" a session reports (num_turns) count its tool calls and its answer. The Cessna of
 # 20 November reported 103 turns under a limit of 90 and finished: its 102 tool calls came in
 # 43 replies. Replies per part on record: 0.21 (Cessna, 206 parts), 0.08 (guitar, 283), 0.32
-# (cat, 96); ``REPLIES_PER_PART`` leaves room above the most.
-REPLIES_PER_PART = 0.35
+# (cat, 96). On 25 November a guide-mode build on Opus 5.5 (a sports car asked at 300 parts) used
+# all of its 105 replies at 174 parts, about 0.6 a part: Opus makes fewer calls in each reply,
+# and guide mode adds the brief, the halfway look and the critique. ``REPLIES_PER_PART`` leaves
+# room above that, so a build stops because it is done, not because its replies ran out.
+REPLIES_PER_PART = 1.0
 PARTS_PER_CHECK = 8  # no run on record used more than 7 checks
 SECONDS_PER_PART = 18
 # How long builds took (minutes per part, low and high, in hundredths): 71 parts in 5
@@ -182,6 +212,17 @@ MINUTES_PER_PART_100 = (9, 20)
 DOLLARS_PER_100_PARTS = (2, 7)
 LARGEST_ON_RECORD = 290
 EFFORT = "high"
+# The outside eye (``critique``, ``lab.critic``): what it is shown of the model (the sheet and
+# four of the twelve turn views: front-left, front-right, back-right, back-left), where its
+# files go in the run it looked at, and what a person is told it costs. No run of it is on
+# record yet: a few pictures and three replies, well under a dollar at Fable's list price.
+CRITIC_DIR = "critic"
+CRITIQUE_FILE = "critique.json"
+CRITIC_EFFORT = "high"
+CRITIC_VIEWS = (0, 3, 6, 9)
+CRITIC_MINUTES = (2, 5)
+CRITIC_DOLLARS = 1
+MAX_CHANGES_SHOWN = 5  # the person's latest changes the outside eye is told of
 # The Claude models a person may choose for a free build, the default first. Fable 5.2 builds
 # the more refined models (docs/decisions/2026-11-19-the-designer-uses-fable-5-2-unless-told-
 # otherwise.md); Opus 5.5 costs half as much per word at list prices ($4 and $20 for a
@@ -682,8 +723,8 @@ def size(parts: Any) -> int:
 def limits(parts: Any) -> dict[str, int]:
     """What one session may use for a model of about ``parts`` parts (``size``): replies
     (``--max-turns``), checks and seconds, each the larger of the fixed least (``MAX_TURNS``,
-    ``MAX_CHECKS``, ``TIMEOUT_S``) and a share per part (0.35 replies, one check for every 8
-    parts, 18 seconds). 600 parts get 210 replies, 75 checks and three hours."""
+    ``MAX_CHECKS``, ``TIMEOUT_S``) and a share per part (one reply, one check for every 8
+    parts, 18 seconds). 600 parts get 600 replies, 75 checks and three hours."""
     n = size(parts)
     return {
         "max_turns": max(MAX_TURNS, math.ceil(n * REPLIES_PER_PART)),
@@ -1249,6 +1290,286 @@ def usage_limits(projects_dir: Path, now: float | None = None) -> list[dict[str,
     return out
 
 
+# ---- an outside eye, and polishing with what it asks for ----------------------------------
+
+
+class NothingToPolish(FreeBuildError):
+    """The outside eye asked for no fix, so no change was made; its critique is ``critique``."""
+
+    def __init__(self, message: str, critique: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.critique = critique
+
+
+_CRITIC_VIEWS = {
+    0: "from the front-left, a little above",
+    3: "from the front-right, a little above",
+    6: "from the back-right, a little above",
+    9: "from the back-left, a little above",
+}
+
+
+def critic_inputs(folder: Path) -> tuple[list[tuple[Path, str]], list[tuple[Path, str]], str]:
+    """Everything the outside eye is shown of the current model, and nothing else: its
+    pictures (the sheet and four of the turn views, ``CRITIC_VIEWS``), the reference pictures
+    (``references_of``), and the message (``critic.message``: the words it was built from,
+    the person's changes since, the brief's lines and the HOW IT LOOKS lines)."""
+    from bricksnap.lab import critic
+
+    meta = read_meta(folder)
+    current = meta.get("current")
+    runs = [r for r in meta.get("runs") or [] if isinstance(r, dict)]
+    now = next((r for r in runs if r.get("n") == current), None) or {}
+    pics = folder / PICTURES_DIR
+    pictures: list[tuple[Path, str]] = []
+    if (pics / "sheet.png").is_file():
+        pictures.append(
+            (
+                pics / "sheet.png",
+                "a sheet of three views: from the front-left above, from the back-right above, "
+                "and straight from the front",
+            )
+        )
+    for k in CRITIC_VIEWS:
+        if (pics / f"turn-{k:02d}.png").is_file():
+            pictures.append((pics / f"turn-{k:02d}.png", _CRITIC_VIEWS.get(k, f"view {k + 1}")))
+    if not pictures:
+        raise FreeBuildError(
+            "This model has no pictures, so an outside eye has nothing to look at. Nothing was "
+            "changed."
+        )
+    references = []
+    for path in references_of(folder):
+        if path.name == MODEL_SHEET:
+            said = "the 3D model the person gave, drawn from five sides"
+        elif path.name == REFERENCE_SHEET:
+            said = "the 3D model of one of their models it should look like, from five sides"
+        else:
+            said = "a picture the person gave of what to build"
+        references.append((path, said))
+    changes = [
+        _short(str(r.get("words") or ""), 300)
+        for r in runs
+        if r.get("kind") == "change"
+        and not r.get("polish")
+        and str(r.get("words") or "").strip()
+        and isinstance(r.get("n"), int)
+        and isinstance(current, int)
+        and r["n"] <= current
+    ][-MAX_CHANGES_SHOWN:]
+    brief = ""
+    if isinstance(now.get("brief"), dict):
+        with contextlib.suppress(Exception):  # a damaged brief is simply not shown
+            from bricksnap.lab.art import brief_lines
+
+            brief = brief_lines(now["brief"])
+    text = critic.message(
+        str(meta.get("words") or ""), changes, brief, _critic_looks(folder, now), len(references)
+    )
+    return pictures, references, text
+
+
+def _critic_looks(folder: Path, now: dict[str, Any]) -> str:
+    """The HOW IT LOOKS lines for the current run (``looks.section``), or ""."""
+    import dataclasses
+
+    from bricksnap.lab import looks
+
+    rec = now.get("looks") if isinstance(now.get("looks"), dict) else None
+    if rec is None and now.get("has_model"):
+        rec = remembered_looks(folder / "model.ldr")
+    if not rec:
+        return ""
+    try:
+        got = looks.Looks(**{f.name: rec[f.name] for f in dataclasses.fields(looks.Looks)})
+        return looks.section(got)
+    except Exception:  # advice only: a record that cannot be read is not shown
+        return ""
+
+
+def critique(
+    folder: Path, on_say: Callable[[str], None] | None = None, model: str | None = None
+) -> dict[str, Any]:
+    """An outside eye on the current model: one short clean-room session (``lab.critic``)
+    shown only ``critic_inputs``, with the project's model (or ``model``). Keeps what it was
+    shown and its transcript in ``runs/NNNN/critic/`` and its answer in
+    ``runs/NNNN/critique.json`` (the run it looked at) and returns that: ``{"run", "fixes":
+    [{"where", "fix"}, ...], "keep", "model", "created", "seconds", "turns",
+    "cost_usd_reported", "shown"}``. Raises ``FreeBuildError`` when there is no model or no
+    list came back, ``UsageLimitError`` at the usage limit; nothing is changed either way."""
+    from bricksnap.lab import critic
+
+    say = on_say or (lambda line: None)
+    meta = read_meta(folder)
+    current = meta.get("current")
+    now = next(
+        (r for r in meta.get("runs") or [] if isinstance(r, dict) and r.get("n") == current), None
+    )
+    if not isinstance(current, int) or not now or not (folder / "model.ldr").is_file():
+        raise FreeBuildError(
+            "There is no model here yet, so there is nothing for an outside eye to look at. "
+            "Build it first."
+        )
+    pictures, references, text = critic_inputs(folder)
+    used = str(model or meta.get("model") or DEFAULT_MODEL)
+    dest = run_dir(folder, current) / CRITIC_DIR
+    critic.prepare(dest, pictures, references)
+    say(
+        "An outside eye looks at the model: only its pictures, the words it was built from, its "
+        "art direction and how it measures, never how it was built"
+    )
+
+    def hear(event: dict[str, Any]) -> None:
+        for line in critic.progress(event):
+            say(line)
+
+    done = critic.run(dest, text, model=used, effort=CRITIC_EFFORT, on_event=hear)
+    if done.usage_limit:
+        error = usage_limit_error(
+            used, done.limit_resets, {"has_model": False}, "change", done.limit_resets_at
+        )
+        note_limit(folder.parent, error)
+        raise error
+    answer = critic.read_answer(dest)
+    if not done.ok or answer is None:
+        why = done.error or "it stopped without giving its list."
+        raise FreeBuildError(f"The outside eye did not give its list: {why} Nothing was changed.")
+    clear_limit(folder.parent, used)
+    found = {
+        "run": current,
+        "fixes": answer["fixes"],
+        "keep": answer["keep"],
+        "model": used,
+        "created": time.time(),
+        "seconds": round(done.duration_s, 1),
+        "turns": done.turns,
+        "cost_usd_reported": done.cost_usd,
+        "shown": {"pictures": [said for _, said in pictures], "references": len(references)},
+    }
+    _write(run_dir(folder, current) / CRITIQUE_FILE, json.dumps(found, indent=1) + "\n")
+    return found
+
+
+POLISH_HEAD = (
+    "An outside eye looked at the model's pictures and asked for these fixes, the most visible "
+    "first:"
+)
+POLISH_TAIL = "Keep everything else as it is; then look from every side and hand it in."
+
+
+def polish_words(found: dict[str, Any]) -> str:
+    """The change a polish asks for: the critic's fixes, numbered, what to keep, and
+    ``POLISH_TAIL``. The critic's limits keep it within ``MAX_WORDS``."""
+
+    def sentence(text: str) -> str:
+        text = text.strip()
+        return text if text.endswith((".", "!", "?")) else text + "."
+
+    lines = [POLISH_HEAD]
+    for k, f in enumerate(found.get("fixes") or [], 1):
+        where = str(f["where"]).strip()
+        lines.append(f"{k}. {where[:1].upper() + where[1:]}: {sentence(str(f['fix']))}")
+    keep = str(found.get("keep") or "").strip()
+    if keep:
+        lines.append(f"What already works, and must be kept: {sentence(keep)}")
+    lines.append(POLISH_TAIL)
+    return "\n".join(lines)
+
+
+def polish(
+    folder: Path,
+    on_say: Callable[[str], None] | None = None,
+    *,
+    on_critique: Callable[[dict[str, Any]], None] | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """``critique``, then one change run (``build``) whose words are ``polish_words``. The new
+    run's entry gets ``"polish"``: ``{"of_run", "fixes", "keep", "model", "seconds",
+    "cost_usd_reported"}`` (the critique; also when the change stopped part way, if it kept a
+    run). ``on_critique`` gets the critique as soon as it exists. Returns the entry. When the
+    critic asked for no fix, raises ``NothingToPolish`` and changes nothing."""
+    say = on_say or (lambda line: None)
+    found = critique(folder, on_say=say, model=model)
+    if on_critique is not None:
+        with contextlib.suppress(Exception):  # showing it must never stop the work
+            on_critique(found)
+    fixes = found["fixes"]
+    if not fixes:
+        raise NothingToPolish(
+            "The outside eye found nothing it would change, so the model was not changed. What "
+            f"it said works: {found['keep']}",
+            found,
+        )
+    say(
+        f"An outside eye asked for {len(fixes)} fix{'' if len(fixes) == 1 else 'es'}. The "
+        "builder now makes them and keeps the rest"
+    )
+    attached = {
+        "of_run": found["run"],
+        "fixes": fixes,
+        "keep": found["keep"],
+        "model": found["model"],
+        "seconds": found["seconds"],
+        "cost_usd_reported": found["cost_usd_reported"],
+    }
+    n = next_run(folder)
+    try:
+        entry = build(folder, polish_words(found), on_say=say, model=model)
+    finally:
+        _attach_polish(folder, n, attached)
+    return {**entry, "polish": attached}
+
+
+def _attach_polish(folder: Path, n: int, attached: dict[str, Any]) -> None:
+    """Add ``attached`` as ``"polish"`` to run ``n``'s entry and record, when it was kept."""
+    with contextlib.suppress(FreeBuildError, OSError, ValueError):
+        meta = read_meta(folder)
+        runs = [r for r in meta.get("runs") or [] if isinstance(r, dict) and r.get("n") == n]
+        if not runs:
+            return
+        for r in runs:
+            r["polish"] = attached
+        save_meta(folder, meta)
+        record = run_dir(folder, n) / "record.json"
+        data = json.loads(record.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data["polish"] = attached
+            _write(record, json.dumps(data, indent=1) + "\n")
+
+
+def critic_time_and_cost() -> str:
+    """What a person is told about the outside eye's run (an estimate)."""
+    lo, hi = CRITIC_MINUTES
+    return (
+        f"The outside eye is one short AI run: usually {lo} to {hi} minutes and under "
+        f"${CRITIC_DOLLARS} of your Claude subscription (an estimate: no run of it is on record "
+        "yet)."
+    )
+
+
+def polish_time_and_cost(parts: Any, model: Any = None) -> str:
+    """The sentences a person reads before polishing a model of ``parts`` parts (as the page
+    says them): the outside eye's run, then one change (``time_and_cost``)."""
+    return (
+        critic_time_and_cost() + " Then one change makes its fixes. " + time_and_cost(parts, model)
+    )
+
+
+def polish_estimate(parts: Any, model: Any = None, after_build: bool = False) -> dict[str, Any]:
+    """The AI runs, minutes and dollars of a polish (the outside eye and one change of a model
+    of ``parts`` parts), or with ``after_build`` of a first build polished once: whole-number
+    arithmetic on ``estimate``, as ``viewer/app.js`` does it."""
+    e = estimate(parts, model)
+    k = 2 if after_build else 1
+    (lo, hi), (d0, d1) = e["minutes"], e["dollars"]
+    return {
+        "parts": e["parts"],
+        "runs": k + 1,
+        "minutes": [k * lo + CRITIC_MINUTES[0], k * hi + CRITIC_MINUTES[1]],
+        "dollars": [k * d0, k * d1 + CRITIC_DOLLARS],
+    }
+
+
 def import_run(
     projects_dir: Path, source: Path, *, name: str | None = None, words: str | None = None
 ) -> Path:
@@ -1354,6 +1675,7 @@ def describe(folder: Path, measure_missing: bool = False) -> dict[str, Any]:
         "looks": rec,
         "looks_lines": _looks_lines(rec),
         **{k: now.get(k) for k in ART_KEYS},
+        "polish": now.get("polish") if isinstance(now.get("polish"), dict) else None,
         "current_run": current,
         "runs": runs,
         "notes": _read(folder / "notes.txt").strip(),

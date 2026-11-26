@@ -25,9 +25,9 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
    build one side and mirror it. [10 of 10]
 5. **One joint for each moving part**, made for moving (wheel pin, clip on a bar, hinge, turntable,
    axle), on something solid. Hold everything else by several studs. [10 of 10] A thin member
-   that carries nothing (a strut, rail, aerial, mirror or blade) may hang on one clip on a bar
-   or handle; a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow.
-   [style study, 2026-11-20]
+   that carries nothing (a strut, rail, aerial, mirror, tail or blade) hangs well on one clip on
+   a bar or handle, and the checker tests that clip for fit as it does studs; a leg the model
+   stands on is fixed by studs, a pin, or a bar seated in a hollow. [style study, 2026-11-20]
 6. **Cover every seam.** Where two parts meet in a layer that carries weight, lay a longer part across
    them in the next layer, and prefer one larger part to several small ones. [9 of 10; LEGO's model
    builders, 1998; J. Berard of LEGO, 2006]
@@ -55,11 +55,12 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 [one 94-part car; habits shared by 4 of 4 vehicles]
 
 - **Core:** one base as long as the vehicle: a one-piece car base, or a plate with a wheel-pin plate
-  (4600) under each axle. The wheel sets the scale.
+  (4600) under each axle. The wheel sets the scale. A body on it: fill with sides, then skin, then
+  cap.
 - **Strong:** run a long plate along the top of each side.
 - **Outside:** build one side unit twice and turn the second round. Stand a 1 x 4 side-stud brick (30414)
   across each end of the floor; build lights and grille flat on a plate and press them on. Curved slopes
-  and tiles on bonnet and boot; an arch part over each wheel.
+  and tiles on bonnet and boot (cap tiles a top in one call); an arch part over each wheel.
 - **Moves:** wheels on their pins. The roof rests on two studs only, so it lifts off.
 - **Order:** base and wheel mounts first; sides before end faces; roof near the end; wheels last.
 - **Not:** hinged doors unless asked.
@@ -82,11 +83,12 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 [seen in 7 aircraft sets of 1987 to 2025; the core in 2 Creator planes, 2020 and 2025]
 
 - **Core:** a spine 2 studs wide of side-stud bricks (87087, 11211, 30414) on a long plate, with a
-  skin one stud thick pressed on each side. The wing sets the scale.
+  skin one stud thick pressed on each side (quickly: fill with sides, then skin, then cap). The
+  wing sets the scale.
 - **Strong:** the wing is one long course of plates passing over or through the body, locked by a
   second layer of plates that overlaps the joint.
-- **Outside:** flanks as panels on the side studs; curved slopes on top, inverted curved slopes
-  under the belly and tail; the screen one moulded part; the fin on jumper plates on the centre line.
+- **Outside:** flanks as panels on the side studs (skin makes each in one call); curved slopes on
+  top, inverted curved slopes under the belly and tail; the screen one moulded part; the fin on jumper plates on the centre line.
 - **Moves:** the propeller on a pin or a bar; the wheels on a gear plate under the core.
 - **Order:** spine; wing course and its lock; skins; tail; gear under the core; struts, aerials and
   propeller last.
@@ -99,7 +101,7 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
   seams do not line up; 6 studs wide overall leaves room for an interior.
 - **Strong:** the wing passes through the body as one long course of plates, locked above and
   below; a long plate runs along each side of the spine.
-- **Outside:** each flank a panel carrying its livery line; nose and tail tapered in plan with
+- **Outside:** each flank a panel carrying its livery line (skin, on brackets or side-stud bricks); nose and tail tapered in plan with
   wedge plates; inverted curved slopes for a rising belly; the fin of wedge plates on edge, on
   jumper plates on the centre line; the screen moulded, or clear panels on hinges.
 - **Moves:** the propeller on a pin; wheels on gear plates or pins under the core; flaps and
@@ -117,7 +119,8 @@ studs. A *beam* is a studless bar of holes; *pins* join beams: a friction pin ho
 - **Floor:** tiles, leaving two to four single studs for furniture: two or three units of 3 to 6 parts,
   placed while the walls are low.
 - **Walls:** one stud thick, courses overlapping, corners alternating which wall runs through. Frames
-  for door and window. A long plate over every opening.
+  for door and window, the glass put into each frame with place (the frame's line, no stud). A long
+  plate over every opening.
 - **Lid:** one plate over all the wall tops, held by their studs alone, so it lifts off. For a pitched
   roof, step slopes up the end walls.
 - **Not:** a filled block or thick walls. A building too small for a figure is built solid: a

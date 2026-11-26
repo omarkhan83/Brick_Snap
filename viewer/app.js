@@ -70,6 +70,38 @@ export function freeTimeAndCost(n, model = null) {
   return `${start}builds this size have used about ${dollars} of your Claude subscription at list prices${guess}.`;
 }
 
+/** Polishing: an outside eye's short AI run, then one change (freebuild.critic_time_and_cost,
+ * polish_time_and_cost and polish_estimate say the same, by the same arithmetic). */
+const CRITIC_MINUTES = [2, 5];
+const CRITIC_DOLLARS = 1;
+export function freeCriticTimeAndCost() {
+  return `The outside eye is one short AI run: usually ${CRITIC_MINUTES[0]} to ${CRITIC_MINUTES[1]} minutes and under $${CRITIC_DOLLARS} of your Claude subscription (an estimate: no run of it is on record yet).`;
+}
+export function freePolishTimeAndCost(n, model = null) {
+  return `${freeCriticTimeAndCost()} Then one change makes its fixes. ${freeTimeAndCost(n, model)}`;
+}
+export function freePolishEstimate(n, model = null, afterBuild = false) {
+  const e = freeEstimate(n, model);
+  const k = afterBuild ? 2 : 1;
+  return {
+    parts: e.parts,
+    runs: k + 1,
+    minutes: [k * e.minutes[0] + CRITIC_MINUTES[0], k * e.minutes[1] + CRITIC_MINUTES[1]],
+    dollars: [k * e.dollars[0], k * e.dollars[1] + CRITIC_DOLLARS],
+  };
+}
+
+/** What an outside eye asked for ({fixes: [{where, fix}], keep}) as a list, all as text. */
+export function outsideEye(critique, title = 'What an outside eye asked for') {
+  const fixes = Array.isArray(critique && critique.fixes) ? critique.fixes : [];
+  const items = fixes.map((f) => el('li', {}, [el('strong', { text: `${String(f.where || '')}: ` }), document.createTextNode(String(f.fix || ''))]));
+  return el('div', { className: 'outside-eye' }, [
+    title ? el('h4', { text: title }) : null,
+    items.length ? el('ol', { className: 'eye-fixes' }, items) : el('p', { text: 'Nothing: it would not change anything.' }),
+    critique && critique.keep ? el('p', { className: 'eye-keep', text: `Keep: ${String(critique.keep)}` }) : null,
+  ]);
+}
+
 export function plural(n, word) {
   return `${Number(n).toLocaleString('en')} ${n === 1 ? word : `${word}s`}`;
 }
@@ -140,7 +172,8 @@ const WHAT_TO_DO = {
   restore: 'Your model was left as it was. Reload the page and try again.',
   free: 'Whatever the AI built before it stopped is kept with the model, if it built anything. Check that Claude Code is installed and signed in on this computer, then try again.',
   change: 'Your model is safe: the earlier runs are all kept, and you can bring any of them back from the list. You can ask again.',
-  use: 'Your model was left as it was. Reload the page and try again.',
+  polish: 'Your model is safe: the earlier runs are all kept, and you can bring any of them back from the list. You can polish it again.',
+  use:'Your model was left as it was. Reload the page and try again.',
 };
 
 const DONE_TITLE = {
@@ -152,7 +185,8 @@ const DONE_TITLE = {
   restore: 'The earlier version is back',
   free: 'The AI has built your model',
   change: 'The AI has made the change',
-  use: 'The earlier run is back',
+  polish: 'The AI has made the fixes the outside eye asked for',
+  use:'The earlier run is back',
 };
 
 const PASS_MARKS = { done: '✓', running: '▶', skipped: '–', failed: '✗', waiting: '' };
@@ -261,7 +295,10 @@ export class JobView {
       );
     } else if (job.state === 'done') {
       const cancelled = job.result && job.result.cancelled;
-      parts.push(el('h3', { text: cancelled ? 'Nothing was built, as you chose' : DONE_TITLE[job.kind] || 'Finished' }));
+      let title = DONE_TITLE[job.kind] || 'Finished';
+      if (cancelled) title = 'Nothing was built, as you chose';
+      else if (job.result && job.result.nothing) title = 'The outside eye found nothing to change';
+      parts.push(el('h3', { text: title }));
     } else {
       parts.push(el('h3', { text: 'That did not work' }));
       parts.push(el('p', { className: 'error', text: job.error || 'It stopped without saying why.' }));
@@ -269,6 +306,7 @@ export class JobView {
       if (todo) parts.push(el('p', { className: 'todo', text: `What to do: ${todo}` }));
     }
     if (passes && passes.length) parts.push(passList(passes));
+    if (job.critique && typeof job.critique === 'object') parts.push(outsideEye(job.critique));
     const lines = Array.isArray(job.progress) ? job.progress.slice().reverse() : [];
     if (lines.length) {
       parts.push(el('ul', { className: 'progress', 'aria-label': 'Progress, newest first' }, lines.map((t) => el('li', { text: String(t) }))));

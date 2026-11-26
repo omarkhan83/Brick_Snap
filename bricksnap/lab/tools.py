@@ -35,7 +35,19 @@ vehicle that flies is an aircraft) and its reply ends with which part governs wh
 style guide's section for that kind of subject. Also ``clip`` and ``strut`` (``clips``): put a
 part with a clip on a bar or handle of the model at an angle about it, saying where it points
 (a bar tube's bore) and whether the checker counts it fitted; and a strut of two 11090 and a bar
-between two bars or handles, or the distance and what to move when no bar closes it. The art
+between two bars or handles, or the distance and what to move when no bar closes it. Also
+``cap`` and ``skin`` (``cover``): cover the free upward studs of the parts named (lines and/or a
+box) with the fewest tiles (or plates), studs to keep left showing; and press plates on free side
+studs facing one way in one plane (a panel each), then tile their faces; cap with ``"edges":
+"curved"`` puts curved slopes along the edges of a top that end in a drop and lifts the rest a
+plate under its tiles. Each appends its lines and a 0 STEP and replies with what it covered
+(heights, or each panel's size, side studs holding it, where its face is, a plate on one stud
+that can turn, the lines it lies over, where the face's core still shows, the side faces with no
+side studs), what it left and why, what the checker refused, and what the checker says about
+the new parts. And ``fill`` takes "sides" (``_FILL_GUIDE``; refused with the guide off): the
+box built as a core with side studs on the named faces (``cover.core``), its reply naming each
+face's carrier lines and the next calls: skin on them, a plate across the core and skins
+(``_lid``: the plate and place's arguments, when the library has that size) and cap. The art
 direction (``art``) adds ``brief``
 (last), makes ``submit`` the two-step hand-in with the critique and ``place`` take a list,
 keeps what they say in ``art.json``, answers every call through ``art.call``, and gives the
@@ -369,6 +381,33 @@ _FILL = {
     },
 }
 
+_FILL_GUIDE: dict[str, Any] = {
+    "name": "fill",
+    "description": _FILL["description"]
+    + ' In guide mode also "sides": ["-x", "+x"] (or "-z", "+z", or "all"): the box is built '
+    "as a core whose named outer faces carry side studs facing out (a layer of brackets at "
+    "the top and every 5 plates below it, while at least 3 plates up), ready for skin: one "
+    "skin call on those lines presses a tiled panel over each named face, then cap the top. "
+    "The core may be a hidden colour (black, 0); the skins and cap give the colour seen. "
+    "fill with sides, then skin, then cap is the quick modern body.",
+    "input_schema": {
+        **_FILL["input_schema"],
+        "properties": {
+            **_FILL["input_schema"]["properties"],
+            "sides": {
+                "anyOf": [
+                    {"type": "string", "enum": ["all"]},
+                    {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["-z", "+z", "-x", "+x"]},
+                        "minItems": 1,
+                    },
+                ]
+            },
+        },
+    },
+}
+
 _MIRROR = {
     "name": "mirror",
     "description": (
@@ -556,6 +595,314 @@ _STRUT = {
 }
 
 
+_WHICH_STUDS = (
+    '"lines": [12, 13] (the studs of those parts) and/or a box "min": [x, y, z], "max": '
+    '[x, y, z], "unit": "ldu" (default) or "studs" (the studs whose base is in it; both given: '
+    "studs meeting both)"
+)
+_CAP = {
+    "name": "cap",
+    "description": (
+        "Cover free studs that point up with tiles, so a top reads smooth, in one call: the "
+        "fewest common tiles (1 x 1 to 2 x 6) whose every socket lands on a free stud, one "
+        "height at a time, each exactly on the studs and touching nothing else. A stud is free "
+        "when nothing sits on it or over it. Input: " + _WHICH_STUDS + ', "colour": c, '
+        '"with": "tiles" (default) or "plates", "keep": [{"line": 12, "stud": 3}] (studs to '
+        'leave showing on purpose, numbered as part_info numbers them), "edges": "flat" '
+        '(default) or "curved": along every edge of a top that ends in a drop, curved slopes '
+        "two studs deep (15068, 11477) sloping down and outward, and the rest of that top "
+        "lifted a plate and tiled, level with their crests, so the top rounds off instead of "
+        "ending in a step (a top 4 studs across becomes one round crest). Returns the lines "
+        "added, the studs covered, the studs left showing and why (kept, a part in the way), "
+        "and what the checker says about the new parts. Use it on every top you want smooth."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "lines": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "min": _BOX,
+            "max": _BOX,
+            "unit": {"type": "string", "enum": ["ldu", "studs"], "default": "ldu"},
+            "colour": {"type": "integer"},
+            "with": {"type": "string", "enum": ["tiles", "plates"], "default": "tiles"},
+            "edges": {"type": "string", "enum": ["flat", "curved"], "default": "flat"},
+            "keep": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "line": {"type": "integer", "minimum": 1},
+                        "stud": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["line", "stud"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["colour"],
+        "additionalProperties": False,
+    },
+}
+_SKIN = {
+    "name": "skin",
+    "description": (
+        "Press a smooth panel onto side studs, so a flank reads as one surface instead of a "
+        "stack of plate edges, in one call: plates on the free side studs (underside against "
+        "the side, the longest that catch two or more studs each first, within the rectangle "
+        "the studs span), then tiles on the plates' faces. Put the side-stud bricks (87087, "
+        "11211, 30414, 22885, 4070) or brackets (99780, 99781, 99207, 44728, 36840, 36841) in "
+        "the core first, their studs facing out in one plane. Input: " + _WHICH_STUDS + ", "
+        '"facing": "+x", "-x", "+z", "-z" or "down" (optional: only studs pointing that way), '
+        '"colour": c, "finish": "tiles" (default) or "plates" (studs left out, for texture '
+        "or another layer). Studs facing one way in one plane make one panel; several make "
+        "several. Returns each panel: its size in studs, how many side studs hold it, where "
+        "its face is, the lines added, what was not covered and why (a plate on one side stud "
+        "can turn), and what the checker says. On brackets a 2-stud core with skins is 4 "
+        "studs wide (wall 4 + plate 8 + tile 8 = 20 LDU a side)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "lines": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "min": _BOX,
+            "max": _BOX,
+            "unit": {"type": "string", "enum": ["ldu", "studs"], "default": "ldu"},
+            "facing": {"type": "string", "enum": ["+x", "-x", "+z", "-z", "down"]},
+            "colour": {"type": "integer"},
+            "finish": {"type": "string", "enum": ["tiles", "plates"], "default": "tiles"},
+        },
+        "required": ["colour"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _cover_args(args: dict[str, Any]) -> tuple[int, list[int] | None, Any]:
+    """The arguments cap and skin share: colour, lines and box."""
+    colour = _whole(args, "colour", None, 0, 0x2FFFFFF)
+    if colour is None:
+        raise ValueError("colour is needed (an LDraw colour code).")
+    lines = args.get("lines")
+    if lines is not None and (
+        not isinstance(lines, list)
+        or not lines
+        or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in lines)
+    ):
+        raise ValueError("lines must be a list of line numbers, such as [12, 13].")
+    box = None
+    if args.get("min") is not None or args.get("max") is not None:
+        lo = np.array(_numbers(args.get("min"), 3, "min"))
+        hi = np.array(_numbers(args.get("max"), 3, "max"))
+        unit = args.get("unit", "ldu")
+        if unit not in ("ldu", "studs"):
+            raise ValueError('unit is "ldu" or "studs".')
+        if unit == "studs":
+            scale = np.array([20.0, 8.0, 20.0])
+            lo, hi = lo * scale, hi * scale
+        box = (np.minimum(lo, hi), np.maximum(lo, hi))
+    if lines is None and box is None:
+        raise ValueError("say which studs: lines (the parts they are on), a box, or both.")
+    return colour, lines, box
+
+
+def _colour_name(colour: int) -> str:
+    from bricksnap.lab.ldraw_lib import library
+
+    return library().colours().get(colour, str(colour))
+
+
+def _counted(parts: list[Any]) -> str:
+    kinds: dict[str, list[Any]] = {}
+    for p in parts:
+        kinds.setdefault(p.key, []).append(p)
+    return ", ".join(
+        f"{len(v)} x {k.removesuffix('.dat')} ({v[0].description})" for k, v in kinds.items()
+    )
+
+
+def _n(k: int, word: str) -> str:
+    return f"{k} {word}" + ("" if k == 1 else "s")
+
+
+def _left_text(left: list[Any], what: str) -> str:
+    """The studs not covered, grouped by why."""
+    if not left:
+        return ""
+    by: dict[str, list[Any]] = {}
+    for s, why in left:
+        by.setdefault(why, []).append(s)
+    out = [f"{what} ({len(left)}):"]
+    for why, studs in by.items():
+        where = "; ".join(f"line {s.line} stud {s.number} at {s.where()}" for s in studs[:8])
+        more = f" and {len(studs) - 8} more" if len(studs) > 8 else ""
+        out.append(f"- {len(studs)}: {why} ({where}{more})")
+    return "\n".join(out)
+
+
+def _cover_reply(folder: Path, result: Any, head: str, body: list[str]) -> list[dict[str, Any]]:
+    from bricksnap.lab.joints import parse
+
+    text, numbers = _append(folder, [*result.lines, "0 STEP"])
+    numbers = numbers[:-1]
+    joints, errors = parse(text)
+    report = result.report if not joints and not errors else None
+    out = [head, *body]
+    if result.dropped:
+        out.append(f"Not added: {len(result.dropped)} part(s) the checker found a problem with:")
+        out += [f"- {n.key}: {why}" for n, why in result.dropped[:6]]
+    out.append("What the checker says about them:")
+    out.append(_quick(folder, text, numbers, brief=True, report=report))
+    return [_text("\n".join(x for x in out if x))]
+
+
+def _lines_span(numbers: list[int]) -> str:
+    if len(numbers) == 1:
+        return f"line {numbers[0]}"
+    return f"lines {numbers[0]} to {numbers[-1]}"
+
+
+def _cap_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import cover
+
+    try:
+        colour, lines, box = _cover_args(args)
+        use = args.get("with", "tiles")
+        keep_in = args.get("keep") or []
+        if not isinstance(keep_in, list) or not all(
+            isinstance(k, dict)
+            and isinstance(k.get("line"), int)
+            and isinstance(k.get("stud"), int)
+            for k in keep_in
+        ):
+            raise ValueError('keep is a list like [{"line": 12, "stud": 3}].')
+        keep = [(k["line"], k["stud"]) for k in keep_in]
+        edges = args.get("edges", "flat")
+        r = cover.cap(_model(folder), colour, lines, box, use=str(use), keep=keep, edges=str(edges))
+    except (ValueError, cover.CoverError) as e:
+        return _error(str(e))
+    said = []
+    if r.taken:
+        said.append(f"Already covered: {r.taken} of the studs named.")
+    if r.other_way:
+        said.append(f"Not pointing up: {r.other_way} free studs named (skin is for those).")
+    if r.kept:
+        said.append(
+            f"Left showing as you asked: {len(r.kept)} ("
+            + ", ".join(f"line {s.line} stud {s.number}" for s in r.kept[:12])
+            + ")."
+        )
+    left = _left_text(r.left, "Left showing")
+    if not r.lines:
+        why = left or "There is no free stud pointing up among the studs you named."
+        return [_text("Nothing was added. " + " ".join(said) + "\n" + why)]
+    n_parts = len(r.lines)
+    first = len(_model(folder).splitlines()) + 1
+    numbers = list(range(first, first + n_parts))
+    parts = [p for h in r.heights for p in h.parts]
+    kinds: dict[str, int] = {}
+    for p in parts:
+        word = p.description.split()[0].lower()
+        word = "curved slope" if "Curved" in p.description else word
+        kinds[word] = kinds.get(word, 0) + 1
+    head = (
+        f"Capped {_n(r.covered, 'stud')} with "
+        + ", ".join(_n(k, w) for w, k in kinds.items())
+        + f" ({_colour_name(colour)}, {colour}): {_lines_span(numbers)}, then a 0 STEP."
+    )
+    body = []
+    for h in r.heights:
+        body.append(f"- at y {fmt_n(-h.depth)}: {_n(h.studs, 'stud')}, {_counted(h.parts)}")
+        if h.curved:
+            lifted = any(p.description.startswith("Plate") for p in h.parts)
+            body.append(
+                f"  Curved edges sloping down to {', '.join(h.curved)}"
+                + (
+                    f"; the middle lifted a plate and tiled, its top at y "
+                    f"{fmt_n(-h.depth - 16)}, level with their crests."
+                    if lifted
+                    else f", meeting in a crest at y {fmt_n(-h.depth - 16)}."
+                )
+            )
+    body += said
+    body.append(left or "No stud you named is left showing.")
+    return _cover_reply(folder, r, head, body)
+
+
+def _skin_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    from bricksnap.lab import cover
+
+    try:
+        colour, lines, box = _cover_args(args)
+        facing = args.get("facing")
+        finish = args.get("finish", "tiles")
+        r = cover.skin(_model(folder), colour, lines, box, facing=facing, finish=str(finish))
+    except (ValueError, cover.CoverError) as e:
+        return _error(str(e))
+    said = []
+    if r.taken:
+        said.append(f"Already covered: {r.taken} of the studs named.")
+    if r.other_way:
+        said.append(
+            f"Pointing another way: {r.other_way} free studs named"
+            + (" (up: cap is for those)." if facing is None else f" (not {facing}).")
+        )
+    left = _left_text(r.left, "Not covered")
+    if not r.lines:
+        why = left or "There is no free side stud among the studs you named."
+        return [_text("Nothing was added. " + " ".join(said) + "\n" + why)]
+    first = len(_model(folder).splitlines()) + 1
+    numbers = list(range(first, first + len(r.lines)))
+    head = (
+        f"Skinned {len(r.panels)} panel{'s' if len(r.panels) != 1 else ''} "
+        f"({_colour_name(colour)}, {colour}): {_lines_span(numbers)}, then a 0 STEP."
+    )
+    axis = {"x": "x", "z": "z", "down": "y"}
+    body = []
+    for pn in r.panels:
+        ax = axis.get(pn.facing.lstrip("+-"), "y")
+        tiles = (
+            f"; {_n(len(pn.tiles), 'tile')} on its face: {_counted(pn.tiles)}" if pn.tiles else ""
+        )
+        body.append(
+            f"- Panel facing {pn.facing}: {fmt_n(pn.across / 20)} x {fmt_n(pn.up / 20)} studs "
+            f"({fmt_n(pn.across)} x {fmt_n(pn.up)} LDU), its back against {ax} {fmt_n(pn.back)}, "
+            f"its face at {ax} {fmt_n(pn.face)}; held by {_n(pn.held, 'side stud')}; "
+            f"{_n(len(pn.plates), 'plate')}: {_counted(pn.plates)}{tiles}."
+        )
+        names = {"x": ("z", "y"), "z": ("x", "y"), "down": ("x", "z")}
+        nu, nv = names.get(pn.facing.lstrip("+-"), ("x", "z"))
+        if pn.over:
+            body.append(
+                "  It lies over lines "
+                + ", ".join(map(str, pn.over[:16]))
+                + (" and more" if len(pn.over) > 16 else "")
+                + ": what is on those faces is now behind it."
+            )
+        if pn.bare >= 100:
+            bu0, bu1, bv0, bv1 = pn.bare_box
+            body.append(
+                f"  Core still shows on this face beside it: about {fmt_n(pn.bare / 400)} "
+                f"square studs, within {nu} {fmt_n(bu0)}..{fmt_n(bu1)}, {nv} {fmt_n(bv0)}.."
+                f"{fmt_n(bv1)}: a side stud there takes a plate, or build that part of the "
+                "core in the body colour."
+            )
+        for p in pn.turnable:
+            body.append(
+                f"  A {p.key.removesuffix('.dat')} on one side stud only (line {p.via[0]} stud "
+                f"{p.via[1]}) can turn on it: give it a second side stud, or a longer plate "
+                "across two."
+            )
+    if r.no_studs:
+        body.append(
+            f"No free side stud faces {' or '.join(r.no_studs)} among the parts named: put "
+            "side-stud bricks or brackets in the core there to skin those faces too."
+        )
+    body += said
+    if left:
+        body.append(left)
+    return _cover_reply(folder, r, head, body)
+
+
 def _vec(v: Any) -> str:
     return " ".join(f"{round(float(x), 3) + 0.0:g}" for x in v)
 
@@ -584,13 +931,14 @@ def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
         except (ValueError, TypeError):
             raise ValueError("angle and slide must be numbers (degrees, LDU).") from None
+        part, renamed = _current_part(part, "clipped")
         c = clips.clip(_model(folder), part, colour, onto, which, angle, slide)
     except (ValueError, TypeError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [c.line])
     n = numbers[0]
     report = check(text)
-    said = (
+    said = renamed + (
         f"Added line {n}: {c.line.split()[-1]} clipped on the bar of line {onto}, its grip at "
         f"({_vec(c.grip)}) on the bar running ({_vec(c.along)}); it points ({_vec(c.points)}) "
         "from the bar."
@@ -667,7 +1015,14 @@ def tools_for(folder: Path) -> list[dict[str, Any]]:
     cfg = _config(folder)
     base = BLIND_TOOLS if cfg.get("mode") == "blind" else TOOLS
     if cfg.get("guide") is True and base is TOOLS:
-        base = [_CHECK_GUIDE if t is _CHECK else t for t in base] + [_CLIP, _STRUT, _PLAYBOOK]
+        swap = {id(_CHECK): _CHECK_GUIDE, id(_FILL): _FILL_GUIDE}
+        base = [swap.get(id(t), t) for t in base] + [
+            _CLIP,
+            _STRUT,
+            _CAP,
+            _SKIN,
+            _PLAYBOOK,
+        ]
         base = _art_tools(base)
     if _references(folder):
         base = [*base, _REFERENCE]
@@ -1060,6 +1415,46 @@ def _where_args(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _current_part(name: str, verb: str = "placed") -> tuple[str, str]:
+    """A part number as the tools use it: an old number the library has moved becomes the
+    current one, and the second value says so ("3023 is an old number: placed 3023b."), else
+    it is ""."""
+    from bricksnap.lab.ldraw_lib import current_number
+
+    got = current_number(name.strip())
+    if got is None:
+        return name.strip(), ""
+    new = got[0].removesuffix(".dat")
+    return got[0], f"{name.strip().removesuffix('.dat')} is an old number: {verb} {new}. "
+
+
+def _current_line(line: str) -> tuple[str, str]:
+    """A part line with an old, moved number rewritten to the current part, in the same place
+    (the move's own shift and turn applied), and a sentence saying so; else unchanged."""
+    from bricksnap.lab.ldraw_lib import current_number
+    from bricksnap.lab.place import ldraw_line
+
+    tok = line.split()
+    if len(tok) < 15 or tok[0] != "1":
+        return line, ""
+    old = " ".join(tok[14:])
+    got = current_number(old)
+    if got is None:
+        return line, ""
+    try:
+        nums = [float(v) for v in tok[2:14]]
+        colour = int(tok[1])
+    except ValueError:
+        return line, ""
+    key, t, mm = got
+    pos, m = np.array(nums[0:3]), np.array(nums[3:12]).reshape(3, 3)
+    new = ldraw_line(colour, pos + m @ t, m @ mm, key)
+    return new, (
+        f"{old.removesuffix('.dat')} is an old number: used {key.removesuffix('.dat')}, in the "
+        "same place."
+    )
+
+
 def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab.place import PlaceError, place
 
@@ -1078,19 +1473,124 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(angle, bool) or not isinstance(angle, int | float):
                 raise ValueError("angle must be a number of degrees.")
             where["angle"] = float(angle)
-        result = place(_model(folder), part.strip(), **where)
+        part, renamed = _current_part(part)
+        model = _model(folder)
+        result = place(model, part, **where)
     except (PlaceError, ValueError) as e:
         return _error(str(e))
+    n = len(model.splitlines()) + 1
+    trial = "\n".join([*model.splitlines(), result.line]) + "\n"
+    report = _report_for(trial, [n])
+    refused = _covered(trial, report, n, part, where)
+    if refused:
+        return _error(renamed + refused)
     text, numbers = _append(folder, [result.line])
     sideways = ""
     if _config(folder).get("guide") is True:
         sideways = _sideways_studs(text, numbers[0])
     return [
         _text(
-            f"Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the checker says "
-            f"about it:\n{_quick(folder, text, numbers)}{sideways}"
+            f"{renamed}Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the "
+            "checker says "
+            f"about it:\n{_quick(folder, text, numbers, report=report)}{sideways}"
         )
     ]
+
+
+def _covered(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> str:
+    """Why place adds nothing, or "": the new part (line ``n`` of ``trial``) would share space
+    with a part already there (an overlap the checker reports as a problem): the stud named
+    already has a part on it, or the new part reaches into a neighbour. Says what is there
+    and which free studs of the same line take the part with the same socket and turn."""
+    hits = [i for i in report.problems if i.kind == "overlap" and n in i.lines]
+    if not hits:
+        return ""
+    by = {p.line: p for p in report.placed}
+    line, stud = where.get("line"), where.get("stud")
+    others = sorted({m for i in hits for m in i.lines if m != n})
+    on_stud = [
+        m
+        for m in others
+        if stud is not None
+        and any(x.holder == line and x.held == m and stud in x.studs for x in report.links)
+    ]
+
+    def name(m: int) -> str:
+        p = by.get(m)
+        return f"line {m} ({p.key} {p.part.description})" if p else f"line {m}"
+
+    if on_stud:
+        out = f"Not added: stud {stud} of line {line} already has {name(on_stud[0])} on it."
+    else:
+        out = (
+            f"Not added: placed so, {part} would go into "
+            + ", ".join(name(m) for m in others[:4])
+            + " (they would share space)."
+        )
+    if stud is None or not line:
+        return out + " Choose another place for it."
+    free = _free_studs(trial, report, n, part, where)
+    if free:
+        return (
+            out
+            + f" Free studs of line {line} that take it with this socket and turn, nearest first: "
+            + (", ".join(map(str, free)) + ".")
+        )
+    return out + (
+        f" No free stud of line {line} takes it with this socket and turn; part_info with line "
+        f"{line} shows which studs are taken."
+    )
+
+
+def _free_studs(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> list[int]:
+    """Studs of the line named, free in the model, onto which ``part`` goes with the same
+    socket and turn without sharing space with a neighbour: up to 5, nearest the stud asked
+    for first (each tried against the parts near it only)."""
+    from bricksnap.lab.place import PlaceError, place
+    from bricksnap.lab.validate import _world_bbox, check, numbered_studs
+
+    line, stud = where["line"], where["stud"]
+    by = {p.line: p for p in report.placed}
+    target = by.get(line)
+    if target is None:
+        return []
+    model_lines = trial.splitlines()[:-1]
+    model = "\n".join(model_lines) + "\n"
+    taken = {k for x in report.links if x.holder == line and x.held != n for k in x.studs}
+    studs = numbered_studs(target.part)
+    asked = target.to_world(studs[stud - 1].pos[None, :])[0] if 1 <= stud <= len(studs) else None
+    order = [k for k in range(1, len(studs) + 1) if k != stud and k not in taken]
+    if asked is not None:
+        order.sort(
+            key=lambda k: float(
+                ((target.to_world(studs[k - 1].pos[None, :])[0] - asked) ** 2).sum()
+            )
+        )
+    out: list[int] = []
+    for k in order[:16]:
+        try:
+            kw: dict[str, Any] = {**where, "stud": k}
+            cand = place(model, part, **kw)
+        except PlaceError:
+            continue
+        mine = check(cand.line, movement=False).placed
+        if not mine:
+            continue
+        lo, hi = _world_bbox(mine[0], 4.0)
+        near = []
+        for p in report.placed:
+            if p.line == n:
+                continue
+            plo, phi = _world_bbox(p, 0.0)
+            if (plo <= hi).all() and (phi >= lo).all():
+                near.append(model_lines[p.line - 1])
+        mini = check("\n".join([*near, cand.line]), movement=False)
+        last = len(near) + 1
+        if not any(i.kind == "overlap" and last in i.lines for i in mini.problems):
+            out.append(k)
+        if len(out) == 5:
+            break
+    return out
 
 
 def _sideways_studs(text: str, line: int) -> str:
@@ -1127,6 +1627,11 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     new = [ln.strip() for ln in ldraw.strip().splitlines() if ln.strip()]
     if len(new) > 400:
         return _error("add at most 400 lines at a time.")
+    renamed: dict[str, str] = {}
+    for k, ln in enumerate(new):
+        new[k], said = _current_line(ln)
+        if said:
+            renamed[said] = said
     text, numbers = _append(folder, new)
     parts = [n for n, ln in zip(numbers, new, strict=True) if ln.startswith("1 ")]
     head = (
@@ -1134,9 +1639,33 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         if len(numbers) > 1
         else f"Added line {numbers[0]}."
     )
+    if renamed:
+        head += " " + " ".join(renamed)
     if not parts:
         return [_text(head)]
-    return [_text(head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts))]
+    report = _report_for(text, parts)
+    said = (
+        head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts, report=report)
+    )
+    return [_text(said + _place_could(folder, report, parts))]
+
+
+def _place_could(folder: Path, report: Any, parts: list[int]) -> str:
+    """For add: when at least 3 of the parts it added, and most of them, sit on studs (held by
+    a stud of another part), one line saying place would have attached them (and in guide
+    mode that it takes a list); else ""."""
+    on_studs = {x.held for x in report.links if x.held in set(parts)}
+    if len(on_studs) < 3 or 2 * len(on_studs) <= len(parts):
+        return ""
+    many = (
+        ' It takes a list too ({"parts": [...]}), several placements in one call.'
+        if _config(folder).get("guide") is True
+        else ""
+    )
+    return (
+        f"\n{len(on_studs)} of these {len(parts)} parts sit on studs: place attaches a part by "
+        "naming the stud and works out its position and turn for you." + many
+    )
 
 
 def _remove(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1214,7 +1743,8 @@ def _looks_section(report: Any) -> str:
     from bricksnap.lab import looks
 
     try:
-        got = looks.section(looks.measure(report))
+        got = looks.measure_where(report)
+        got = looks.section(*got) if got else ""
     except Exception:  # advice only: never let it break a check
         return ""
     return "\n\n" + got if got else ""
@@ -1587,6 +2117,10 @@ def fmt_n(v: float) -> str:
 def _fill(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab.edit import EditError, fill
 
+    if args.get("sides") is not None:
+        if _config(folder).get("guide") is not True:
+            return _error("fill takes no sides here.")
+        return _fill_sides(folder, args)
     try:
         at = _numbers(args.get("at"), 3, "at")
         size = args.get("size")
@@ -1636,6 +2170,146 @@ def _fill(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             + _quick(folder, text, parts, brief=True)
         )
     ]
+
+
+def _fill_sides(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Guide mode's fill with "sides": a core with side studs on the faces named."""
+    from bricksnap.lab import cover
+    from bricksnap.lab.edit import EditError
+
+    try:
+        at = _numbers(args.get("at"), 3, "at")
+        size = args.get("size")
+        if (
+            not isinstance(size, list)
+            or len(size) != 3
+            or not all(isinstance(v, int) and not isinstance(v, bool) for v in size)
+        ):
+            raise ValueError("size must be three whole numbers: studs in x, studs in z, plates up.")
+        colour = args.get("colour")
+        if not isinstance(colour, int) or isinstance(colour, bool):
+            raise ValueError("colour must be an LDraw colour code.")
+        if args.get("hollow") or args.get("top", "studs") != "studs":
+            raise ValueError(
+                "with sides, the box is solid and its top is studs: cap the top after skin."
+            )
+        sides = args.get("sides")
+        if sides != "all" and not (
+            isinstance(sides, list) and all(isinstance(x, str) for x in sides)
+        ):
+            raise ValueError('sides is "all" or a list such as ["-x", "+x"].')
+        c = cover.core((at[0], at[1], at[2]), (size[0], size[1], size[2]), colour, sides)
+    except (ValueError, EditError) as e:
+        return _error(str(e))
+    text, numbers = _append(folder, c.lines)
+    parts = [n for n, ln in zip(numbers, c.lines, strict=True) if ln.startswith("1 ")]
+    faces = []
+    carriers: list[int] = []
+    for face, idx in c.sides.items():
+        lines_ = [numbers[i] for i in idx]
+        carriers += lines_
+        rows = ", ".join(fmt_n(y) for y in c.rows[face])
+        faces.append(
+            f"- {face}: {len(idx)} brackets (lines {lines_[0]} to {lines_[-1]}), side studs "
+            f"at y {rows}, 4 LDU out from the box"
+        )
+    top = sorted({s[1] for s in c.free_studs})
+    first, last = parts[0], parts[-1]
+    lid = _lid(text, c, at, size, numbers)
+    out = [
+        f"Added a core of {c.parts} parts as lines {first} to {last} (with 0 STEP lines), "
+        f"with side studs facing out on {', '.join(c.sides)} (bracket layers at plates "
+        f"{', '.join(map(str, c.layers))} from the bottom):",
+        *faces,
+        f"{len(c.free_studs)} studs free on top, at y {', '.join(fmt_n(y) for y in top)}.",
+        f'Next: 1. skin {{"lines": {json.dumps(sorted(carriers))}, "colour": <the body '
+        "colour>} presses a tiled panel on each of those faces (one stud thick).",
+    ]
+    if lid is not None:
+        part, where, box = lid
+        out.append(
+            f'2. place {{"part": "{part}", "colour": <the body colour>, {where}}}: one plate '
+            "across the core and the skins' top edges, so the top is as wide as the body."
+        )
+        out.append(
+            f'3. cap {{"min": {box[0]}, "max": {box[1]}, "colour": <the body colour>, "edges": '
+            '"curved"} rounds that top off.'
+        )
+    else:
+        out.append(
+            f'2. cap {{"min": [{fmt_n(at[0])}, {fmt_n(min(top) - 1)}, {fmt_n(at[2])}], "max": '
+            f"[{fmt_n(at[0] + 20 * size[0])}, {fmt_n(min(top) + 1)}, "
+            f'{fmt_n(at[2] + 20 * size[1])}], "colour": <the body colour>, "edges": "curved"}} '
+            "covers the top."
+        )
+    out += [f"(Note: {n})" for n in c.notes]
+    out.append("What the checker says about them:")
+    out.append(_quick(folder, text, parts, brief=True))
+    return [_text("\n".join(out))]
+
+
+def _lid(
+    text: str, c: Any, at: list[float], size: list[int], numbers: list[int]
+) -> tuple[str, str, tuple[list[float], list[float]]] | None:
+    """The plate that would lie across a core with sides and its skins (each skin one stud
+    out), and where place puts it: (file, place's arguments, the box of its top studs for
+    cap); None when the library has no plate that size or it cannot be put there."""
+    import itertools
+
+    from bricksnap.lab.ldraw_lib import library
+    from bricksnap.lab.place import PlaceError, place
+
+    sides = set(c.sides)
+    x0 = at[0] - 20 * ("-x" in sides)
+    x1 = at[0] + 20 * size[0] + 20 * ("+x" in sides)
+    z0 = at[2] - 20 * ("-z" in sides)
+    z1 = at[2] + 20 * size[1] + 20 * ("+z" in sides)
+    a, b = round((x1 - x0) / 20), round((z1 - z0) / 20)
+    lib = library()
+    name = None
+    for p, q in ((min(a, b), max(a, b)), (max(a, b), min(a, b))):
+        for key in _PLATE_NAMES.get((p, q), ()):
+            if lib.resolve(key) is not None:
+                name = key
+        if name:
+            break
+    if name is None:
+        return None
+    holder = numbers[next(iter(c.sides.values()))[0]]
+    top = min(s[1] for s in c.free_studs)
+    for stud, socket, turn in itertools.product(range(1, 3), range(1, a * b + 1), (0, 1)):
+        try:
+            got = place(text, name, 15, holder, stud=stud, socket=socket, turn=turn)
+        except PlaceError:
+            continue
+        if abs(got.pos[0] - (x0 + x1) / 2) < 0.5 and abs(got.pos[2] - (z0 + z1) / 2) < 0.5:
+            box = (
+                [round(x0), round(top - 9), round(z0)],
+                [round(x1), round(top - 7), round(z1)],
+            )
+            where = f'"line": {holder}, "stud": {stud}, "socket": {socket}, "turn": {turn}'
+            return name, where, box
+    return None
+
+
+_PLATE_NAMES = {  # (short side, long side) in studs -> plain plates
+    (2, 4): ("3020.dat",),
+    (2, 6): ("3795.dat",),
+    (2, 8): ("3034.dat",),
+    (4, 4): ("3031.dat",),
+    (4, 6): ("3032.dat",),
+    (4, 8): ("3035.dat",),
+    (4, 10): ("3030.dat",),
+    (4, 12): ("3029.dat",),
+    (6, 6): ("3958.dat",),
+    (6, 8): ("3036.dat",),
+    (6, 10): ("3033.dat",),
+    (6, 12): ("3028.dat",),
+    (6, 14): ("3456.dat",),
+    (6, 16): ("3027.dat",),
+    (8, 8): ("41539.dat",),
+    (8, 16): ("92438.dat",),
+}
 
 
 def _mirror(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1756,6 +2430,8 @@ _HANDLERS = {
     "playbook": _playbook,
     "clip": _clip_tool,
     "strut": _strut_tool,
+    "cap": _cap_tool,
+    "skin": _skin_tool,
 }
 
 

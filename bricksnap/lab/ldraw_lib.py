@@ -9,6 +9,10 @@ it directly; nothing is unpacked.
 - ``resolve(name)`` -> ``("part", key)``, ``("subpart", key)``, ``("primitive", key)`` or
   None. Names are matched without regard to case or slash direction, as LDraw does: a part
   is looked up in ``parts/`` (``s/`` for sub-parts), then in ``p/`` (with ``48/`` and ``8/``).
+- ``current_number(name)`` -> ``(key, t, m)`` for an old number the library has moved (its
+  description "~Moved to ..."): the part it points to, followed to the end, and where that
+  part sits in the old one's frame (most moves are the same place; 68 of 1,160 shift or turn
+  it); ``None`` for a current part or an unknown name.
 - ``header(key)`` -> ``Header``: description, ``!LDRAW_ORG`` type, ``!CATEGORY`` (or the first
   word of the description, the LDraw convention when there is none), ``!KEYWORDS``.
 - ``part(name)`` -> ``Part``, the part resolved to its triangles in its own frame by following
@@ -60,6 +64,10 @@ The filled body (rough, for the checks)
 
 Parsed parts are cached as pickles under ``~/.cache/bricksnap/lab/parts/`` (or
 ``$BRICKSNAP_LAB_CACHE``), keyed by the zip's size and time and ``CACHE_VERSION``.
+
+``glass_frames()``: each pane that slots into a window frame with no stud, the frames it goes
+in and where it sits in each (from the library's own frame-and-glass assemblies, else by
+name and box), for the checker's "glass in its frame" and for ``place``.
 """
 
 from __future__ import annotations
@@ -907,6 +915,132 @@ def stud_summary(part: Part) -> str:
 
 _DEFAULT: Library | None = None
 _DEFAULT_LOCK = threading.Lock()
+
+
+def current_number(
+    name: str, lib: Library | None = None
+) -> tuple[str, np.ndarray, np.ndarray] | None:
+    """For an old part number the library has moved: the current part it points to and where
+    that sits in the old one's frame (see the contract); None otherwise."""
+    lib = lib or library()
+    found = lib.resolve(name) or lib.resolve(name + ".dat")
+    if found is None or found[0] != "part":
+        return None
+    key, t, m, moved = found[1], np.zeros(3), np.eye(3), False
+    for _ in range(8):
+        if not lib.header(key).description.startswith("~Moved to"):
+            break
+        ones = [ln.split() for ln in lib.text("part", key).splitlines() if ln.startswith("1 ")]
+        if len(ones) != 1 or len(ones[0]) < 15:
+            break
+        nums = [float(v) for v in ones[0][2:14]]
+        nxt = lib.resolve(" ".join(ones[0][14:]))
+        if nxt is None or nxt[0] != "part":
+            break
+        t = t + m @ np.array(nums[0:3])
+        m = m @ np.array(nums[3:12]).reshape(3, 3)
+        key, moved = nxt[1], True
+    return (key, t, m) if moved else None
+
+
+# ---- glass in its frame ---------------------------------------------------------------------
+
+_GLASS_WORD = re.compile(r"\b(glass|pane)\b", re.I)
+_GLASS_FOR = re.compile(r"^glass for (.+)$", re.I)
+_SIZE_HEAD = re.compile(r"^(\D*?\d+ x \d+ x [\d.]+)")
+_GLASS: dict[str, dict[str, list[tuple[str, np.ndarray, np.ndarray]]]] = {}
+GLASS_SLACK = 2.0  # LDU a pane's box may stand out of its frame's when paired by name
+
+
+def _desc_of(lib: Library, key: str) -> str:
+    try:
+        d = lib.header(key).description
+    except (KeyError, Exception):  # a broken file is simply no pair
+        return ""
+    return " ".join(d.lstrip("~=_").split())
+
+
+def glass_frames(lib: Library | None = None) -> dict[str, list[tuple[str, np.ndarray, np.ndarray]]]:
+    """For each pane that slots into a frame with no stud (glass, a lattice pane): the frames
+    it goes in, each with where the pane sits in the frame's own frame (its rotation and
+    origin: pane = frame.m @ r, frame.pos + frame.m @ t). From the library's own assemblies
+    ("c01" parts: a frame and one pane, the pane's name saying glass or pane) and, for a
+    "Glass for <kind> A x B x C ..." with no assembly, from the frames named so (else named
+    "<kind> A x B x C", not a shutter) with the same origin, whose box holds the glass's
+    within ``GLASS_SLACK``. Cached per library stamp."""
+    lib = lib or library()
+    if lib.stamp in _GLASS:
+        return _GLASS[lib.stamp]
+    found: dict[str, list[tuple[str, np.ndarray, np.ndarray]]] = {}
+
+    def add(glass: str, frame: str, r: np.ndarray, t: np.ndarray) -> None:
+        got = found.setdefault(glass, [])
+        if not any(f == frame and np.allclose(rr, r) and np.allclose(tt, t) for f, rr, tt in got):
+            got.append((frame, r, t))
+
+    top = [k for k in lib.parts if "/" not in k]
+    for key in top:
+        if not re.search(r"c\d\d\.dat$", key):
+            continue
+        rows = []
+        for ln in lib.text("part", key).splitlines():
+            tok = ln.split()
+            if len(tok) >= 15 and tok[0] == "1":
+                sub = norm_name(tok[14])
+                if sub.startswith("s/"):
+                    continue
+                try:
+                    nums = [float(v) for v in tok[2:14]]
+                except ValueError:
+                    continue
+                rows.append((sub, np.array(nums[:3]), np.array(nums[3:]).reshape(3, 3)))
+        if len(rows) != 2 or any(r[0] not in lib.parts for r in rows):
+            continue
+        d = [_desc_of(lib, r[0]) for r in rows]
+        glassy = [bool(_GLASS_WORD.search(x)) for x in d]
+        if glassy[0] == glassy[1]:  # both or neither: prefer the one that says glass
+            g = [bool(re.search(r"\bglass\b", x, re.I)) for x in d]
+            if g[0] == g[1]:
+                continue
+            glassy = g
+        (fk, ft, fm), (gk, gt, gm) = rows if glassy[1] else rows[::-1]
+        inv = np.linalg.inv(fm)
+        add(gk, fk, inv @ gm, inv @ (gt - ft))
+    frames_by_head: dict[str, list[tuple[str, str]]] = {}
+    for key in top:
+        d = _desc_of(lib, key)
+        m = _SIZE_HEAD.match(d)
+        if (
+            m
+            and not _GLASS_WORD.search(d)
+            and not re.search(r"\bshutter$|\bmoved\b", d, re.I)  # a shutter is no frame
+            and not re.search(r"c\d\d\.dat$", key)
+        ):
+            frames_by_head.setdefault(m.group(1).lower(), []).append((key, d.lower()))
+    for key in top:
+        if key in found:
+            continue
+        g = _GLASS_FOR.match(_desc_of(lib, key))
+        m = _SIZE_HEAD.match(g.group(1)) if g else None
+        if not g or not m:
+            continue  # a pane that opens (a shutter, a lattice pane) turns on a hinge: not here
+        try:
+            pane = lib.part(key, columns=False)
+        except Exception:
+            continue
+        same = frames_by_head.get(m.group(1).lower(), [])
+        named = [k for k, d in same if d.startswith(g.group(1).lower())]
+        for fk in named or [k for k, _ in same]:
+            try:
+                fr = lib.part(fk, columns=False)
+            except Exception:
+                continue
+            if np.all(pane.bbox_min >= fr.bbox_min - GLASS_SLACK) and np.all(
+                pane.bbox_max <= fr.bbox_max + GLASS_SLACK
+            ):
+                add(key, fk, np.eye(3), np.zeros(3))
+    _GLASS[lib.stamp] = found
+    return found
 
 
 def library() -> Library:

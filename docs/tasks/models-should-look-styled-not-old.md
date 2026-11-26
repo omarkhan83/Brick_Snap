@@ -125,3 +125,14 @@ Done when the same subjects built before and after this work are clearly more st
   groups held by several clips, and carries hanging weight to the clips nearer the ground. The owner
   then gave standing leave to run AI builds (25 November) and set the direction: one prompt bar, words
   or pictures in, the AI builds it; see the decision of that date.
+- 26 November, overnight: real AI builds on Opus 5.5 (Fable's allowance was spent) drove these changes,
+  now on `main`: a session gets one reply per part asked for (builds were running out at 60%); a first
+  hand-in under three quarters of the parts asked is sent back once; HOW IT LOOKS says where the flanks
+  are stacked and the hand-in sends back once on it; guide-mode tools `cap` (tiles or curved slopes over
+  free studs), `skin` (a tiled panel on side studs) and `fill` with `sides` (a core ready for skins);
+  `place` swaps old part numbers, refuses a covered stud, says which way a slope falls; window glass in
+  its frame and a steering wheel on its peg are held; "polish": an outside critic shown only the
+  pictures lists up to five fixes and one change makes them (`make --polish`, a button, an option).
+  Builds of the night and their pictures: `~/.cache/bricksnap/research/overnight/` on the lead's machine.
+  Left: aircraft still read boxy (best: 436 parts at 600 asked); studs seen through canopies; whether
+  `skin` gets used (the builders mostly did not call it).

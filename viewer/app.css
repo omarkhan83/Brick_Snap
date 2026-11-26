@@ -333,6 +333,16 @@ body.free-page main { gap: 18px; }
 .run .usebtn { padding: 5px 12px; font-size: 15px; box-shadow: 2px 2px 0 var(--ink); flex: none; }
 .more-card .more-actions { margin: 0; padding: 0; border: 0; }
 
+/* what an outside eye asked for (lab/critic.py): on a polishing job and a polished run */
+.outside-eye { margin: 10px 0 4px; padding: 10px 14px; border: 3px solid var(--ink); border-radius: 10px; background: #fff8dc; }
+.outside-eye h4 { margin: 0 0 6px; font-size: 16px; font-weight: 800; }
+.outside-eye ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.outside-eye li { line-height: 1.4; overflow-wrap: anywhere; }
+.outside-eye p { margin: 6px 0 0; line-height: 1.4; overflow-wrap: anywhere; }
+.outside-eye .eye-keep { font-style: italic; }
+.polish-card h2 { margin: 0 0 8px; }
+.polish-card .hint-line { margin: 0 0 6px; max-width: 80ch; }
+
 /* the art direction and the critique of a run made with the guide (lab/art.py) */
 .art-card h2, .critique-card h2 { margin: 0 0 8px; }
 .art-card .hint-line, .critique-card .hint-line { margin: 0 0 10px; max-width: 80ch; }

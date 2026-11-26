@@ -299,8 +299,10 @@ bricksnap/
   lab/            experimental: the AI builds from the whole parts library (parts search, placing by
                   connection, a checker, pictures by LeoCAD) and the free-build project made of it;
                   proven moving modules (wheels, hinges, turntables) and a check that what should
-                  move can; and a measure of how a model looks (seams, what is built sideways,
-                  colour, bare holes) set against official sets
+                  move can; a measure of how a model looks (seams, what is built sideways,
+                  colour, bare holes) set against official sets; and an outside eye (critic.py):
+                  a second clean-room session shown only the pictures, the words, the brief and
+                  those measures, whose list of fixes a "polish" makes as one change
   cli.py          the `bricksnap` command
   viewserver.py   the small local server behind `bricksnap view`
   webapp.py       the web app: `bricksnap serve`, jobs with progress, uploads, downloads
@@ -366,8 +368,8 @@ point for the optional printable output.
   The notes say so.)
 - Every part and colour pair in a Build comes from the parts table.
 - A Build that fails its checks is never presented as finished; the failure is reported in words.
-- Nothing leaves the computer except through an AI run the person started (the design step, or a
-  free build).
+- Nothing leaves the computer except through an AI run the person started (the design step, a
+  free build, or polishing one).
 - Text from a file name, file contents, or the AI goes into a web page with `textContent`, never
   `innerHTML`.
 

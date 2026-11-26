@@ -1462,3 +1462,107 @@ def test_start_model_ends_with_a_step(work):
     tools.start_model(work, line(4, 0, -24, 0, "3001.dat") + "\n\n")
     assert tools._model(work).splitlines()[-1] == "0 STEP"
     assert tools._attempts(work) == []  # attempt 0 is not one of the checks
+
+
+# ---- a steering wheel on its holder, and joints the checker does not know -----------------------
+
+WHEEL_BASE = (
+    "1 7 0 -8 0 1 0 0 0 1 0 0 0 1 3022.dat\n"  # a 2 x 2 plate on the ground
+    "1 0 0 -32 0 1 0 0 0 1 0 0 0 1 30640.dat\n"  # the steering wheel holder on it
+)
+ON_PEG = "1 0 0 -51.799 11.514 1 0 0 0 0.707107 0.707107 0 -0.707107 0.707107 30663.dat\n"
+
+
+def test_a_steering_wheel_on_its_holders_peg_is_tested_for_fit():
+    # the holder's pin leans 45 degrees forward; the wheel's hole runs up its own y: on the
+    # pin it is held as on a stud (8 tries in 2 builds were called loose before)
+    r = check(WHEEL_BASE + ON_PEG)
+    assert not r.problems, r.text()
+    assert any(f.lines == [2, 3] and "on the peg of line 2" in f.text for f in r.fits), r.text()
+
+
+def test_a_steering_wheel_off_the_peg_is_told_the_line_that_puts_it_on():
+    # leaning 30 degrees, a little high: as the builders placed it
+    r = check(WHEEL_BASE + "1 0 0 -54 12 1 0 0 0 0.866 0.5 0 -0.5 0.866 30663.dat\n")
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    assert "made to take it on its peg, but is not on the peg" in loose, loose
+    assert "nothing holds it. It rests on" not in loose
+    put = loose.split("This line puts it there: ")[1].strip()
+    r = check(WHEEL_BASE + put + "\n")
+    assert not r.problems and len(r.fits) == 1, r.text()
+
+
+def test_a_loose_part_touching_a_joint_the_checker_does_not_know_is_told_so():
+    # a steering wheel lying on a tyre: both names say joint, none the checker knows
+    r = check("1 0 0 -8 0 1 0 0 0 0 1 0 -1 0 3641.dat\n1 0 0 -24 0 1 0 0 0 1 0 0 0 1 30663.dat\n")
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    assert "the checker does not recognise that kind of joint" in loose, loose
+    assert "(tyre, wheel)" in loose and "moving it a little will not help" in loose
+    assert "There is no part under it" not in loose
+
+
+# ---- glass in its window frame --------------------------------------------------------------
+
+
+def _framed(frame: str, glass: str) -> tuple[str, str]:
+    """A 2 x 6 plate on the ground, ``frame`` on its studs, and ``glass`` put into the frame by
+    place (the frame's line, no stud): the model without the glass, and the glass's line."""
+    from bricksnap.lab.place import place
+
+    text = place("", "3795", 72, 0).line + "\n"
+    text += place(text, frame, 15, 1, stud=1).line + "\n"
+    return text, place(text, glass, 47, 2).line
+
+
+def test_the_lighthouses_glass_in_its_frame_is_held_where_the_assembly_puts_it():
+    # tonight's lighthouse removed its windows: the glass (60601) was loose in its frame
+    # (60592). At the lighthouse's own placement it is held, tested for fit
+    base = (
+        "1 72 80 -64 0 0 0 1 0 1 0 -1 0 0 3034.dat\n"
+        "1 15 90 -112 0 0 0 -1 0 1 0 1 0 0 60592.dat\n"
+        "1 47 90 -112 0 0 0 -1 0 1 0 1 0 0 60601.dat\n"
+    )
+    r = check(base.replace("80 -64 0", "80 -40 0").replace("-112", "-88"))
+    fits = [f for f in r.fits if f.lines == [2, 3]]
+    assert fits and "in the groove of the frame line 2" in fits[0].text, r.text()
+    assert not any(3 in i.lines for i in r.problems), r.text()
+
+
+@pytest.mark.parametrize(
+    "frame, glass", [("60592", "60601"), ("60593", "60602"), ("57894", "57895")]
+)
+def test_place_puts_glass_into_its_frame_and_the_checker_holds_it(frame, glass):
+    # 60592 and 60593 from the library's own assemblies, 57894 by name (no assembly)
+    text, line = _framed(frame, glass)
+    assert line.split()[2:14] == text.splitlines()[1].split()[2:14], (line, text)
+    r = check(text + line + "\n")
+    assert any(f.lines == [2, 3] for f in r.fits) and not r.problems, r.text()
+
+
+@pytest.mark.parametrize("off, held", [(0.8, True), (2.0, False)])
+def test_glass_is_held_within_glass_ldu_of_where_the_assembly_puts_it(off, held):
+    text, line = _framed("60592", "60601")
+    t = line.split()
+    t[2] = str(float(t[2]) + off)  # along the frame
+    r = check(text + " ".join(t) + "\n")
+    assert any(f.lines == [2, 3] for f in r.fits) == held, r.text()
+
+
+def test_glass_out_of_its_frame_is_loose_and_told_where_it_goes():
+    text, line = _framed("60592", "60601")
+    t = line.split()
+    t[3] = str(float(t[3]) - 6)  # 6 LDU up, out of the groove
+    r = check(text + " ".join(t) + "\n")
+    loose = next(i.text for i in r.problems if i.kind == "loose")
+    goes = "Glass for Window 1 x 2 x 2 without Sill goes in the groove of a window frame (60592)"
+    assert goes in loose
+    assert "place it where the frame's assembly puts it" in loose
+    assert loose.endswith(line), loose  # the line that puts it there
+
+
+def test_place_says_how_when_a_part_is_no_pane_for_that_line():
+    from bricksnap.lab.place import PlaceError, place
+
+    text, _ = _framed("60592", "60601")
+    with pytest.raises(PlaceError, match="a pane goes into its window frame with line alone"):
+        place(text, "60602", 47, 2)  # the 1 x 2 x 3's glass is not for this frame
