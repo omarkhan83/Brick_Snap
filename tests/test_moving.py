@@ -337,7 +337,13 @@ def test_bumper_lower_than_the_wheels(work):
 
 def test_wheels_that_rub(work):
     build_chassis(work)
-    call(work, "place", {"part": "3031.dat", "colour": 4, "line": 13, "stud": 8, "socket": 2})
+    # a 4 x 4 plate whose edge reaches into the tyres' circle: place now refuses a part that
+    # would overlap, so the plate place would put there is written with add
+    from bricksnap.lab.place import place
+    from bricksnap.lab.tools import _model
+
+    plate = place(_model(work), "3031.dat", 4, 13, stud=8, socket=2).line
+    call(work, "add", {"ldraw": plate})
     report = checked(work)
     rub = [t for t in moving_problems(report) if "rub as they turn" in t]
     assert rub and "line 14 (3031.dat Plate 4 x 4" in rub[0] and "by 5 LDU" in rub[0], report.text()
