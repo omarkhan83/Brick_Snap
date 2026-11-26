@@ -931,13 +931,14 @@ def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
         except (ValueError, TypeError):
             raise ValueError("angle and slide must be numbers (degrees, LDU).") from None
+        part, renamed = _current_part(part, "clipped")
         c = clips.clip(_model(folder), part, colour, onto, which, angle, slide)
     except (ValueError, TypeError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [c.line])
     n = numbers[0]
     report = check(text)
-    said = (
+    said = renamed + (
         f"Added line {n}: {c.line.split()[-1]} clipped on the bar of line {onto}, its grip at "
         f"({_vec(c.grip)}) on the bar running ({_vec(c.along)}); it points ({_vec(c.points)}) "
         "from the bar."
@@ -1414,6 +1415,46 @@ def _where_args(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _current_part(name: str, verb: str = "placed") -> tuple[str, str]:
+    """A part number as the tools use it: an old number the library has moved becomes the
+    current one, and the second value says so ("3023 is an old number: placed 3023b."), else
+    it is ""."""
+    from bricksnap.lab.ldraw_lib import current_number
+
+    got = current_number(name.strip())
+    if got is None:
+        return name.strip(), ""
+    new = got[0].removesuffix(".dat")
+    return got[0], f"{name.strip().removesuffix('.dat')} is an old number: {verb} {new}. "
+
+
+def _current_line(line: str) -> tuple[str, str]:
+    """A part line with an old, moved number rewritten to the current part, in the same place
+    (the move's own shift and turn applied), and a sentence saying so; else unchanged."""
+    from bricksnap.lab.ldraw_lib import current_number
+    from bricksnap.lab.place import ldraw_line
+
+    tok = line.split()
+    if len(tok) < 15 or tok[0] != "1":
+        return line, ""
+    old = " ".join(tok[14:])
+    got = current_number(old)
+    if got is None:
+        return line, ""
+    try:
+        nums = [float(v) for v in tok[2:14]]
+        colour = int(tok[1])
+    except ValueError:
+        return line, ""
+    key, t, mm = got
+    pos, m = np.array(nums[0:3]), np.array(nums[3:12]).reshape(3, 3)
+    new = ldraw_line(colour, pos + m @ t, m @ mm, key)
+    return new, (
+        f"{old.removesuffix('.dat')} is an old number: used {key.removesuffix('.dat')}, in the "
+        "same place."
+    )
+
+
 def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab.place import PlaceError, place
 
@@ -1432,19 +1473,124 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(angle, bool) or not isinstance(angle, int | float):
                 raise ValueError("angle must be a number of degrees.")
             where["angle"] = float(angle)
-        result = place(_model(folder), part.strip(), **where)
+        part, renamed = _current_part(part)
+        model = _model(folder)
+        result = place(model, part, **where)
     except (PlaceError, ValueError) as e:
         return _error(str(e))
+    n = len(model.splitlines()) + 1
+    trial = "\n".join([*model.splitlines(), result.line]) + "\n"
+    report = _report_for(trial, [n])
+    refused = _covered(trial, report, n, part, where)
+    if refused:
+        return _error(renamed + refused)
     text, numbers = _append(folder, [result.line])
     sideways = ""
     if _config(folder).get("guide") is True:
         sideways = _sideways_studs(text, numbers[0])
     return [
         _text(
-            f"Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the checker says "
-            f"about it:\n{_quick(folder, text, numbers)}{sideways}"
+            f"{renamed}Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the "
+            "checker says "
+            f"about it:\n{_quick(folder, text, numbers, report=report)}{sideways}"
         )
     ]
+
+
+def _covered(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> str:
+    """Why place adds nothing, or "": the new part (line ``n`` of ``trial``) would share space
+    with a part already there (an overlap the checker reports as a problem): the stud named
+    already has a part on it, or the new part reaches into a neighbour. Says what is there
+    and which free studs of the same line take the part with the same socket and turn."""
+    hits = [i for i in report.problems if i.kind == "overlap" and n in i.lines]
+    if not hits:
+        return ""
+    by = {p.line: p for p in report.placed}
+    line, stud = where.get("line"), where.get("stud")
+    others = sorted({m for i in hits for m in i.lines if m != n})
+    on_stud = [
+        m
+        for m in others
+        if stud is not None
+        and any(x.holder == line and x.held == m and stud in x.studs for x in report.links)
+    ]
+
+    def name(m: int) -> str:
+        p = by.get(m)
+        return f"line {m} ({p.key} {p.part.description})" if p else f"line {m}"
+
+    if on_stud:
+        out = f"Not added: stud {stud} of line {line} already has {name(on_stud[0])} on it."
+    else:
+        out = (
+            f"Not added: placed so, {part} would go into "
+            + ", ".join(name(m) for m in others[:4])
+            + " (they would share space)."
+        )
+    if stud is None or not line:
+        return out + " Choose another place for it."
+    free = _free_studs(trial, report, n, part, where)
+    if free:
+        return (
+            out
+            + f" Free studs of line {line} that take it with this socket and turn, nearest first: "
+            + (", ".join(map(str, free)) + ".")
+        )
+    return out + (
+        f" No free stud of line {line} takes it with this socket and turn; part_info with line "
+        f"{line} shows which studs are taken."
+    )
+
+
+def _free_studs(trial: str, report: Any, n: int, part: str, where: dict[str, Any]) -> list[int]:
+    """Studs of the line named, free in the model, onto which ``part`` goes with the same
+    socket and turn without sharing space with a neighbour: up to 5, nearest the stud asked
+    for first (each tried against the parts near it only)."""
+    from bricksnap.lab.place import PlaceError, place
+    from bricksnap.lab.validate import _world_bbox, check, numbered_studs
+
+    line, stud = where["line"], where["stud"]
+    by = {p.line: p for p in report.placed}
+    target = by.get(line)
+    if target is None:
+        return []
+    model_lines = trial.splitlines()[:-1]
+    model = "\n".join(model_lines) + "\n"
+    taken = {k for x in report.links if x.holder == line and x.held != n for k in x.studs}
+    studs = numbered_studs(target.part)
+    asked = target.to_world(studs[stud - 1].pos[None, :])[0] if 1 <= stud <= len(studs) else None
+    order = [k for k in range(1, len(studs) + 1) if k != stud and k not in taken]
+    if asked is not None:
+        order.sort(
+            key=lambda k: float(
+                ((target.to_world(studs[k - 1].pos[None, :])[0] - asked) ** 2).sum()
+            )
+        )
+    out: list[int] = []
+    for k in order[:16]:
+        try:
+            kw: dict[str, Any] = {**where, "stud": k}
+            cand = place(model, part, **kw)
+        except PlaceError:
+            continue
+        mine = check(cand.line, movement=False).placed
+        if not mine:
+            continue
+        lo, hi = _world_bbox(mine[0], 4.0)
+        near = []
+        for p in report.placed:
+            if p.line == n:
+                continue
+            plo, phi = _world_bbox(p, 0.0)
+            if (plo <= hi).all() and (phi >= lo).all():
+                near.append(model_lines[p.line - 1])
+        mini = check("\n".join([*near, cand.line]), movement=False)
+        last = len(near) + 1
+        if not any(i.kind == "overlap" and last in i.lines for i in mini.problems):
+            out.append(k)
+        if len(out) == 5:
+            break
+    return out
 
 
 def _sideways_studs(text: str, line: int) -> str:
@@ -1481,6 +1627,11 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     new = [ln.strip() for ln in ldraw.strip().splitlines() if ln.strip()]
     if len(new) > 400:
         return _error("add at most 400 lines at a time.")
+    renamed: dict[str, str] = {}
+    for k, ln in enumerate(new):
+        new[k], said = _current_line(ln)
+        if said:
+            renamed[said] = said
     text, numbers = _append(folder, new)
     parts = [n for n, ln in zip(numbers, new, strict=True) if ln.startswith("1 ")]
     head = (
@@ -1488,9 +1639,33 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         if len(numbers) > 1
         else f"Added line {numbers[0]}."
     )
+    if renamed:
+        head += " " + " ".join(renamed)
     if not parts:
         return [_text(head)]
-    return [_text(head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts))]
+    report = _report_for(text, parts)
+    said = (
+        head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts, report=report)
+    )
+    return [_text(said + _place_could(folder, report, parts))]
+
+
+def _place_could(folder: Path, report: Any, parts: list[int]) -> str:
+    """For add: when at least 3 of the parts it added, and most of them, sit on studs (held by
+    a stud of another part), one line saying place would have attached them (and in guide
+    mode that it takes a list); else ""."""
+    on_studs = {x.held for x in report.links if x.held in set(parts)}
+    if len(on_studs) < 3 or 2 * len(on_studs) <= len(parts):
+        return ""
+    many = (
+        ' It takes a list too ({"parts": [...]}), several placements in one call.'
+        if _config(folder).get("guide") is True
+        else ""
+    )
+    return (
+        f"\n{len(on_studs)} of these {len(parts)} parts sit on studs: place attaches a part by "
+        "naming the stud and works out its position and turn for you." + many
+    )
 
 
 def _remove(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
