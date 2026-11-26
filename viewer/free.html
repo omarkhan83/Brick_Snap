@@ -48,6 +48,28 @@
         <button id="changeCancel" type="button" class="quiet">Cancel</button>
       </div>
     </div>
+    <div id="polishConfirm" class="confirm" hidden role="dialog" aria-labelledby="polishConfirmTitle">
+      <h3 id="polishConfirmTitle">Before an outside eye looks at the model</h3>
+      <ul>
+        <li>First an outside eye, a separate AI that did not build the model, looks at its pictures and writes up to five fixes, the most visible first, and what to keep. It is shown only the pictures, the words the model was built from, its art direction and how it measures: never how it was built.</li>
+        <li>Then the AI that builds makes those fixes as one change and keeps the rest of the model as it is. You see the list as soon as it is written.</li>
+        <li id="polishSends">It sends the model's pictures, its art direction and the words it was built from to the AI provider, Anthropic, through Claude Code. Nothing else in BrickSnap sends anything off your computer.</li>
+        <li>It uses your own Claude Code login, so it counts towards your Claude subscription.</li>
+        <li id="polishTime">It is two AI runs: the outside eye, then one change.</li>
+        <li>The model as it is now stays in the list of runs below, so you can always bring it back.</li>
+      </ul>
+      <label class="model-pick" for="polishModel">Which Claude polishes it
+        <select id="polishModel">
+          <option value="claude-fable-5-2">Claude Fable 5.2 (default)</option>
+          <option value="claude-opus-5-5">Claude Opus 5.5</option>
+        </select>
+      </label>
+      <label class="check"><input id="polishUnderstood" type="checkbox"> <span>I have read this and want the AI to polish the model (two AI runs).</span></label>
+      <div class="row">
+        <button id="polishStart" type="button" class="primary" disabled>Start polishing</button>
+        <button id="polishCancel" type="button" class="quiet">Cancel</button>
+      </div>
+    </div>
     <p id="actMsg" class="actmsg" role="alert"></p>
     <div id="appJob"></div>
   </section>
@@ -104,6 +126,12 @@
       </section>
     </div>
   </div>
+
+  <section id="polishCard" class="card polish-card" aria-labelledby="polishTitle" hidden>
+    <h2 id="polishTitle">What an outside eye asked for</h2>
+    <p id="polishSays" class="hint-line"></p>
+    <div id="polishList"></div>
+  </section>
 
   <section id="artCard" class="card art-card" aria-labelledby="artTitle" hidden>
     <h2 id="artTitle">The AI's art direction</h2>

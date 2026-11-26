@@ -78,6 +78,15 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
         references again (``freebuild.references_of``). When the subscription's usage limit
         stops a run, it says so, when it resets, and the --model that chooses the other
         model; it never switches by itself.
+    bricksnap make --polish PROJECT [--model ID]
+        An outside eye, then one change (``freebuild.polish``): a short AI session shown only
+        the model's pictures, its words, its brief, its references and how it measures lists
+        up to five fixes; the AI then makes them as one change, kept as a new run. Before
+        starting it says what is sent and to whom, that it is two AI runs on the person's
+        login, and ``freebuild.polish_time_and_cost``; the list is printed as soon as it
+        exists. 0 when the result is clean (or the outside eye asked for nothing, said
+        plainly, and nothing changed), 1 when a run failed, 2 for a mistake (not a free build,
+        no model yet, words or options that do not go with it).
     bricksnap make --import SOURCE [--name NAME] [--dir projects] ["WORDS"]
         No AI: keep a finished lab run folder (``python -m bricksnap.lab.run --out ...``) or
         an .ldr file (with ``<stem>-report.txt`` beside it) as a new free-build project,
@@ -2295,6 +2304,22 @@ def _make(args: argparse.Namespace) -> int:
 
     words = (args.words or "").strip()
     pictures = list(args.picture or [])
+    if args.polish:
+        if (
+            args.change
+            or args.import_from
+            or words
+            or args.name
+            or args.parts is not None
+            or args.reference
+            or args.guide
+            or pictures
+        ):
+            raise UserError(
+                "--polish goes only with --model: an outside eye decides what to change, so "
+                "there are no words of yours."
+            )
+        return _polish(args)
     if args.import_from:
         if (
             args.change
@@ -2413,6 +2438,74 @@ def _make(args: argparse.Namespace) -> int:
         if isinstance(e, freebuild.UsageLimitError) and e.other:
             again = f"--change {shlex.quote(folder.name)}" if args.change else "..."
             print(f"To use {freebuild.model_name(e.other)}: {RUN} make {again} --model {e.other}")
+        print(f"The project is {_show(folder)}.")
+        return 1
+    return _made(folder)
+
+
+def _polish(args: argparse.Namespace) -> int:
+    """``make --polish PROJECT``: an outside eye's fixes, then one change that makes them."""
+    from bricksnap.lab import freebuild
+
+    folder = _free_project(args.polish)
+    problem = freebuild.missing()
+    if problem:
+        raise UserError(problem)
+    meta = freebuild.read_meta(folder)
+    if meta.get("current") is None or not _is_file(folder / "model.ldr"):
+        raise UserError(
+            f"{args.polish} has no model yet, so there is nothing to polish. Build it first: "
+            f'{RUN} make --change {shlex.quote(args.polish)} "what to build"'
+        )
+    if args.model:
+        meta["model"] = args.model
+        freebuild.save_meta(folder, meta)
+    name = str(meta.get("name") or folder.name)
+    print(
+        f'Polishing "{name}": an outside eye looks at its pictures and writes up to five fixes, '
+        "then the AI makes them and keeps the rest."
+    )
+    refs = ", the pictures it was built from" if freebuild.references_of(folder) else ""
+    print(
+        f"This sends the model's pictures, its art direction{refs} and the words it was built "
+        "from to the AI provider, Anthropic, through Claude Code: first to the outside eye, then, "
+        "with its list, to the builder. Nothing else in BrickSnap sends anything off your "
+        "computer."
+    )
+    print(
+        "It is two AI runs that use your own Claude Code login. "
+        + freebuild.polish_time_and_cost(freebuild.next_size(meta), meta.get("model"))
+        + " Press Ctrl+C to stop it."
+    )
+    print(FREE_EXPERIMENTAL)
+    print()
+    sys.stdout.flush()
+
+    def say(line: str) -> None:
+        print(f"  {line}", flush=True)
+
+    def listed(found: dict[str, Any]) -> None:
+        print()
+        print("What the outside eye asked for:")
+        for k, f in enumerate(found["fixes"], 1):
+            print(f"  {k}. {f['where']}: {f['fix']}")
+        if not found["fixes"]:
+            print("  nothing")
+        print(f"  Keep: {found['keep']}")
+        print(flush=True)
+
+    try:
+        freebuild.polish(folder, on_say=say, on_critique=listed)
+    except freebuild.NothingToPolish as e:
+        print()
+        print(str(e))
+        return 0
+    except freebuild.FreeBuildError as e:
+        print()
+        print(f"The polish did not work: {e}")
+        if isinstance(e, freebuild.UsageLimitError) and e.other:
+            again = f"--polish {shlex.quote(folder.name)} --model {e.other}"
+            print(f"To use {freebuild.model_name(e.other)}: {RUN} make {again}")
         print(f"The project is {_show(folder)}.")
         return 1
     return _made(folder)
@@ -2698,6 +2791,12 @@ def _parser() -> _Parser:
         "--change",
         metavar="PROJECT",
         help="change a model the AI built before, starting from it, as WORDS say",
+    )
+    p.add_argument(
+        "--polish",
+        metavar="PROJECT",
+        help="an outside eye looks at the pictures of a model the AI built and lists up to "
+        "five fixes; then the AI makes them (two AI runs)",
     )
     p.add_argument(
         "--import",

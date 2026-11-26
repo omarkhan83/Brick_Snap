@@ -74,6 +74,10 @@
           <p class="hint">The AI first writes an art direction (the scale, two or three colours, the shapes that make the subject), then builds a core with sides pressed on, as official sets are built, and judges its own pictures against a style guide before it finishes. Later changes to the model keep this choice.</p>
         </div>
         <div class="field">
+          <label class="check"><input id="freePolish" name="polish" type="checkbox" value="1"> <span>Polish once after building</span></label>
+          <p class="hint" id="freePolishHint">After the build, an outside eye (a separate AI shown only the pictures) lists up to five fixes, and the AI makes them as one change. It roughly doubles the time and the cost.</p>
+        </div>
+        <div class="field">
           <label for="freeName">Name (you can leave this empty)</label>
           <input id="freeName" name="name" type="text" maxlength="80" autocomplete="off" placeholder="The first few words are used">
         </div>

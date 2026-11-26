@@ -353,6 +353,24 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   (``freebuild.build``). A run the subscription's usage limit stopped
   (``freebuild.UsageLimitError``) says so, when it resets, and which other Claude to choose,
   with a ``todo`` naming where to choose it; nothing is retried on another model.
+- (25 November) Polishing: ``POST /api/p/<project>/polish`` for a free build, ``{"model"?,
+  "understood": true, "understood_runs": 2}``: an AI job (kind "polish") under the same rules
+  as a change (token, Origin and Host; one AI job for the whole server; one job per project;
+  ``freebuild.missing``; refused without the agreement, in words that say what polishing
+  sends and that it is two AI runs). It runs ``freebuild.polish``: an outside eye
+  (``lab.critic``) shown only the model's pictures, words, brief, references and HOW IT LOOKS
+  numbers lists up to five fixes, then one change makes them. The job gives ``critique``
+  (``{"fixes": [{"where", "fix"}, ...], "keep"}``) as soon as the outside eye has answered
+  (null on every other job), which the page shows above the progress. An outside eye that
+  asks for nothing ends the job "done" with ``{"project", "run": null, "nothing": true}`` and
+  nothing changed. ``POST /api/free`` also takes ``"polish"`` (true: polish once right after
+  a successful first build, in the same job; ``understood_runs`` must then be 3; anything but
+  true or false is refused). ``GET /api/p/<project>``: each run gains ``polish`` (null, or
+  what the outside eye asked of that change) and the info gains ``polish``, the current
+  run's, which the page shows as "What an outside eye asked for". The project page has
+  "Polish it…" beside "Ask for a change…" with its own agreement (what is sent, two AI runs,
+  ``freebuild.polish_time_and_cost``); the home page's Options have "Polish once after
+  building", off by default, with what it adds (``freebuild.polish_estimate``).
 - ``POST /api/p/<project>/use`` ``{"run": n}``: a job ("use") that makes run n the current
   model again (``freebuild.restore``); the other runs stay. ``delete`` moves a free build
   to the bin as any other project.
@@ -393,8 +411,8 @@ EXPERIMENTAL ADDITION TO THE CONTRACT: models the AI builds from parts (``bricks
   ``references/picture-1.png`` to ``-4.png`` and ``references/model-sheet.png`` (never the
   3D file itself), and
   ``runs/<NNNN>/pictures/card.png`` for a run its project.json lists, judged on the
-  resolved path as above. Never the runs' work folders, transcripts, calls.jsonl or
-  anything ending ``.jsonl``.
+  resolved path as above. Never the runs' work folders, transcripts, calls.jsonl, the outside
+  eye's critic/ folders or critique.json, or anything ending ``.jsonl``.
 """
 
 from __future__ import annotations
@@ -541,8 +559,18 @@ NOT_FOUND_PAGE = """<!doctype html>
 </body>
 </html>
 """
-ACTIONS = ("build", "design", "export", "instructions", "delete", "restore", "change", "use")
-FREE_JOBS = ("free", "change")
+ACTIONS = (
+    "build",
+    "design",
+    "export",
+    "instructions",
+    "delete",
+    "restore",
+    "change",
+    "use",
+    "polish",
+)
+FREE_JOBS = ("free", "change", "polish")
 FREE_FILES = frozenset({"model.ldr", "parts.csv", "report.txt"})
 """The files of a free-build project the pages may fetch, besides its pictures."""
 _FREE_PICTURE = re.compile(r"pictures/(?:card|sheet|opened|turn-[0-9]{2})\.png")
@@ -581,6 +609,7 @@ JOB_LABELS = {
     "restore": "going back to an earlier version",
     "free": "the AI is building a new model from parts",
     "change": "the AI is changing the model it built",
+    "polish": "an outside eye looks at the model, then the AI makes the fixes it asks for",
     "use": "bringing back an earlier run",
 }
 TOOL_WORDS = {
@@ -754,6 +783,7 @@ class Job:
     choice: str | int | None = None  # what the person chose ("cancel" to build nothing)
     chosen: threading.Event = field(default_factory=threading.Event)
     todo: str | None = None  # what to do after a failure, when the page's usual hint is wrong
+    critique: dict[str, Any] | None = None  # a polish's outside eye: {"fixes", "keep"}
 
     def say(self, line: str) -> None:
         self.progress.append(line)
@@ -774,6 +804,7 @@ class Job:
             "pieces": self.pieces,
             "picture": f"/api/jobs/{self.id}/{PIECES_PICTURE}" if self.picture else None,
             "todo": self.todo,
+            "critique": None if self.critique is None else dict(self.critique),
         }
 
 
@@ -983,6 +1014,7 @@ def free_form_body(fields: dict[str, str]) -> dict[str, Any]:
                 "parts",
                 "reference",
                 "guide",
+                "polish",
                 "model",
                 "understood",
                 "understood_runs",
@@ -992,7 +1024,7 @@ def free_form_body(fields: dict[str, str]) -> dict[str, Any]:
             continue
         if key in ("parts", "understood_runs") and value.strip().isdigit():
             body[key] = int(value.strip())
-        elif key in ("guide", "understood") and value in ("true", "false"):
+        elif key in ("guide", "polish", "understood") and value in ("true", "false"):
             body[key] = value == "true"
         else:
             body[key] = value
@@ -1209,6 +1241,7 @@ class App:
                             "guide",
                             "playbook",
                             "model",
+                            "polish",
                         )
                     },
                     "picture": url(card),
@@ -1241,6 +1274,7 @@ class App:
             moves=list(about.get("moves") or []),
             looks_lines=[str(x) for x in about.get("looks_lines") or []],
             **{k: about.get(k) for k in freebuild.ART_KEYS},
+            polish=about.get("polish"),
             opened=url(str(about.get("opened") or "")),
             picture_problem=about.get("picture_problem"),
             files={rel: url(rel) for rel in about.get("files", [])},
@@ -2151,18 +2185,33 @@ class App:
     # ---- models the AI builds from parts (experimental) --------------------------------------
 
     @staticmethod
-    def _free_agreement(body: dict[str, Any]) -> None:
-        """Refuse an AI build the person has not agreed to (one AI run)."""
+    def _free_agreement(body: dict[str, Any], runs: int = 1, polish: bool = False) -> None:
+        """Refuse an AI build the person has not agreed to: ``runs`` AI runs (one for a build
+        or a change, three for a build polished once, two for ``polish``)."""
         agreed = body.get("understood_runs")
         if (
             body.get("understood") is not True
             or not isinstance(agreed, int)
             or isinstance(agreed, bool)
-            or agreed != 1
+            or agreed != runs
         ):
+            if polish:
+                raise Refused(
+                    "Polishing was not started. It sends the model's pictures, its art "
+                    "direction and the words it was built from to the AI provider, starts two AI "
+                    "runs (an outside eye, then a change) and uses your own Claude Code login, "
+                    "so it starts only after you have read that and agreed. Press “Polish it…”, "
+                    "read what it says and tick it."
+                )
+            what = (
+                "one AI run"
+                if runs == 1
+                else f"{NUMBER_WORDS.get(runs, runs)} AI runs (the build, then an outside eye "
+                "and a change that polish it)"
+            )
             raise Refused(
                 "The AI builder was not started. It sends the words you typed (and the pictures "
-                "or the 3D model you added) to the AI provider, starts one AI run and uses your "
+                f"or the 3D model you added) to the AI provider, starts {what} and uses your "
                 "own Claude Code login, so it starts only after you have read that and agreed. "
                 "Read the line under the Build button and tick it."
             )
@@ -2236,10 +2285,13 @@ class App:
         guide = body.get("guide", False)
         if not isinstance(guide, bool):
             raise Refused("The choice to build it the way set designers do must be on or off.")
+        polish = body.get("polish", False)
+        if not isinstance(polish, bool):
+            raise Refused("The choice to polish it once after building must be on or off.")
         model = self._free_model(body)
         if len(pictures) > freebuild.MAX_PICTURES:
             raise Refused(f"Add at most {freebuild.MAX_PICTURES} pictures.")
-        self._free_agreement(body)
+        self._free_agreement(body, runs=3 if polish else 1)
         self._free_ready()
         if sum(len(p) for p in pictures) > freebuild.MAX_PICTURES_BYTES:
             raise Refused(
@@ -2281,7 +2333,13 @@ class App:
             if ref_folder is not None:
                 job.say("Drawing the model to look like from five sides, to show the AI")
                 freebuild.reference_sheet(ref_folder, path / freebuild.REFERENCE_SHEET)
-            return self._free_run(job, path, None)
+            if polish:
+                job.say("Three AI runs in all: this build, then an outside eye and one change")
+            built = self._free_run(job, path, None)
+            if not polish:
+                return built
+            job.say("The model is built. Now it is polished once, as you asked")
+            return self._polish_run(job, path, None)
 
         try:
             return self.start("free", folder, work, ai=True, job_id=job_id, reserved=True)
@@ -2301,6 +2359,55 @@ class App:
             return self._free_run(job, self.free(name), words, model)
 
         return self.start("change", name, work, ai=True)
+
+    def polish(self, name: str, body: dict[str, Any]) -> Job:
+        """``POST /api/p/<project>/polish``: an outside eye's fixes, then one change."""
+        model = self._free_model(body)
+        self.free(name)
+        self._free_agreement(body, runs=2, polish=True)
+        self._free_ready()
+
+        def work(job: Job) -> dict[str, Any]:
+            folder = self.free(name)
+            meta = freebuild.read_meta(folder)
+            used = model or meta.get("model") or freebuild.DEFAULT_MODEL
+            job.say(
+                f"Two AI runs, by {freebuild.model_name(used)}. "
+                + freebuild.polish_time_and_cost(freebuild.next_size(meta), used)
+            )
+            return self._polish_run(job, folder, model)
+
+        return self.start("polish", name, work, ai=True)
+
+    def _polish_run(self, job: Job, folder: Path, model: str | None) -> dict[str, Any]:
+        """``freebuild.polish`` for a job: the outside eye's list shown on the job as soon as
+        it exists (``Job.critique``)."""
+
+        def seen(found: dict[str, Any]) -> None:
+            job.critique = {"fixes": list(found["fixes"]), "keep": found["keep"]}
+
+        try:
+            entry = freebuild.polish(folder, on_say=job.say, on_critique=seen, model=model)
+        except freebuild.NothingToPolish as e:
+            job.say(str(e))
+            return {"project": folder.name, "run": None, "nothing": True}
+        except freebuild.UsageLimitError as e:
+            other = f"“{freebuild.model_name(e.other)}”" if e.other else ""
+            todo = (
+                f"Your model is safe. Press “Polish it…”, choose {other} under “Which Claude "
+                "polishes it” and try again, or wait until the limit resets."
+                if other
+                else "Wait until the limit resets, then try again."
+            )
+            raise JobFailed(str(e), todo=todo) from None
+        job.say(f"Done: {entry.get('summary') or 'not checked'}")
+        return {
+            "project": folder.name,
+            "run": entry["n"],
+            "parts": entry["parts"],
+            "clean": entry["clean"],
+            "summary": entry.get("summary") or "",
+        }
 
     def _free_run(
         self, job: Job, folder: Path, words: str | None, model: str | None = None
@@ -2729,6 +2836,8 @@ def _make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         job = app.restore(name, body)
                     elif action == "change":
                         job = app.change(name, body)
+                    elif action == "polish":
+                        job = app.polish(name, body)
                     elif action == "use":
                         job = app.use(name, body)
                     else:

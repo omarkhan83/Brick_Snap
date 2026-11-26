@@ -3,10 +3,11 @@
 //
 // The model turning under a slider (twelve pictures round it), what the checker says, the
 // AI's own notes, "Ask for a change" with the same kind of agreement as the AI designer's,
-// the downloads, the earlier runs, and the bin. Text from the server, the person and the AI
+// "Polish it" (an outside eye's fixes, then one change; lab/critic.py) and what the outside
+// eye asked of a polished run, the downloads, the earlier runs, and the bin. Text from the server, the person and the AI
 // goes in with textContent, never innerHTML.
 
-import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, NOT_ANSWERING, appState, el, freeModelName, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, NOT_ANSWERING, appState, el, freeModelName, freePolishTimeAndCost, freeTimeAndCost, getJson, outsideEye, plural, postJson, refusal, sleep } from './app.js';
 
 const $ = (id) => document.getElementById(id);
 const project = document.body.dataset.project;
@@ -380,15 +381,18 @@ function showRuns() {
     const time = minutes(r.seconds);
     if (time) facts.push(time);
     if (r.model) facts.push(`by ${freeModelName(r.model)}`);
+    const polished = r.polish && typeof r.polish === 'object' && Array.isArray(r.polish.fixes) ? r.polish.fixes.length : null;
     const head = el('span', { className: 'vname' }, [
       el('span', { className: 'vn', text: String(r.n) }),
-      el('span', { className: 'vlabel', text: RUN_WORDS[r.kind] || r.kind }),
+      el('span', { className: 'vlabel', text: polished !== null ? 'Polished' : RUN_WORDS[r.kind] || r.kind }),
     ]);
+    let said = r.words ? `“${r.words}”` : '';
+    if (polished !== null) said = `The ${polished === 1 ? 'fix' : `${polished} fixes`} an outside eye asked for`;
     const parts = [
       pic,
       el('span', { className: 'vtext' }, [
         head,
-        r.words ? el('span', { className: 'rwords', text: `“${r.words}”` }) : null,
+        said ? el('span', { className: 'rwords', text: said }) : null,
         guideWords(r) ? el('span', { className: 'rguide', text: guideWords(r) }) : null,
         el('span', { className: 'vfacts' }, [now ? el('span', { className: 'badge ok vnow', text: 'In use' }) : null, document.createTextNode(facts.join(' · '))]),
       ]),
@@ -493,7 +497,15 @@ function showNextStep() {
     input.onkeydown = (e) => {
       if (e.key === 'Enter') go();
     };
-    parts.push(el('div', { className: 'ask' }, [input, ask]));
+    const polish = el('button', {
+      type: 'button',
+      className: 'quiet',
+      id: 'polishBtn',
+      text: 'Polish it…',
+      title: 'An outside eye, a separate AI shown only the pictures, lists up to five fixes; then the AI makes them.',
+    });
+    polish.onclick = openPolish;
+    parts.push(el('div', { className: 'ask' }, built ? [input, ask, polish] : [input, ask]));
   }
   box.replaceChildren(...parts);
   const fresh = box.querySelector('#askText');
@@ -507,6 +519,7 @@ function openConfirm(words) {
   if (busy()) return;
   pendingWords = words;
   say('');
+  polishBox.hidden = true;
   understood.checked = false;
   startBtn.disabled = true;
   $('changeWhat').replaceChildren(
@@ -541,6 +554,75 @@ startBtn.addEventListener('click', async () => {
   const input = $('askText');
   if (input && following) input.value = '';
 });
+
+// ---- polishing: an outside eye's fixes, then one change ----
+
+const polishBox = $('polishConfirm');
+const polishUnderstood = $('polishUnderstood');
+const polishStart = $('polishStart');
+const polishModel = $('polishModel');
+
+function polishWords() {
+  const size = (info && info.parts) || (info && info.parts_wanted) || 80; // the model's own size
+  const model = polishModel.value;
+  $('polishTime').textContent = `It is two AI runs by ${freeModelName(model)}. ${freePolishTimeAndCost(size, model)} You can leave this page while it works.`;
+  const refs = (info && Array.isArray(info.reference_pictures) && info.reference_pictures.length) || (info && info.reference_model);
+  $('polishSends').textContent = `It sends the model's pictures, its art direction and the words it was built from${refs ? ', with the pictures it was built from,' : ''} to the AI provider, Anthropic, through Claude Code: first to the outside eye, then, with its list, to the AI that builds. Nothing else in BrickSnap sends anything off your computer.`;
+}
+polishModel.addEventListener('change', () => {
+  polishUnderstood.checked = false;
+  polishStart.disabled = true;
+  polishWords();
+});
+
+function openPolish() {
+  if (busy()) return;
+  say('');
+  confirmBox.hidden = true;
+  polishUnderstood.checked = false;
+  polishStart.disabled = true;
+  polishModel.value = info && FREE_MODELS[info.model] ? info.model : FREE_DEFAULT_MODEL;
+  polishWords();
+  polishBox.hidden = false;
+  polishBox.scrollIntoView({ block: 'nearest' });
+  polishUnderstood.focus();
+}
+
+function closePolish() {
+  polishBox.hidden = true;
+  const opener = $('polishBtn');
+  if (opener) opener.focus();
+}
+
+polishUnderstood.addEventListener('change', () => {
+  polishStart.disabled = !polishUnderstood.checked || busy();
+});
+$('polishCancel').addEventListener('click', closePolish);
+polishBox.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePolish();
+});
+polishStart.addEventListener('click', async () => {
+  if (!polishUnderstood.checked) return;
+  polishBox.hidden = true;
+  await start('polish', { model: polishModel.value, understood: true, understood_runs: 2 });
+});
+
+// What the outside eye asked of the run shown now (a polished run).
+let shownPolish = '';
+function showPolish() {
+  const p = info && info.polish && typeof info.polish === 'object' ? info.polish : null;
+  const key = JSON.stringify(p);
+  if (key === shownPolish) return;
+  shownPolish = key;
+  $('polishCard').hidden = !p;
+  if (!p) {
+    $('polishList').replaceChildren();
+    return;
+  }
+  const of = typeof p.of_run === 'number' ? ` of run ${p.of_run}` : '';
+  $('polishSays').textContent = `An outside eye, a separate AI shown only the pictures${of}, the words, the art direction and how it measured, asked for these fixes, the most visible first. This run is the AI's change to make them.`;
+  $('polishList').replaceChildren(outsideEye(p, ''));
+}
 
 // ---- actions ----
 
@@ -599,6 +681,7 @@ function render(force = false) {
   }
   showTurntable();
   showBuiltFrom();
+  showPolish();
   showBrief();
   showNotes();
   showCritique();
@@ -609,6 +692,8 @@ function render(force = false) {
   $('actDelete').disabled = off;
   startBtn.disabled = off || !understood.checked;
   $('changeCancel').disabled = false;
+  polishStart.disabled = off || !polishUnderstood.checked;
+  $('polishCancel').disabled = false;
 }
 
 async function refresh(force = false) {

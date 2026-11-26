@@ -3,7 +3,7 @@
 // models as cards below it, free builds first and newest first; and, folded away, the older
 // form that turns a 3D model file into bricks. Text from the server goes in with textContent.
 
-import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, freeEstimate, NOT_ANSWERING, TOKEN, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
+import { FREE_DEFAULT_MODEL, FREE_MODELS, JobView, freeEstimate, freePolishEstimate, freePolishTimeAndCost, NOT_ANSWERING, TOKEN, appState, el, freeTimeAndCost, getJson, plural, postJson, refusal, sleep } from './app.js';
 
 const MAX_UPLOAD_MB = 60;
 const SUFFIXES = ['.stl', '.obj', '.glb', '.gltf', '.3mf', '.ply'];
@@ -310,6 +310,7 @@ const freeForm = $('freeForm');
 const freeWords = $('freeWords');
 const freeParts = $('freeParts');
 const freeGuide = $('freeGuide');
+const freePolish = $('freePolish');
 const freeModel = $('freeModel');
 const freeFiles = $('freeFiles');
 const freeDrop = $('freeDrop');
@@ -365,6 +366,14 @@ function showSays() {
   const way = freeGuide.checked ? ', designed first' : '';
   const guess = model !== FREE_DEFAULT_MODEL || e.estimated ? ' (an estimate)' : '';
   $('freeSends').textContent = `Build sends ${sends} to Anthropic through Claude Code; nothing else leaves this computer.`;
+  const added = freePolishEstimate(parts, model);
+  $('freePolishHint').textContent = `After the build, an outside eye (a separate AI shown only the pictures) lists up to five fixes, and the AI makes them as one change. It roughly doubles the time and the cost: it adds about ${added.minutes[0]} to ${added.minutes[1]} minutes and $${added.dollars[0]} to $${added.dollars[1]} (an estimate).`;
+  if (freePolish.checked) {
+    const both = freePolishEstimate(parts, model, true);
+    $('freeCost').textContent = `Three AI runs by ${FREE_MODELS[model] || model}${way}, then polished once: usually ${both.minutes[0]} to ${both.minutes[1]} minutes, about $${both.dollars[0]} to $${both.dollars[1]} of your Claude subscription (an estimate).`;
+    $('freeCostFull').textContent = `${freeTimeAndCost(parts, model)} Then, to polish it: ${freePolishTimeAndCost(parts, model)}`;
+    return;
+  }
   $('freeCost').textContent = `One AI run by ${FREE_MODELS[model] || model}${way}: usually ${e.minutes[0]} to ${e.minutes[1]} minutes, about $${e.dollars[0]} to $${e.dollars[1]} of your Claude subscription${guess}.`;
   $('freeCostFull').textContent = freeTimeAndCost(parts, model);
 }
@@ -503,6 +512,7 @@ freeModel.addEventListener('change', () => {
   showLimitLine();
 });
 freeGuide.addEventListener('change', showSays);
+freePolish.addEventListener('change', showSays);
 try {
   freeUnderstood.checked = window.localStorage.getItem(AGREED_KEY) === '1';
 } catch {
@@ -565,10 +575,11 @@ freeForm.addEventListener('submit', (e) => {
   data.append('parts', freeParts.value);
   data.append('model', freeModel.value);
   data.append('guide', freeGuide.checked ? 'true' : 'false');
+  data.append('polish', freePolish.checked ? 'true' : 'false');
   const name = $('freeName').value.trim();
   if (name) data.append('name', name);
   data.append('understood', 'true');
-  data.append('understood_runs', '1');
+  data.append('understood_runs', freePolish.checked ? '3' : '1');
   for (const p of chosen.pictures) data.append('picture', p.file, p.file.name);
   if (chosen.model) data.append('model_file', chosen.model.file, chosen.model.file.name);
 
