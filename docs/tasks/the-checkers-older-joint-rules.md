@@ -220,8 +220,12 @@ Left:
 Fixed on the branch: a clip's grip is closed (7 of 12 points) with one direction, found per
 clip in its shape (`grip_lines`, shared by the checker and the `clip` tool); a load hung on
 clips is told (`clip_loads`: the parts reach the ground only through N clips, and the checker
-cannot judge whether clips will carry this much; three official models trip it, 75075, 31066
-and 40379, and it was kept on purpose as a warning for every model: not a false alarm to fix); `strut` refuses what would not close and its advice closes it;
+cannot judge whether clips will carry this much; official 75075 and 31066 trip it (40379 did
+under the first limit for one clip), and it was kept on purpose as a warning for every model:
+not a false alarm to fix; since the second review every part counts by its own volume, a
+part with a handle too, and the limits are set by cases either side: a 1 x 8 tile blade on
+one clip is not told, a 2 x 6 plate wing is; three bricks on the clip-legged table are not,
+four are); `strut` refuses what would not close and its advice closes it;
 `clip` reports what the checker finds; the sentences say "most clips on bars".
 Every limit is pinned or gone: each was loosened in turn and the tests run. Pinned now:
 `GRIP_R` both ways (98460's clip opening below), the bar tube's wall ring (24122: at 6 its pin
@@ -235,7 +239,11 @@ Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review
   11090's clip end resting on a bar's top; a bar 8 above or 6 beside a tile clip.
 - A measurable clip whose fit fails falls back to "known by name" within `CLIP_REACH` (a clip
   moved 4 LDU off its bar passes 19 times in 99 in the targeted run).
-- 20612's two oblique tubes are not found (its third, along its own x, is).
+- 20612's two oblique tubes are not found (its third, along its own x, is). 72869, named a
+  bar tube, has no bore found at all.
+- The grip's clear ring (none of 12 points at `GRIP_CLEAR`) depends on where its 12 points
+  fall: 48729b's clip passes in the search and fails at the bar, so it is joined by name
+  only (`clip` says so). Testing more points in both would settle it either way.
 
 ## Style techniques (branch `wip/Alec-42-style-techniques`, 20 and 21 November)
 Every technique of the style guide is built and checked in `tests/test_lab_style_techniques.py`.
@@ -264,7 +272,8 @@ Left:
 - **The tipper bucket 19001's assembly** had a false stud problem that, since the "no socket"
   fix, is a false overlap instead: the problem changed words, it did not go away.
 - **48729b (a bar with a clip, no primitives)** is placed by the `clip` tool, but the checker
-  joins it to its bar by name only: what the tool put there is not measured.
+  joins it to its bar by name only: what the tool put there is not measured (`clip` now says
+  so; see the grip's clear ring above).
 - **11 of the 16 parts moved onto the stud grid** have no placement in the official models or
   the library's assemblies to compare with (the review's count); each now lines up with its
   own top studs, which is all that could be checked for them.

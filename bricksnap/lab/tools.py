@@ -565,7 +565,7 @@ def _fitted(report: Any, a: int, b: int) -> str:
     if any(set(i.lines) == {a, b} for i in report.fits):
         return f"lines {a} and {b}: tested for fit"
     if any(i.kind == "joint" and set(i.lines) == {a, b} for i in report.unchecked):
-        return f"lines {a} and {b}: joined, but the fit is not measured"
+        return f"lines {a} and {b}: joined by name only, the fit not measured"
     return f"lines {a} and {b}: no joint"
 
 
@@ -605,6 +605,11 @@ def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             f"to {hi:g} LDU deep lies along ({_vec(-inward)}) from there."
         )
     said += f" The checker: {_fitted(report, onto, n)}."
+    if "by name only" in said:
+        said += (
+            f" It could not measure this clip's grip on that bar; it measures these: "
+            f"{clips.CLIPS_THAT_WORK}."
+        )
     if any(n in i.lines for i in report.problems):
         said += " But it finds a problem with the new line (below): fix it or remove the line."
     return [
