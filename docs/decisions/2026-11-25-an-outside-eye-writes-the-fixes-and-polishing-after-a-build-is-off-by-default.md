@@ -1,5 +1,5 @@
 # An outside eye that sees only the pictures writes a free build's fixes, and polishing after a build is off by default
-- status: accepted
+- status: accepted (its default superseded by 2026-11-26-polishing-after-a-build-is-on-by-default.md)
 - by: Alec-42, 2026-11-25
 
 The builder grades its own work leniently, while a reviewer who saw only the pictures wrote four fixes

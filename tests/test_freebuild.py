@@ -923,6 +923,8 @@ def test_browser_home_form_consent_and_a_running_build(
         page.click("#freeGo")
         assert "Say what to build first" in tab.text("#freeMsg")
         page.fill("#freeWords", f"a sunflower in a pot {MARKUP}")
+        page.click("#freeMore summary")
+        page.uncheck("#freePolish")  # polishing is on by default; this test is about one build
         assert tab.text("#freeSends") == (
             "Build sends your words to Anthropic through Claude Code; nothing else leaves this "
             "computer."
@@ -939,6 +941,8 @@ def test_browser_home_form_consent_and_a_running_build(
         tab.open()  # the agreement is remembered in this browser
         assert page.locator("#freeUnderstood").is_checked()
         page.fill("#freeWords", f"a sunflower in a pot {MARKUP}")
+        page.click("#freeMore summary")
+        page.uncheck("#freePolish")
         shot(tab, "home-bar")
         page.click("#freeGo")
         page.wait_for_url("**/p/a-sunflower-in-a-pot-img", timeout=20000)  # its own page
@@ -1213,6 +1217,7 @@ def test_browser_the_guide_box_and_what_the_page_says(
         page = tab.page
         page.fill("#freeWords", "a sunflower in a pot")
         page.locator("#freeMore summary").click()
+        page.uncheck("#freePolish")  # on by default; this test is about one build's words
         page.fill("#freeName", "Sunflower")
         box = page.locator("#freeGuide")
         assert box.is_visible() and box.is_checked()  # on unless taken off: the main way now
@@ -1224,17 +1229,17 @@ def test_browser_the_guide_box_and_what_the_page_says(
         assert "big models take longer and use more of your subscription" in tab.text(
             "#freePartsHint"
         )
-        assert tab.text("#freeCostFull") == freebuild.time_and_cost(400)
+        assert tab.text("#freeCostFull").startswith(freebuild.time_and_cost(400))  # then polish
         assert tab.text("#freeCost").endswith("(an estimate).")  # no build this large on record
         page.locator("#freeParts").fill("80")
-        assert tab.text("#freeCostFull") == freebuild.time_and_cost(80)
+        assert tab.text("#freeCostFull").startswith(freebuild.time_and_cost(80))
         assert "is stopped at 90 minutes" in tab.text("#freeCostFull")
         box.uncheck()
         assert "designed first" not in tab.text("#freeCost")
         box.check()
         assert "designed first" in tab.text("#freeCost")
         page.select_option("#freeModel", "claude-opus-5-5")
-        assert tab.text("#freeCostFull") == freebuild.time_and_cost(80, "claude-opus-5-5")
+        assert tab.text("#freeCostFull").startswith(freebuild.time_and_cost(80, "claude-opus-5-5"))
         assert "$1 to $3 of your Claude subscription (an estimate)" in tab.text("#freeCost")
         page.select_option("#freeModel", "claude-fable-5-2")
         page.check("#freeUnderstood")
@@ -1790,7 +1795,7 @@ def test_browser_the_prompt_bar_with_pictures_and_a_3d_model(
         page.select_option("#freeModel", "claude-opus-5-5")
         says = tab.text("#freeSays")
         assert "your words, your picture and pictures of pawn.stl from five sides" in says
-        assert "One AI run by Claude Opus 5.5" in says
+        assert "by Claude Opus 5.5" in says  # three runs: polishing is on by default
         page.wait_for_function(
             "() => [...document.querySelectorAll('#freeThumbs img')].every(i => i.complete)"
         )
@@ -1925,7 +1930,7 @@ def test_browser_the_bar_chooses_the_other_claude_at_a_usage_limit(
         assert tab.text("#freeLimit") == (
             f"Claude Fable 5.2 is at its usage limit until {when}; Claude Opus 5.5 is chosen."
         )
-        assert "One AI run by Claude Opus 5.5" in tab.text("#freeCost")
+        assert "by Claude Opus 5.5" in tab.text("#freeCost")
         shot(tab, "home-bar-usage-limit", full=False)
         page.locator("#freeMore summary").click()
         page.select_option("#freeModel", "claude-fable-5-2")  # still allowed, and said

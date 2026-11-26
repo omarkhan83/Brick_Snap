@@ -157,6 +157,11 @@ def test_index_leaves_out_what_it_should():
     assert exclusion_reason("3001p11.dat", "Brick 2 x 4 with Pattern", "Part", "") == "patterned"
     assert exclusion_reason("x.dat", "=Tile 1 x 1", "Part", "") == "alias"
     assert exclusion_reason("x.dat", "Brick 2 x 2", "Shortcut", "") == "shortcut"
+    assert (
+        exclusion_reason("u9251.dat", "Tile 2 x 2 with 1 x 1 Quarter Circle Cutout", "Part", "Tile")
+        == "unofficial number"
+    )
+    assert exclusion_reason("3001.dat", "Brick 2 x 4", "Part", "Brick") is None
     assert exclusion_reason("x.dat", "Duplo Brick 2 x 2", "Part", "Duplo") == "other system"
     index = load_index()
     assert "3001.dat" in index.by_name and "4073.dat" not in index.by_name

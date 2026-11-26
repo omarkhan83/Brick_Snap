@@ -60,7 +60,7 @@ from bricksnap.lab.ldraw_lib import (
     zip_path,
 )
 
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 NON_SYSTEM = {
     "duplo",
     "primo",
@@ -73,6 +73,9 @@ NON_SYSTEM = {
     "belville",
     "mursten",
 }
+# LDraw's "u" numbers are parts with no known official number yet: they cannot be ordered or
+# looked up by number, and a builder on 26 November had to warn the owner about one (u9251).
+_UNOFFICIAL_NUMBER = re.compile(r"^u\d+[a-z]?\d*\.dat$")
 _PATTERN_NAME = re.compile(r"^[a-z]*\d+[a-z]*p[a-z0-9]{2,4}(c\d\d)?\.dat$")
 
 SYNONYMS: dict[str, list[str]] = {
@@ -163,6 +166,8 @@ def exclusion_reason(name: str, description: str, org: str, category: str) -> st
         return "sticker"
     if "pattern" in d.lower() or _PATTERN_NAME.match(name):
         return "patterned"
+    if _UNOFFICIAL_NUMBER.match(name):
+        return "unofficial number"
     first = d.split()[0].lower() if d.split() else ""
     if first in NON_SYSTEM:
         return "other system"

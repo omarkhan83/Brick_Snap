@@ -543,8 +543,9 @@ def test_browser_the_polish_button_its_list_and_the_option(
     try:
         page = home.page
         page.click("#freeMore summary")
-        assert not page.locator("#freePolish").is_checked()  # off unless chosen
+        assert page.locator("#freePolish").is_checked()  # on unless the person turns it off
         page.fill("#freeWords", "a sports car")
+        page.uncheck("#freePolish")
         one = home.text("#freeCost")
         assert one.startswith("One AI run by Claude Fable 5.2")
         page.check("#freePolish")
