@@ -166,7 +166,8 @@ def test_scale_is_the_largest_the_parts_pay_for():
 def test_a_leg_is_held_by_studs_and_a_clip_holds_only_what_carries_nothing():
     rules = guide.rules().splitlines()
     assert len(rules) == 12
-    assert "may hang on one clip on a bar" in rules[4] and "(a strut, rail, aerial" in rules[4]
+    assert "hangs well on one clip on" in rules[4] and "(a strut, rail, aerial" in rules[4]
+    assert "the checker tests that clip for fit as it does studs" in rules[4]
     assert (
         "a leg the model stands on is fixed by studs, a pin, or a bar seated in a hollow"
         in (rules[4])
@@ -229,6 +230,15 @@ def test_every_colour_and_part_the_style_guide_names_is_in_the_library():
 
 def _prompt(session: str = "first") -> str:
     return guide.system_prompt(run.PROMPT_FILE.read_text(encoding="utf-8"), session)
+
+
+def test_clips_on_bars_are_offered_as_a_tested_joint_not_warned_off():
+    on = _prompt()
+    assert "A clip on a bar or handle is tested for fit as a stud is" in on
+    assert "do not move such a part onto studs to have it confirmed" in on
+    assert "make sure each of those is a real joint" not in on
+    off = run.PROMPT_FILE.read_text(encoding="utf-8")
+    assert "most clips on bars (a clip on a bar is a proper joint for a thin part)" in off
 
 
 def test_the_guide_mode_instructions_carry_the_art_direction():
