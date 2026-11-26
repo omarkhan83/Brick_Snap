@@ -317,13 +317,42 @@ def test_a_stored_grip_is_served_only_under_the_key_it_was_found_under(tmp_path,
     assert grips() == wrong  # under today's key the stored grip is used: no search
     stored.write_text(json.dumps(wrong))  # stored with no key (as before it had one)
     assert grips() == real
-    for part in ("library", "solid", "search"):  # another library, solid or search code
+    for part in ("library", "solid", "search", "points", "names"):  # any of the key changed
         stale = {**found["key"], part: "another"}
         stored.write_text(json.dumps({"key": stale, "grips": wrong}))
         assert grips() == real, part
     stored.write_text(json.dumps({"key": found["key"], "grips": wrong}))
     monkeypatch.setattr(validate, "GRIP_TURN", 30.0)  # any number of the search changed
     assert grips() == real
+
+
+
+@pytest.mark.parametrize("change", ["points", "names"])
+def test_a_stored_grip_is_stale_when_the_rings_points_or_the_name_rule_change(
+    tmp_path, monkeypatch, change
+):
+    import json
+
+    from bricksnap.lab import validate
+
+    monkeypatch.setenv("BRICKSNAP_LAB_CACHE", str(tmp_path))
+    monkeypatch.setattr(validate, "_GRIPS", {})
+    key = "15712.dat"  # a clip with no clip primitive: searched only because its name says so
+    assert validate.grip_lines(key)
+    wrong = [[[0.0, 4.0, 15.0], [1.0, 0.0, 0.0]]]
+    stored = tmp_path / "grips" / f"{key}.json"
+    stored.write_text(json.dumps({"key": validate._grip_key(), "grips": wrong}))
+    if change == "points":  # more points on each circle the search tries
+        monkeypatch.setattr(validate, "GRIP_POINTS", 24)
+    else:  # the name rule no longer calls a clip a joint: 15712 is not searched at all
+        words = ldraw_lib.NAME_JOINT_WORDS
+        rule = re.compile(words.pattern.replace("clip|clips|", ""), words.flags)
+        monkeypatch.setattr(ldraw_lib, "NAME_JOINT_WORDS", rule)
+    validate._GRIPS.clear()
+    got = [[x.round(1).tolist(), d.round(3).tolist()] for x, d in validate.grip_lines(key)]
+    assert got != wrong
+    if change == "names":
+        assert got == []
 
 
 @pytest.mark.parametrize("angle", [0, 30, 45, 90])
@@ -765,28 +794,79 @@ UP = "1 4 0 -122 -32 1 0 0 0 0 -1 0 1 0 61252.dat\n"  # pointing up
 @pytest.mark.parametrize(
     "held, told",
     [
-        (OUT + "1 15 30 -92 -50 1 0 0 0 -1 0 0 0 -1 2431.dat", False),  # 1 x 4 tile: 0.77 million
-        (UP + "1 15 50 -122 -40 1 0 0 0 0 -1 0 1 0 3666.dat", False),  # 1 x 6 plate: 1.13
-        (OUT + "1 15 50 -92 -50 1 0 0 0 -1 0 0 0 -1 6636.dat", False),  # 1 x 6 tile: 1.33
-        (OUT + "1 15 70 -92 -50 1 0 0 0 -1 0 0 0 -1 4162.dat", False),  # 1 x 8 tile: 2.15
-        (OUT + "1 15 50 -92 -60 1 0 0 0 -1 0 0 0 -1 3795.dat", True),  # 2 x 6 plate: 2.83
-        (OUT + "1 15 70 -92 -60 1 0 0 0 -1 0 0 0 -1 3034.dat", True),  # 2 x 8 plate: 4.50
+        # volume times reach from the grip, in millions of LDU^4: along the bar
+        (OUT + "1 15 30 -92 -50 1 0 0 0 -1 0 0 0 -1 2431.dat", False),  # 1 x 4 tile: 0.62
+        (UP + "1 15 50 -122 -40 1 0 0 0 0 -1 0 1 0 3666.dat", False),  # 1 x 6 plate, up
+        (OUT + "1 15 50 -92 -50 1 0 0 0 -1 0 0 0 -1 6636.dat", False),  # 1 x 6 tile: 1.06
+        (OUT + "1 15 70 -92 -50 1 0 0 0 -1 0 0 0 -1 4162.dat", False),  # 1 x 8 tile: 1.88
+        (OUT + "1 15 90 -92 -50 1 0 0 0 -1 0 0 0 -1 4477.dat", True),  # 1 x 10 plate: 2.96
+        # and straight out from the bar
+        (OUT + "1 15 0 -92 -100 0 0 -1 0 -1 0 -1 0 0 6636.dat", False),  # 1 x 6 tile: 1.41
+        (OUT + "1 15 0 -92 -120 0 0 -1 0 -1 0 -1 0 0 4162.dat", False),  # 1 x 8 tile: 2.37
+        (OUT + "1 15 0 -92 -120 0 0 -1 0 -1 0 -1 0 0 3460.dat", False),  # 1 x 8 plate: 2.37
+        (OUT + "1 15 -10 -92 -100 0 0 -1 0 -1 0 -1 0 0 3795.dat", True),  # 2 x 6 plate: 2.78
     ],
 )
 def test_a_blade_on_one_clip_is_not_told_and_a_wing_is(held, told):
-    # held out on one clip, volume times reach: rule 8's blades (a 1 x 6 or 1 x 8 tile, a
-    # 1 x 6 plate) are under LOAD_ONE_GRIP (2.5 million LDU^4), a 2-wide plate's wing over it
+    # held out on one clip, volume times reach from where the clip holds the bar: rule 8's
+    # blades (a 1 x 6 or 1 x 8 tile or plate) are under LOAD_ONE_GRIP (2.5 million LDU^4)
+    # however they point, a 2 x 6 plate held straight out and a 1 x 10 plate over it
     r = check(ARM + held + "\n")
     assert bool(loads(r)) == told, r.text()
-    assert all_fitted(r) or told, r.text()
 
 
-def test_a_wing_held_out_on_one_clip_is_told_and_a_mirror_is_not():
-    # a 1 x 8 plate held by its end, its middle 110 LDU out from one clip: more than
-    # LOAD_ONE_GRIP; a 1 x 1 plate on the clip plate itself is a mirror, a detail
-    r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
-    assert loads(r) == [[5, 6]], r.text()
+TWO_CLIPS = """1 7 0 -32 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -56 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -80 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -104 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 2 0 -8 -140 0 0 1 0 1 0 -1 0 0 92438.dat
+1 14 -20 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 14 20 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 4 -20 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+1 4 20 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+"""  # the review's: two 61252 side by side, 40 LDU apart, on handles on a weighted stack
+
+
+def test_a_wing_held_out_on_two_clips_is_measured_for_reach_too():
+    # a 4 x 8 plate held by its edge on two clips: 112,015 LDU^3 at 53 LDU outside the line
+    # between the grips, shared by two, is 2.99 million a clip, more than LOAD_ONE_GRIP,
+    # though each clip carries less than LOAD_PER_GRIP; a 2 x 6 plate there is 0.65
+    r = check(TWO_CLIPS + "1 15 50 -100 -80 1 0 0 0 -1 0 0 0 -1 3035.dat\n")
+    assert loads(r) == [[8, 9, 10]] and "through 2 clips" in r.text(), r.text()
+    assert not loads(check(TWO_CLIPS + "1 15 30 -100 -60 1 0 0 0 -1 0 0 0 -1 3795.dat\n"))
+
+
+LONG_ARM = """1 7 0 -32 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -56 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -80 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -104 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 2 0 -8 -140 0 0 1 0 1 0 -1 0 0 92438.dat
+1 14 0 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 4 0 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+1 15 0 -100 -120 0 0 -1 0 -1 0 -1 0 0 3460.dat
+""".splitlines(keepends=True) + [
+    "1 14 0 -92 -180 0 0 1 0 -1 0 1 0 0 2540.dat\n",  # a handle at the plate's far end
+    "1 4 -18 -114 -180 0 -1 0 0 0 -1 1 0 0 61252.dat\n",  # a clip on it
+    "1 1 -10 -144 -190 0 -1 0 -1 0 0 0 0 -1 3020.dat\n",  # a 2 x 4 plate on that clip
+]  # the review's arm: a 1 x 8 plate held straight out on one clip, then more at its end
+
+
+def test_weight_added_at_the_end_of_a_clip_held_arm_only_adds_to_the_warning():
+    # the plate alone is a blade (2.37 million from the grip); a handle at its end makes it
+    # 3.88; a clip on that handle and a plate on the clip hang from the arm, and their
+    # weight is carried to the clip nearer the ground, so the warning stays, naming them
+    assert not loads(check("".join(LONG_ARM[:8])))
+    for n, lines in ((9, [7, 8, 9]), (10, [7, 8, 9, 10]), (11, [7, 8, 9, 10, 11])):
+        r = check("".join(LONG_ARM[:n]))
+        assert loads(r) == [lines], (n, r.text())
+
+
+def test_a_mirror_on_a_clip_is_not_told_and_a_blade_by_its_end_is_not_either():
+    # a 1 x 1 plate on the clip plate itself is a mirror, a detail; a 1 x 8 plate held by its
+    # end straight out from the clip is a blade (rule 8), under LOAD_ONE_GRIP from the grip
     r = check(WING + "1 1 0 -87.5 -50 1 0 0 0 1 0 0 0 1 3024.dat\n")
+    assert not loads(r), r.text()
+    r = check(WING + "1 1 0 -87.5 -120 0 0 1 0 1 0 -1 0 0 3460.dat\n")
     assert not loads(r), r.text()
 
 
