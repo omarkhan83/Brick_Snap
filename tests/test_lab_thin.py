@@ -786,6 +786,27 @@ def test_a_blade_on_one_clip_is_not_told_and_a_wing_is(held, told):
     assert bool(loads(r)) == told, r.text()
 
 
+TWO_CLIPS = """1 7 0 -32 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -56 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -80 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 7 0 -104 0 1 0 0 0 1 0 0 0 1 3001.dat
+1 2 0 -8 -140 0 0 1 0 1 0 -1 0 0 92438.dat
+1 14 -20 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 14 20 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 4 -20 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+1 4 20 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+"""  # the review's: two 61252 side by side, 40 LDU apart, on handles on a weighted stack
+
+
+def test_a_wing_held_out_on_two_clips_is_measured_for_reach_too():
+    # a 4 x 8 plate held by its edge on two clips: 112,015 LDU^3 at 53 LDU outside the line
+    # between the grips, shared by two, is 2.99 million a clip, more than LOAD_ONE_GRIP,
+    # though each clip carries less than LOAD_PER_GRIP; a 2 x 6 plate there is 0.65
+    r = check(TWO_CLIPS + "1 15 50 -100 -80 1 0 0 0 -1 0 0 0 -1 3035.dat\n")
+    assert loads(r) == [[8, 9, 10]] and "through 2 clips" in r.text(), r.text()
+    assert not loads(check(TWO_CLIPS + "1 15 30 -100 -60 1 0 0 0 -1 0 0 0 -1 3795.dat\n"))
+
+
 def test_a_mirror_on_a_clip_is_not_told_and_a_blade_by_its_end_is_not_either():
     # a 1 x 1 plate on the clip plate itself is a mirror, a detail; a 1 x 8 plate held by its
     # end straight out from the clip is a blade (rule 8), under LOAD_ONE_GRIP from the grip

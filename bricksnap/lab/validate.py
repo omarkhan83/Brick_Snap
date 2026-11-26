@@ -2797,6 +2797,38 @@ def _grip_point(fit: Issue, by_line: dict[int, Placed]) -> np.ndarray:
     return got[1] if got is not None else clip.pos
 
 
+def _reach_out(mid: np.ndarray, grips: list[np.ndarray]) -> float:
+    """How far a load's middle is, across (x and z), outside what holds it: from one grip,
+    the distance to it; from several, to the outline round them (none when it is inside)."""
+    pts = [(float(g[0]), float(g[2])) for g in grips]
+    m = (float(mid[0]), float(mid[2]))
+
+    def cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def to_edge(a: tuple[float, float], b: tuple[float, float]) -> float:
+        ab = (b[0] - a[0], b[1] - a[1])
+        n = ab[0] ** 2 + ab[1] ** 2
+        t = 0.0 if n < 1e-12 else ((m[0] - a[0]) * ab[0] + (m[1] - a[1]) * ab[1]) / n
+        t = min(1.0, max(0.0, t))
+        return math.hypot(m[0] - a[0] - t * ab[0], m[1] - a[1] - t * ab[1])
+
+    hull: list[tuple[float, float]] = []  # the convex outline, anticlockwise (Andrew's chain)
+    for side in (sorted(set(pts)), sorted(set(pts))[::-1]):
+        part: list[tuple[float, float]] = []
+        for q in side:
+            while len(part) >= 2 and cross(part[-2], part[-1], q) <= 1e-9:
+                part.pop()
+            part.append(q)
+        hull += part[:-1]
+    if len(hull) <= 1:
+        return math.hypot(m[0] - pts[0][0], m[1] - pts[0][1])
+    edges = list(zip(hull, hull[1:] + hull[:1], strict=True))
+    if len(hull) >= 3 and all(cross(a, b, m) >= 0 for a, b in edges):
+        return 0.0
+    return min(to_edge(a, b) for a, b in edges)
+
+
 def clip_loads(report: Report) -> None:
     """Parts that reach the ground only through clip grips tested for fit, when they are more
     than a strut, a rail, an aerial, a blade or a mirror: a warning of kind "held by clips"
@@ -2804,9 +2836,11 @@ def clip_loads(report: Report) -> None:
     a group that is not on the ground that way but is with them hangs on the clips that cross
     its edge. Its load is the filled volume of all its parts (a strut or an aerial is light
     by its own volume). It is too much when each clip carries more than ``LOAD_PER_GRIP`` (a
-    table on clip-held legs), or when one clip holds it and its load times its reach from
-    the grip (from where the clip holds the bar to the middle of the load, across) is more
-    than ``LOAD_ONE_GRIP`` (a wing held out on one clip)."""
+    table on clip-held legs), or when its load times its reach, shared among its clips, is
+    more than ``LOAD_ONE_GRIP`` a clip (a wing held out on one clip or on two side by side).
+    Reach is across (x and z), from the middle of the load to where the clips hold their bars
+    (``_grip_point``): to the one grip, or to the outline round several (``_reach_out``; none
+    when the load is over it, as a table on its legs)."""
     report.issues = [i for i in report.issues if i.kind != "held by clips"]
     by_line = {p.line: p for p in report.placed}
     clip_fits = [i for i in report.fits if "by the clip of line" in i.text]
@@ -2833,18 +2867,12 @@ def clip_loads(report: Report) -> None:
         vol = sum(p.part.volume() for p in load)
         if not cross or vol <= 0:
             continue
-        too_much = vol / len(cross) > LOAD_PER_GRIP
-        if len(cross) == 1:
-            grip = _grip_point(cross[0], by_line)
-            mid = (
-                sum(
-                    p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume()
-                    for p in load
-                )
-                / vol
-            )
-            reach = float(np.linalg.norm((mid - grip)[[0, 2]]))
-            too_much = too_much or vol * reach > LOAD_ONE_GRIP
+        mid = (
+            sum(p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume() for p in load)
+            / vol
+        )
+        reach = _reach_out(np.asarray(mid), [_grip_point(i, by_line) for i in cross])
+        too_much = vol / len(cross) > LOAD_PER_GRIP or vol * reach / len(cross) > LOAD_ONE_GRIP
         if too_much:
             lines = sorted(comp)
             report.issues.append(
