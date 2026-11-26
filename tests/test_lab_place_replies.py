@@ -92,3 +92,23 @@ def test_place_refuses_a_part_that_would_go_into_a_neighbour(tmp_path):
     assert len(lines(f)) == 2
     ok = said(tools._place(f, {"part": "3001", "colour": 1, "line": 1, "stud": 17}))
     assert ok.startswith("Added as line 3")
+
+
+@pytest.mark.parametrize(
+    "part, turn, falls", [("11477", 0, "-z"), ("11477", 1, "-x"), ("3040b", 2, "+z")]
+)
+def test_place_says_which_way_a_slope_falls(tmp_path, part, turn, falls):
+    f = folder(tmp_path)
+    reply = said(tools._place(f, {"part": part, "colour": 4, "line": 1, "stud": 20, "turn": turn}))
+    assert f"Its slope falls towards {falls}; turn " in reply
+    assert "would make it fall towards" in reply
+
+
+def test_place_says_nothing_of_a_slope_for_a_brick_or_a_double_curve(tmp_path):
+    f = folder(tmp_path)
+    assert "slope falls" not in said(
+        tools._place(f, {"part": "3001", "colour": 4, "line": 1, "stud": 1})
+    )
+    assert "slope falls" not in said(
+        tools._place(f, {"part": "93273", "colour": 4, "line": 1, "stud": 30})
+    )

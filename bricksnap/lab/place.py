@@ -51,6 +51,9 @@ stud (the checker's stud test, every part it reaches), else it is refused in pla
 the ground it is refused (use turn). The matrix is then not whole numbers. When the turned
 part's real shape reaches into another part at all, the note says so in plain words (the
 checker passes such a corner as touching or a slight overlap).
+For a slope or curved slope (``_falls``: its top, a plane fitted to its filled body, drops at
+least ``SLOPE_DROP`` across it) the note says which way its slope falls in the model and
+which way each other quarter turn would make it fall.
 When another quarter turn would join more studs between the new part and the parts it lands
 on (every part of the model it touches, not only that line; counted by the checker's own stud
 test, both ways), the note ends with one sentence saying so ("Turn 2
@@ -360,7 +363,53 @@ def place(
     )
     if better:
         note += " " + better
+    falls = _falls(new)
+    if falls is not None:
+        note += " " + _facing_words(
+            falls,
+            turn,
+            [
+                (k, mm)
+                for k, mm, _ in [(k, *pose(np.linalg.matrix_power(QUARTER, k))) for k in range(4)]
+            ],
+        )
     return Placement(ldraw_line(colour, pos, m, new_name), note, pos, m)
+
+
+SLOPE_DROP = 4.0  # LDU: a top this much lower at one end than the other is a slope
+
+
+def _falls(part: Part) -> np.ndarray | None:
+    """For a slope or curved slope (its name says Slope or Wedge): the way its top falls, in its
+    own frame (a unit vector across x and z), from a plane fitted to its filled body's top;
+    None when the top drops less than ``SLOPE_DROP`` across the part or the part is no slope."""
+    words = part.description.split()
+    if not words or words[0] not in ("Slope", "Wedge") or part.top is None:
+        return None
+    ii, jj = np.nonzero(np.isfinite(part.top))
+    if len(ii) < 4:
+        return None
+    x = (ii + part.col_origin[0]) * 2.0 + 1.0
+    z = (jj + part.col_origin[1]) * 2.0 + 1.0
+    y = part.top[ii, jj].astype(float)
+    a, b, _ = np.linalg.lstsq(np.stack([x, z, np.ones_like(x)], axis=1), y, rcond=None)[0]
+    g = np.array([a, 0.0, b])  # y grows (the top drops) along g
+    n = float(np.linalg.norm(g))
+    span = max(float(np.ptp(x)), float(np.ptp(z)), 1.0)
+    if n * span < SLOPE_DROP:
+        return None
+    return g / n
+
+
+def _facing_words(falls: np.ndarray, turn: int, poses: list) -> str:  # type: ignore[type-arg]
+    """'Its slope falls towards -z; turn 1 would make it fall towards -x, turn 2 towards +z,
+    turn 3 towards +x.' for the turn placed and the other three."""
+    from bricksnap.lab.ldraw_lib import direction_word
+
+    word = {k: direction_word(_clean(mm) @ falls) for k, mm in poses}
+    others = [f"turn {k} towards {word[k]}" for k in range(4) if k != turn]
+    others[0] = others[0].replace("towards", "would make it fall towards", 1)
+    return f"Its slope falls towards {word[turn]}; " + ", ".join(others) + "."
 
 
 def _caught(others: list, new: tuple, pos: np.ndarray, m: np.ndarray) -> int:  # type: ignore[type-arg]
