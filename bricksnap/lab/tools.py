@@ -1589,7 +1589,29 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         head += " " + " ".join(renamed)
     if not parts:
         return [_text(head)]
-    return [_text(head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts))]
+    report = _report_for(text, parts)
+    said = (
+        head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts, report=report)
+    )
+    return [_text(said + _place_could(folder, report, parts))]
+
+
+def _place_could(folder: Path, report: Any, parts: list[int]) -> str:
+    """For add: when at least 3 of the parts it added, and most of them, sit on studs (held by
+    a stud of another part), one line saying place would have attached them (and in guide
+    mode that it takes a list); else ""."""
+    on_studs = {x.held for x in report.links if x.held in set(parts)}
+    if len(on_studs) < 3 or 2 * len(on_studs) <= len(parts):
+        return ""
+    many = (
+        ' It takes a list too ({"parts": [...]}), several placements in one call.'
+        if _config(folder).get("guide") is True
+        else ""
+    )
+    return (
+        f"\n{len(on_studs)} of these {len(parts)} parts sit on studs: place attaches a part by "
+        "naming the stud and works out its position and turn for you." + many
+    )
 
 
 def _remove(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:

@@ -112,3 +112,24 @@ def test_place_says_nothing_of_a_slope_for_a_brick_or_a_double_curve(tmp_path):
     assert "slope falls" not in said(
         tools._place(f, {"part": "93273", "colour": 4, "line": 1, "stud": 30})
     )
+
+
+THREE_ON_STUDS = (  # three 1 x 2 plates typed by hand onto the base's studs
+    "1 4 -60 -16 -50 1 0 0 0 1 0 0 0 1 3023b.dat\n"
+    "1 4 -20 -16 -50 1 0 0 0 1 0 0 0 1 3023b.dat\n"
+    "1 4 20 -16 -50 1 0 0 0 1 0 0 0 1 3023b.dat"
+)
+
+
+@pytest.mark.parametrize("guide", [False, True])
+def test_add_points_to_place_when_most_of_its_parts_sit_on_studs(tmp_path, guide):
+    f = folder(tmp_path, guide=guide)
+    reply = said(tools._add(f, {"ldraw": THREE_ON_STUDS}))
+    assert "3 of these 3 parts sit on studs: place attaches a part by naming the stud" in reply
+    assert ('It takes a list too ({"parts": [...]})' in reply) == guide
+
+
+def test_add_says_nothing_of_place_for_parts_off_studs(tmp_path):
+    f = folder(tmp_path)
+    floating = "\n".join(ln.replace(" -16 ", " -40 ") for ln in THREE_ON_STUDS.splitlines())
+    assert "sit on studs" not in said(tools._add(f, {"ldraw": floating}))
