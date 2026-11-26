@@ -807,6 +807,31 @@ def test_a_wing_held_out_on_two_clips_is_measured_for_reach_too():
     assert not loads(check(TWO_CLIPS + "1 15 30 -100 -60 1 0 0 0 -1 0 0 0 -1 3795.dat\n"))
 
 
+LONG_ARM = """1 7 0 -32 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -56 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -80 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 7 0 -104 0 1 0 0 0 1 0 0 0 1 3003.dat
+1 2 0 -8 -140 0 0 1 0 1 0 -1 0 0 92438.dat
+1 14 0 -112 -10 1 0 0 0 1 0 0 0 1 2540.dat
+1 4 0 -108 -50 1 0 0 0 -1 0 0 0 -1 61252.dat
+1 15 0 -100 -120 0 0 -1 0 -1 0 -1 0 0 3460.dat
+""".splitlines(keepends=True) + [
+    "1 14 0 -92 -180 0 0 1 0 -1 0 1 0 0 2540.dat\n",  # a handle at the plate's far end
+    "1 4 -18 -114 -180 0 -1 0 0 0 -1 1 0 0 61252.dat\n",  # a clip on it
+    "1 1 -10 -144 -190 0 -1 0 -1 0 0 0 0 -1 3020.dat\n",  # a 2 x 4 plate on that clip
+]  # the review's arm: a 1 x 8 plate held straight out on one clip, then more at its end
+
+
+def test_weight_added_at_the_end_of_a_clip_held_arm_only_adds_to_the_warning():
+    # the plate alone is a blade (2.37 million from the grip); a handle at its end makes it
+    # 3.88; a clip on that handle and a plate on the clip hang from the arm, and their
+    # weight is carried to the clip nearer the ground, so the warning stays, naming them
+    assert not loads(check("".join(LONG_ARM[:8])))
+    for n, lines in ((9, [7, 8, 9]), (10, [7, 8, 9, 10]), (11, [7, 8, 9, 10, 11])):
+        r = check("".join(LONG_ARM[:n]))
+        assert loads(r) == [lines], (n, r.text())
+
+
 def test_a_mirror_on_a_clip_is_not_told_and_a_blade_by_its_end_is_not_either():
     # a 1 x 1 plate on the clip plate itself is a mirror, a detail; a 1 x 8 plate held by its
     # end straight out from the clip is a blade (rule 8), under LOAD_ONE_GRIP from the grip

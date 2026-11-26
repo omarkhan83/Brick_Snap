@@ -2833,9 +2833,11 @@ def clip_loads(report: Report) -> None:
     """Parts that reach the ground only through clip grips tested for fit, when they are more
     than a strut, a rail, an aerial, a blade or a mirror: a warning of kind "held by clips"
     naming them, and the summary says so. Group the parts joined by anything but clip grips;
-    a group that is not on the ground that way but is with them hangs on the clips that cross
-    its edge. Its load is the filled volume of all its parts (a strut or an aerial is light
-    by its own volume). It is too much when each clip carries more than ``LOAD_PER_GRIP`` (a
+    a group that is not on the ground that way hangs on the clips toward the ground (to the
+    groups the fewest clips from it), and carries its share of every group hanging from it,
+    so weight added at the end of an arm reaches the clip that holds the arm. Its load is the
+    filled volume of all those parts (a strut or an aerial is light by its own volume). It is
+    too much when each clip carries more than ``LOAD_PER_GRIP`` (a
     table on clip-held legs), or when its load times its reach, shared among its clips, is
     more than ``LOAD_ONE_GRIP`` a clip (a wing held out on one clip or on two side by side).
     Reach is across (x and z), from the middle of the load to where the clips hold their bars
@@ -2848,44 +2850,70 @@ def clip_loads(report: Report) -> None:
         return
     joints = [i for i in report.issues if i.kind == "joint" and len(i.lines) == 2]
 
-    def grouped(with_clips: bool) -> _Groups:
+    def grouped() -> _Groups:  # joined by anything but clip grips
         g = _Groups(list(by_line))
         for link in report.links:
             g.join(link.holder, link.held)
         for i in joints:
-            if with_clips or i not in clip_fits:
+            if i not in clip_fits:
                 g.join(i.lines[0], i.lines[1])
         return g
 
+    told: list[tuple[list[int], int]] = []
     ground = set(report.grounded)
-    held = [c for c in grouped(True).groups() if ground & set(c)]
-    for comp in grouped(False).groups():
-        if ground & set(comp) or not any(set(comp) <= set(c) for c in held):
+    groups = [sorted(c) for c in grouped().groups()]
+    of = {n: k for k, c in enumerate(groups) for n in c}
+    edges = [(of[i.lines[0]], of[i.lines[1]], i) for i in clip_fits]
+    edges = [e for e in edges if e[0] != e[1]]
+    depth = {k: 0 for k, c in enumerate(groups) if ground & set(c)}
+    todo = list(depth)
+    while todo:  # how many clips each group is from the ground, the fewest
+        nxt = []
+        for k in todo:
+            for x, y, _ in edges:
+                for here, there in ((x, y), (y, x)):
+                    if here == k and there not in depth:
+                        depth[there] = depth[k] + 1
+                        nxt.append(there)
+        todo = nxt
+    # each group carries itself and its share of every group hanging from it, to the clips
+    # toward the ground: (volume, volume times middle, lines)
+    carried: dict[int, list] = {}
+    for k in sorted((k for k in depth if depth[k] > 0), key=lambda k: -depth[k]):
+        own = [by_line[n] for n in groups[k]]
+        vol = sum(p.part.volume() for p in own) + sum(c[0] for c in carried.get(k, []))
+        mass = sum(
+            (p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume() for p in own),
+            np.zeros(3),
+        ) + sum((c[1] for c in carried.get(k, [])), np.zeros(3))
+        lines = set(groups[k]).union(*(c[2] for c in carried.get(k, [])))
+        up = [(x if y == k else y, i) for x, y, i in edges if k in (x, y)]
+        up = [(g, i) for g, i in up if depth[g] == depth[k] - 1]
+        for g, _ in up:
+            carried.setdefault(g, []).append((vol / len(up), mass / len(up), lines))
+        if vol <= 0:
             continue
-        cross = [i for i in clip_fits if (i.lines[0] in comp) != (i.lines[1] in comp)]
-        load = [by_line[n] for n in comp]
-        vol = sum(p.part.volume() for p in load)
-        if not cross or vol <= 0:
+        reach = _reach_out(mass / vol, [_grip_point(i, by_line) for _, i in up])
+        if vol / len(up) > LOAD_PER_GRIP or vol * reach / len(up) > LOAD_ONE_GRIP:
+            told.append((sorted(lines), len(up)))
+    kept: list[tuple[list[int], int]] = []
+    for lines, n in sorted(told, key=lambda t: -len(t[0])):  # the nearest the ground first
+        if any(set(lines) <= set(k) for k, _ in kept):
             continue
-        mid = (
-            sum(p.to_world((p.part.bbox_min + p.part.bbox_max) / 2) * p.part.volume() for p in load)
-            / vol
-        )
-        reach = _reach_out(np.asarray(mid), [_grip_point(i, by_line) for i in cross])
-        too_much = vol / len(cross) > LOAD_PER_GRIP or vol * reach / len(cross) > LOAD_ONE_GRIP
-        if too_much:
-            lines = sorted(comp)
-            report.issues.append(
-                Issue(
-                    "warning",
-                    "held by clips",
-                    lines,
-                    f"{_lines(lines).capitalize()} reach the ground only through "
-                    f"{'a clip' if len(cross) == 1 else f'{len(cross)} clips'}. The checker "
-                    "cannot judge whether clips will carry this much. If it has to bear "
-                    "weight, hold it with studs or a pin.",
-                )
+        kept.append((lines, n))
+        report.issues.append(
+            Issue(
+                "warning",
+                "held by clips",
+                lines,
+                f"{_lines(lines).capitalize()} reach the ground only through "
+                f"{'a clip' if n == 1 else f'{n} clips'}. The checker cannot judge whether "
+                "clips will carry this much. If it has to bear weight, hold it with studs or "
+                "a pin.",
             )
+        )
+    # a warning names the group nearest the ground with all it carries: one inside it is not
+    # named again
 
 
 def held_only_item(
