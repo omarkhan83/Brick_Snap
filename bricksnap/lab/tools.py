@@ -878,13 +878,14 @@ def _clip_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             angle, slide = float(args.get("angle", 0)), float(args.get("slide", 0))
         except (ValueError, TypeError):
             raise ValueError("angle and slide must be numbers (degrees, LDU).") from None
+        part, renamed = _current_part(part, "clipped")
         c = clips.clip(_model(folder), part, colour, onto, which, angle, slide)
     except (ValueError, TypeError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [c.line])
     n = numbers[0]
     report = check(text)
-    said = (
+    said = renamed + (
         f"Added line {n}: {c.line.split()[-1]} clipped on the bar of line {onto}, its grip at "
         f"({_vec(c.grip)}) on the bar running ({_vec(c.along)}); it points ({_vec(c.points)}) "
         "from the bar."
@@ -1360,6 +1361,46 @@ def _where_args(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _current_part(name: str, verb: str = "placed") -> tuple[str, str]:
+    """A part number as the tools use it: an old number the library has moved becomes the
+    current one, and the second value says so ("3023 is an old number: placed 3023b."), else
+    it is ""."""
+    from bricksnap.lab.ldraw_lib import current_number
+
+    got = current_number(name.strip())
+    if got is None:
+        return name.strip(), ""
+    new = got[0].removesuffix(".dat")
+    return got[0], f"{name.strip().removesuffix('.dat')} is an old number: {verb} {new}. "
+
+
+def _current_line(line: str) -> tuple[str, str]:
+    """A part line with an old, moved number rewritten to the current part, in the same place
+    (the move's own shift and turn applied), and a sentence saying so; else unchanged."""
+    from bricksnap.lab.ldraw_lib import current_number
+    from bricksnap.lab.place import ldraw_line
+
+    tok = line.split()
+    if len(tok) < 15 or tok[0] != "1":
+        return line, ""
+    old = " ".join(tok[14:])
+    got = current_number(old)
+    if got is None:
+        return line, ""
+    try:
+        nums = [float(v) for v in tok[2:14]]
+        colour = int(tok[1])
+    except ValueError:
+        return line, ""
+    key, t, mm = got
+    pos, m = np.array(nums[0:3]), np.array(nums[3:12]).reshape(3, 3)
+    new = ldraw_line(colour, pos + m @ t, m @ mm, key)
+    return new, (
+        f"{old.removesuffix('.dat')} is an old number: used {key.removesuffix('.dat')}, in the "
+        "same place."
+    )
+
+
 def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     from bricksnap.lab.place import PlaceError, place
 
@@ -1378,7 +1419,8 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(angle, bool) or not isinstance(angle, int | float):
                 raise ValueError("angle must be a number of degrees.")
             where["angle"] = float(angle)
-        result = place(_model(folder), part.strip(), **where)
+        part, renamed = _current_part(part)
+        result = place(_model(folder), part, **where)
     except (PlaceError, ValueError) as e:
         return _error(str(e))
     text, numbers = _append(folder, [result.line])
@@ -1387,7 +1429,8 @@ def _place(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         sideways = _sideways_studs(text, numbers[0])
     return [
         _text(
-            f"Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the checker says "
+            f"{renamed}Added as line {numbers[0]}: {result.line}\n{result.note}\nWhat the "
+            "checker says "
             f"about it:\n{_quick(folder, text, numbers)}{sideways}"
         )
     ]
@@ -1427,6 +1470,11 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     new = [ln.strip() for ln in ldraw.strip().splitlines() if ln.strip()]
     if len(new) > 400:
         return _error("add at most 400 lines at a time.")
+    renamed: dict[str, str] = {}
+    for k, ln in enumerate(new):
+        new[k], said = _current_line(ln)
+        if said:
+            renamed[said] = said
     text, numbers = _append(folder, new)
     parts = [n for n, ln in zip(numbers, new, strict=True) if ln.startswith("1 ")]
     head = (
@@ -1434,6 +1482,8 @@ def _add(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         if len(numbers) > 1
         else f"Added line {numbers[0]}."
     )
+    if renamed:
+        head += " " + " ".join(renamed)
     if not parts:
         return [_text(head)]
     return [_text(head + "\nWhat the checker says about them:\n" + _quick(folder, text, parts))]

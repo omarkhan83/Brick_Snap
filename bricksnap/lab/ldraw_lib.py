@@ -9,6 +9,10 @@ it directly; nothing is unpacked.
 - ``resolve(name)`` -> ``("part", key)``, ``("subpart", key)``, ``("primitive", key)`` or
   None. Names are matched without regard to case or slash direction, as LDraw does: a part
   is looked up in ``parts/`` (``s/`` for sub-parts), then in ``p/`` (with ``48/`` and ``8/``).
+- ``current_number(name)`` -> ``(key, t, m)`` for an old number the library has moved (its
+  description "~Moved to ..."): the part it points to, followed to the end, and where that
+  part sits in the old one's frame (most moves are the same place; 68 of 1,160 shift or turn
+  it); ``None`` for a current part or an unknown name.
 - ``header(key)`` -> ``Header``: description, ``!LDRAW_ORG`` type, ``!CATEGORY`` (or the first
   word of the description, the LDraw convention when there is none), ``!KEYWORDS``.
 - ``part(name)`` -> ``Part``, the part resolved to its triangles in its own frame by following
@@ -907,6 +911,32 @@ def stud_summary(part: Part) -> str:
 
 _DEFAULT: Library | None = None
 _DEFAULT_LOCK = threading.Lock()
+
+
+def current_number(
+    name: str, lib: Library | None = None
+) -> tuple[str, np.ndarray, np.ndarray] | None:
+    """For an old part number the library has moved: the current part it points to and where
+    that sits in the old one's frame (see the contract); None otherwise."""
+    lib = lib or library()
+    found = lib.resolve(name) or lib.resolve(name + ".dat")
+    if found is None or found[0] != "part":
+        return None
+    key, t, m, moved = found[1], np.zeros(3), np.eye(3), False
+    for _ in range(8):
+        if not lib.header(key).description.startswith("~Moved to"):
+            break
+        ones = [ln.split() for ln in lib.text("part", key).splitlines() if ln.startswith("1 ")]
+        if len(ones) != 1 or len(ones[0]) < 15:
+            break
+        nums = [float(v) for v in ones[0][2:14]]
+        nxt = lib.resolve(" ".join(ones[0][14:]))
+        if nxt is None or nxt[0] != "part":
+            break
+        t = t + m @ np.array(nums[0:3])
+        m = m @ np.array(nums[3:12]).reshape(3, 3)
+        key, moved = nxt[1], True
+    return (key, t, m) if moved else None
 
 
 def library() -> Library:
