@@ -86,6 +86,33 @@ def test_cap_says_which_part_is_in_the_way():
     assert r.covered == 2 and not r.report.problems
 
 
+def test_cap_with_curved_edges_rounds_a_top_off():
+    """A 4 x 6 plate: curved slopes from both sides meet in a crest. A 6 x 8 plate: curves round
+    the rim, the middle lifted a plate and tiled, level with their crests (16 LDU up)."""
+    narrow = place("", "3032.dat", 71, 0).line
+    r = cover.cap(narrow, 15, lines=[1], edges="curved")
+    (h,) = r.heights
+    assert r.covered == 24 and not r.left and sorted(h.curved) == ["+x", "+z", "-x", "-z"]
+    assert {p.key for p in h.parts} == {"15068.dat"} and HELD in r.report.summary()
+    same_as_place(narrow, h.parts)
+    wide = base()
+    r = cover.cap(wide, 15, lines=[1], edges="curved")
+    (h,) = r.heights
+    keys = [p.key for p in h.parts]
+    assert r.covered == 48 and not r.left and not r.report.problems and HELD in r.report.summary()
+    assert keys.count("15068.dat") == 10 and "3020.dat" in keys and "87079.dat" in keys
+    tops = [looks.world_box(p)[0][1] for p in r.report.placed if p.line > 1]
+    assert round(min(tops), 1) == -24  # the crests and the lifted middle: 8 + 16 LDU
+
+
+def test_cap_curves_no_edge_that_meets_a_wall():
+    """A brick standing at the back of the plate: the edge against it is no drop."""
+    t = on(place("", "3032.dat", 71, 0).line, "3010.dat", 4, 1, stud=1)  # 1 x 4 brick, front row
+    r = cover.cap(t, 15, lines=[1], edges="curved")
+    (h,) = r.heights
+    assert "-z" not in h.curved and not r.report.problems and HELD in r.report.summary()
+
+
 # ---- skin ----------------------------------------------------------------------------------
 
 

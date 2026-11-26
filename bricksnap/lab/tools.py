@@ -38,7 +38,9 @@ part with a clip on a bar or handle of the model at an angle about it, saying wh
 between two bars or handles, or the distance and what to move when no bar closes it. Also
 ``cap`` and ``skin`` (``cover``): cover the free upward studs of the parts named (lines and/or a
 box) with the fewest tiles (or plates), studs to keep left showing; and press plates on free side
-studs facing one way in one plane (a panel each), then tile their faces. Each appends its lines
+studs facing one way in one plane (a panel each), then tile their faces; cap with ``"edges":
+"curved"`` puts curved slopes along the edges of a top that end in a drop and lifts the rest a
+plate under its tiles. Each appends its lines
 and a 0 STEP and replies with what it covered (heights, or each panel's size, side studs holding
 it, where its face is, a plate on one stud that can turn), what it left and why, what the checker
 refused, and what the checker says about the new parts. The art
@@ -575,10 +577,13 @@ _CAP = {
         "height at a time, each exactly on the studs and touching nothing else. A stud is free "
         "when nothing sits on it or over it. Input: " + _WHICH_STUDS + ', "colour": c, '
         '"with": "tiles" (default) or "plates", "keep": [{"line": 12, "stud": 3}] (studs to '
-        "leave showing on purpose, numbered as part_info numbers them). Returns the lines "
+        'leave showing on purpose, numbered as part_info numbers them), "edges": "flat" '
+        '(default) or "curved": along every edge of a top that ends in a drop, curved slopes '
+        "two studs deep (15068, 11477) sloping down and outward, and the rest of that top "
+        "lifted a plate and tiled, level with their crests, so the top rounds off instead of "
+        "ending in a step (a top 4 studs across becomes one round crest). Returns the lines "
         "added, the studs covered, the studs left showing and why (kept, a part in the way), "
-        "and what the checker says about the new parts. Use it on every top you want smooth; "
-        "curved slopes you place yourself."
+        "and what the checker says about the new parts. Use it on every top you want smooth."
     ),
     "input_schema": {
         "type": "object",
@@ -589,6 +594,7 @@ _CAP = {
             "unit": {"type": "string", "enum": ["ldu", "studs"], "default": "ldu"},
             "colour": {"type": "integer"},
             "with": {"type": "string", "enum": ["tiles", "plates"], "default": "tiles"},
+            "edges": {"type": "string", "enum": ["flat", "curved"], "default": "flat"},
             "keep": {
                 "type": "array",
                 "items": {
@@ -739,7 +745,8 @@ def _cap_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
         ):
             raise ValueError('keep is a list like [{"line": 12, "stud": 3}].')
         keep = [(k["line"], k["stud"]) for k in keep_in]
-        r = cover.cap(_model(folder), colour, lines, box, use=str(use), keep=keep)
+        edges = args.get("edges", "flat")
+        r = cover.cap(_model(folder), colour, lines, box, use=str(use), keep=keep, edges=str(edges))
     except (ValueError, cover.CoverError) as e:
         return _error(str(e))
     said = []
@@ -757,17 +764,34 @@ def _cap_tool(folder: Path, args: dict[str, Any]) -> list[dict[str, Any]]:
     if not r.lines:
         why = left or "There is no free stud pointing up among the studs you named."
         return [_text("Nothing was added. " + " ".join(said) + "\n" + why)]
-    word = "tiles" if use == "tiles" else "plates"
     n_parts = len(r.lines)
     first = len(_model(folder).splitlines()) + 1
     numbers = list(range(first, first + n_parts))
+    parts = [p for h in r.heights for p in h.parts]
+    kinds: dict[str, int] = {}
+    for p in parts:
+        word = p.description.split()[0].lower()
+        word = "curved slope" if "Curved" in p.description else word
+        kinds[word] = kinds.get(word, 0) + 1
     head = (
-        f"Capped {_n(r.covered, 'stud')} with {_n(n_parts, word[:-1])} "
-        f"({_colour_name(colour)}, {colour}): {_lines_span(numbers)}, then a 0 STEP."
+        f"Capped {_n(r.covered, 'stud')} with "
+        + ", ".join(_n(k, w) for w, k in kinds.items())
+        + f" ({_colour_name(colour)}, {colour}): {_lines_span(numbers)}, then a 0 STEP."
     )
-    body = [
-        f"- at y {fmt_n(-h.depth)}: {_n(h.studs, 'stud')}, {_counted(h.parts)}" for h in r.heights
-    ]
+    body = []
+    for h in r.heights:
+        body.append(f"- at y {fmt_n(-h.depth)}: {_n(h.studs, 'stud')}, {_counted(h.parts)}")
+        if h.curved:
+            lifted = any(p.description.startswith("Plate") for p in h.parts)
+            body.append(
+                f"  Curved edges sloping down to {', '.join(h.curved)}"
+                + (
+                    f"; the middle lifted a plate and tiled, its top at y "
+                    f"{fmt_n(-h.depth - 16)}, level with their crests."
+                    if lifted
+                    else f", meeting in a crest at y {fmt_n(-h.depth - 16)}."
+                )
+            )
     body += said
     body.append(left or "No stud you named is left showing.")
     return _cover_reply(folder, r, head, body)

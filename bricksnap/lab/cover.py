@@ -23,6 +23,16 @@ other part's filled body on it, over its tip or under whose underside it is.
   not confirm it (``validate._really_overlap``). A stud left uncovered is reported with why (a
   part in the way, named by its line). The line of each new part is the one ``place`` would
   write for socket 1 on its anchor stud with that turn (``New.via``).
+  With ``edges="curved"`` each group first gets curved slopes (``CURVES``: 15068 where two
+  edge cells pair along the edge, else 11477; two plates tall, two studs deep) along every
+  edge that ends in a DROP, sloping down and outward: an edge cell is one whose neighbour
+  outward is not a stud of the group, has no stud of the model at that height, and has no
+  part's filled body beside the cover's height there (``_drop``); a run of the group's cells
+  inward from it must be at least 4 long when its far end drops too (so curves from both sides
+  meet or leave a middle) and 2 when it does not. The same rules hold: every socket on a free
+  stud, and it fits. When a group has curves, the rest of it is covered with ``PLATES`` and
+  their studs with ``TILES`` (16 LDU, level with the curves' crests); cells no plate fits get
+  tiles. ``Height.curved`` names the ways its curves slope down.
 - ``skin(text, colour, lines=None, box=None, facing=None, finish="tiles")``: the free studs
   that do not point up (or only those pointing ``facing``: "+x", "-x", "+z", "-z", "down"),
   grouped by the way they point and the plane their bases lie in: one panel each. A panel's
@@ -43,6 +53,7 @@ other part's filled body on it, over its tip or under whose underside it is.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cache
 
 import numpy as np
 
@@ -94,7 +105,7 @@ class CoverError(ValueError):
     pass
 
 
-@dataclass
+@dataclass(eq=False)
 class Stud:
     line: int
     number: int
@@ -105,7 +116,7 @@ class Stud:
         return f"({', '.join(fmt(round(float(v), 1)) for v in self.pos)})"
 
 
-@dataclass
+@dataclass(eq=False)
 class New:
     key: str
     description: str
@@ -124,6 +135,7 @@ class Height:
     depth: float  # y for a top
     studs: int
     parts: list[New]
+    curved: list[str] = field(default_factory=list)  # the ways its curved edges slope down
 
 
 @dataclass
@@ -341,6 +353,188 @@ def _cells(studs: list[Stud], d: np.ndarray) -> dict[tuple, dict[tuple[int, int]
     return groups
 
 
+def _fill_cells(
+    cells: dict[tuple[int, int], Stud],
+    open_: set[tuple[int, int]],
+    shapes: list[_Shape],
+    colour: int,
+    near: _Near,
+    next_line: int,
+    new: list[New],
+    why: dict[tuple[int, int], str],
+) -> list[New]:
+    """The greedy cover of the open cells (taken out of ``open_``); appends to ``new``."""
+    mine: list[New] = []
+    for sh in shapes:
+        for cell in sorted(open_, key=lambda c: (c[1], c[0])):
+            if cell not in open_:
+                continue
+            need = [(cell[0] + a, cell[1] + b) for a, b in sh.rel]
+            if not all(c in open_ for c in need):
+                continue
+            n = _try(sh, cells, cell, need, colour, near, next_line + len(new), why)
+            if n is not None:
+                new.append(n)
+                mine.append(n)
+                open_ -= set(need)
+    return mine
+
+
+def _try(
+    sh: _Shape,
+    cells: dict[tuple[int, int], Stud],
+    cell: tuple[int, int],
+    need: list[tuple[int, int]],
+    colour: int,
+    near: _Near,
+    line: int,
+    why: dict[tuple[int, int], str],
+) -> New | None:
+    """The shape with its first grid socket on the stud of ``cell``, if it fits."""
+    anchor = cells[cell]
+    pos = anchor.pos - sh.m @ sh.first
+    cand = _placed(sh.key, sh.part, colour, pos, sh.m, line)
+    no, held = fits(cand, near)
+    if no:
+        for c in need:
+            if sh.area == 1 or c not in why:
+                why[c] = no
+        return None
+    near.add(cand)
+    return New(
+        sh.key,
+        sh.part.description,
+        cand.pos,
+        cand.m,
+        ldraw_line(colour, pos, sh.m, sh.key),
+        [cells[c] for c in need],
+        held,
+        (anchor.line, anchor.number, 1, sh.turn),
+    )
+
+
+@cache
+def _downhill(key: str) -> np.ndarray | None:
+    """A curved slope's way down, in its own frame: from its high end to its low end."""
+    part = library().part(key)
+    if part.top is None:
+        return None
+    top = part.top
+    best = None
+    for k, axis in ((0, np.array([1.0, 0, 0])), (1, np.array([0, 0, 1.0]))):
+        means = np.nanmean(top, axis=1 - k)
+        drop = float(means[-1] - means[0])  # y down: positive when the + end is lower
+        if best is None or abs(drop) > abs(best[0]):
+            best = (drop, axis)
+    assert best is not None
+    return best[1] * np.sign(best[0]) if abs(best[0]) > 4 else None
+
+
+def _curve(key: str, d: np.ndarray, o: np.ndarray, lib: Library) -> _Shape | None:
+    """A curved slope turned so it slopes down along ``o`` (world), as a shape."""
+    found = lib.resolve(key + ".dat")
+    down = _downhill(key + ".dat") if found else None
+    if found is None or down is None:
+        return None
+    part = lib.part(found[1])
+    grid = _grid(part)
+    u, v = _plane(d)
+    for turn in range(4):
+        m = _clean(_rot_between(UP, d) @ np.linalg.matrix_power(QUARTER, turn))
+        if float((m @ down) @ o) < 0.99:
+            continue
+        rel = []
+        for g in grid:
+            off = m @ (g - grid[0])
+            rel.append((round(float(off @ u) / 20), round(float(off @ v) / 20)))
+        return _Shape(found[1], part, turn, m, rel, grid[0], len(rel), 1, 0)
+    return None
+
+
+def _drop(stud: Stud, o: np.ndarray, d: np.ndarray, near: _Near, level: set) -> bool:
+    """Whether the top ends in a drop beyond this stud, the way o: no stud at its height there
+    and nothing beside it at the height of what would cover it."""
+    beyond = stud.pos + 20 * o
+    if (round(float(beyond @ d), 1), *np.round(beyond, 0)) in level:
+        return False
+    pts = np.array([stud.pos + k * o + h * d for k in (12.0, 20.0) for h in (2.0, 6.0, 12.0)])
+    ok = np.all(near.lo <= pts.max(0), axis=1) & np.all(near.hi >= pts.min(0), axis=1)
+    return not any(
+        near.parts[i].part.inside(near.parts[i].to_local(pts)).any() for i in np.nonzero(ok)[0]
+    )
+
+
+CURVES = ("15068", "11477")  # 2 x 2 and 1 x 2: two plates tall, two studs deep
+
+
+def _edges(
+    cells: dict[tuple[int, int], Stud],
+    open_: set[tuple[int, int]],
+    d: np.ndarray,
+    colour: int,
+    near: _Near,
+    lib: Library,
+    next_line: int,
+    new: list[New],
+    why: dict[tuple[int, int], str],
+    level: set,
+) -> tuple[list[New], list[str]]:
+    """Curved slopes along the edges of this top that end in a drop (see the contract)."""
+    u, v = _plane(d)
+    mine: list[New] = []
+    facing: list[str] = []
+    for du, dv in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        o = du * u + dv * v
+        wide = _curve(CURVES[0], d, o, lib)
+        one = _curve(CURVES[1], d, o, lib)
+        if one is None:
+            continue
+        across = (dv, du) if du == 0 else (0, 1)  # along the edge
+        across = (abs(across[0]), abs(across[1]))
+        edge = []
+        for c in sorted(open_, key=lambda c: (c[1], c[0]) if du else (c[0], c[1])):
+            if (c[0] + du, c[1] + dv) in cells or not _drop(cells[c], o, d, near, level):
+                continue
+            run = 0
+            while (c[0] - run * du, c[1] - run * dv) in cells:
+                run += 1
+            far = cells[(c[0] - (run - 1) * du, c[1] - (run - 1) * dv)]
+            far_drop = _drop(far, -o, d, near, level)
+            if run >= (4 if far_drop else 2):
+                edge.append(c)
+        done = set()
+        for c in edge:
+            if c in done or c not in open_:
+                continue
+            inward = [c, (c[0] - du, c[1] - dv)]
+            pair = (c[0] + across[0], c[1] + across[1])
+            tries = []
+            if wide is not None and pair in edge and pair not in done:
+                side = [(p[0] + across[0], p[1] + across[1]) for p in inward]
+                tries.append((wide, inward + side))
+            tries.append((one, inward))
+            for sh, need in tries:
+                if not all(x in open_ for x in need):
+                    continue
+                a0 = (min(x[0] for x in need), min(x[1] for x in need))
+                r0 = (min(r[0] for r in sh.rel), min(r[1] for r in sh.rel))
+                anchor = (a0[0] - r0[0], a0[1] - r0[1])
+                if {(anchor[0] + a, anchor[1] + b) for a, b in sh.rel} != set(need):
+                    continue
+                n = _try(sh, cells, anchor, need, colour, near, next_line + len(new), why)
+                if n is None:
+                    continue
+                new.append(n)
+                mine.append(n)
+                open_ -= set(need)
+                done |= {x for x in need if x in edge}
+                name = _axis_name(o)
+                if name and name not in facing:
+                    facing.append(name)
+                break
+    return mine, facing
+
+
 def _cover(
     studs: list[Stud],
     d: np.ndarray,
@@ -349,9 +543,13 @@ def _cover(
     near: _Near,
     lib: Library,
     next_line: int,
+    curved: bool = False,
+    level: set | None = None,
 ) -> tuple[list[New], list[tuple[Stud, str]], list[Height]]:
     """Cover these free studs (all pointing d) with the fewest of these parts (see the
-    contract). Returns the new parts, the studs left with why, and one Height per group."""
+    contract). Returns the new parts, the studs left with why, and one Height per group.
+    ``curved``: curved slopes along the edges that end in a drop first, then the rest raised
+    by a plate to their height and tiled (``level``: every stud of the model, for the drop)."""
     shapes = _shapes(keys, d, lib)
     facing = _axis_name(d) or "?"
     new: list[New] = []
@@ -360,41 +558,39 @@ def _cover(
     for (depth, _, _), cells in sorted(_cells(studs, d).items(), key=lambda kv: kv[0]):
         open_ = set(cells)
         why: dict[tuple[int, int], str] = {}
-        mine: list[New] = []
-        for sh in shapes:
-            for cell in sorted(open_, key=lambda c: (c[1], c[0])):
-                if cell not in open_:
-                    continue
-                need = [(cell[0] + a, cell[1] + b) for a, b in sh.rel]
-                if not all(c in open_ for c in need):
-                    continue
-                anchor = cells[cell]
-                pos = anchor.pos - sh.m @ sh.first
-                cand = _placed(sh.key, sh.part, colour, pos, sh.m, next_line + len(new))
-                no, held = fits(cand, near)
-                if no:
-                    for c in need:
-                        if sh.area == 1 or c not in why:
-                            why[c] = no
-                    continue
-                near.add(cand)
-                n = New(
-                    sh.key,
-                    sh.part.description,
-                    cand.pos,
-                    cand.m,
-                    ldraw_line(colour, pos, sh.m, sh.key),
-                    [cells[c] for c in need],
-                    held,
-                    (anchor.line, anchor.number, 1, sh.turn),
-                )
-                new.append(n)
-                mine.append(n)
-                open_ -= set(need)
+        curves: list[New] = []
+        dirs: list[str] = []
+        if curved:
+            curves, dirs = _edges(
+                cells, open_, d, colour, near, lib, next_line, new, why, level or set()
+            )
+        if curves and open_:
+            # the middle goes up a plate first, so its tiles are level with the curves' crests
+            plates = _fill_cells(
+                cells, open_, _shapes(PLATES, d, lib), colour, near, next_line, new, why
+            )
+            first = len(new)
+            owner: dict[int, int] = {}
+            on_plates = []
+            for pl in plates:
+                for k, c in enumerate(numbered_studs(lib.part(pl.key)), 1):
+                    st = Stud(next_line + new.index(pl), k, pl.m @ c.pos + pl.pos, pl.m @ c.axis)
+                    owner[id(st)] = new.index(pl)
+                    on_plates.append(st)
+            tiles, tleft, _ = _cover(on_plates, d, TILES, colour, near, lib, next_line + first)
+            for t in tiles:
+                t.on = owner[id(t.studs[0])]
+                t.studs = []  # the studs it covers are the plates' own
+            new += tiles
+            left += tleft
+            mine = curves + plates + tiles
+        else:
+            mine = curves
+        mine += _fill_cells(cells, open_, shapes, colour, near, next_line, new, why)
         for c in sorted(open_, key=lambda c: (c[1], c[0])):
             left.append((cells[c], why.get(c, "no part fits there")))
         if mine:
-            heights.append(Height(facing, depth, sum(len(n.studs) for n in mine), mine))
+            heights.append(Height(facing, depth, sum(len(n.studs) for n in mine), mine, dirs))
     return new, left, heights
 
 
@@ -558,11 +754,14 @@ def cap(
     use: str = "tiles",
     keep: tuple[tuple[int, int], ...] | list[tuple[int, int]] = (),
     lib: Library | None = None,
+    edges: str = "flat",
 ) -> Result:
     lib = lib or library()
     _colour(colour, lib)
     if use not in ("tiles", "plates"):
         raise CoverError('"with" is "tiles" or "plates".')
+    if edges not in ("flat", "curved"):
+        raise CoverError('edges is "flat" or "curved".')
     report = check(text, movement=False)
     named = _select(report, lines, box)
     keep_set = {(int(a), int(b)) for a, b in keep}
@@ -581,8 +780,21 @@ def cap(
         return res
     near = _Near(report.placed)
     first = len(text.splitlines()) + 1
+    level = {
+        (round(float(s.pos @ UP), 1), *np.round(s.pos, 0))
+        for s, _ in studs_of(report)
+        if float(s.way @ UP) > 0.999
+    }
     new, left, heights = _cover(
-        group, UP, TILES if use == "tiles" else PLATES, colour, near, lib, first
+        group,
+        UP,
+        TILES if use == "tiles" else PLATES,
+        colour,
+        near,
+        lib,
+        first,
+        curved=edges == "curved",
+        level=level,
     )
     return _finish(text, res, new, left, heights=heights)
 
