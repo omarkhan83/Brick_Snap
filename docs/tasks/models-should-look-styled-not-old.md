@@ -118,3 +118,10 @@ Done when the same subjects built before and after this work are clearly more st
     judge, never a problem.
 - Still waiting for Alec's yes: rebuilding the Cessna with the art direction (300 parts,
   600, both or neither). No AI build has been made since the art direction went in.
+- 25 November: both branches above are merged (squashed into one commit on `main`) after a third,
+  independent review and the whole test run on the combined branch (3,938 passed). From the third
+  review: `place` no longer offers the extra checker-grid cells (half went into tube walls; logged in
+  `the-checkers-older-joint-rules.md`), and the clip-load warning measures reach from the grip, on
+  groups held by several clips, and carries hanging weight to the clips nearer the ground. The owner
+  then gave standing leave to run AI builds (25 November) and set the direction: one prompt bar, words
+  or pictures in, the AI builds it; see the decision of that date.

@@ -953,6 +953,9 @@ def test_free_build_records_what_moves_and_an_opened_picture(tmp_path, monkeypat
 
 # ---- joint-free models: the whole report is main's ------------------------------------------
 
+# One entry changed on purpose since (20 November, the style techniques): fable-car lost a
+# false "no socket" for two studs standing under a slope's open underside (the real shapes
+# share nothing); the slope's overlap with the tile beside them is still reported.
 MAIN = json.loads((Path(__file__).parent / "moving_main_reports.json").read_text())
 
 
@@ -1664,7 +1667,8 @@ def _declare(text, f, m, at, axis, kind="SPIN", low=0.0, high=0.0):
 )
 def test_a_clip_joint_cannot_be_declared_yet(text, at, axis):
     report = check(text)
-    assert any(i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked)
+    # a joint (tested for fit, or known by name only), but not one that can be declared yet
+    assert any(i.kind == "joint" and set(i.lines) == {1, 2} for i in report.unchecked + report.fits)
     why = _declare(text, 1, 2, at, axis)
     assert why == "the checker cannot yet confirm how a clip turns: use a module instead"
 
@@ -1928,8 +1932,10 @@ def test_a_module_whose_part_was_moved_proves_nothing():
 
 def test_with_a_module_only_the_parts_on_a_clip_are_counted():
     text = _car_on_wheel_modules()
-    text += "1 72 10 -39 -70 1 0 0 0 1 0 0 0 1 60897.dat\n"  # a clip plate at the plate's end
-    text += "1 0 10 -91 -90 1 0 0 0 1 0 0 0 1 87994.dat\n"  # a bar standing in the clip
+    # a thick U-clip plate at the plate's end (its clip primitive is not one the checker
+    # measures, so the bar in it is known by name only)
+    text += "1 72 10 -39 -70 1 0 0 0 1 0 0 0 1 4085c.dat\n"
+    text += "1 0 10 -91 -80 1 0 0 0 1 0 0 0 1 87994.dat\n"  # a bar standing in the clip
     report = check(text)
     assert not report.problems, report.text()
     assert _held_only(report) == [15]

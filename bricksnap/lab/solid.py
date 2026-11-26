@@ -19,6 +19,17 @@ module gives each part its real shape:
   the six axis directions: a point is DEEP inside when it and the points ``CELL`` LDU from it
   along each axis are solid. Grids are cached on disk under the lab cache.
 - ``Solid.inside(points, deep=True)``: which points (in the part's frame) are inside.
+- ``stud_core_inside(key, base, d)``: does a stud with its base at ``base`` pointing along
+  ``d`` (the part's frame) go into the part's solid plastic: any point of its core
+  (``STUD_CORE_R`` round its axis, or a smaller ``radius``, ``STUD_CORE_H`` up it) DEEP
+  inside. A stud that only grazes the part (less than about 1 LDU) does not.
+- ``drawn_inside(key, points)``: which points are inside the part's DRAWN surface (nine fixed
+  skew rays each, 5 of 9 crossing an odd number of triangles): slower than the solid, and
+  free of what its fill can add.
+- ``stud_middle_blocked(key, base, d)``: would a stud's middle be in the part's plastic (at
+  one of ``STUD_MIDDLE_H``, its axis point or ``STUD_MIDDLE_OF_6`` of 6 points on the ring
+  ``STUD_MIDDLE_R`` round it inside the drawn surface)? The solid only picks which studs to
+  try (``STUD_MIDDLE_OF_12``). What ``place.sockets`` asks of each socket it offers.
 
 What it guarantees, for a part whose cells are ``h`` LDU (``CELL``, 0.5, for every ordinary
 part; coarser only for parts so big the grid would pass ``MAX_CELLS``: about 1 to 1.2 LDU
@@ -224,6 +235,115 @@ def in_the_way(
     a seated stud does (see the contract)."""
     depth, _, needed = interference(a, b, lib, apart)
     return depth >= needed - 1e-9
+
+
+STUD_CORE_R = 5.0  # LDU: a stud is 6 in radius; its core this far out is what must be free
+STUD_CORE_H = (0.75, 3.5)  # LDU up the stud (it is 4 tall) that must be free
+STUD_MIDDLE_R = 2.5  # LDU: the ring round a stud's axis that ``stud_middle_blocked`` tries
+STUD_MIDDLE_H = (0.75, 2.1, 3.5)  # LDU up the stud where its middle is tried
+STUD_MIDDLE_OF_6 = 2  # ring points of 6 inside the drawn surface that block a socket
+STUD_MIDDLE_OF_12 = 3  # ring points of 12 deep in the solid that make a socket worth trying
+
+
+def stud_core_inside(
+    key: str,
+    base: np.ndarray,
+    d: np.ndarray,
+    lib: Library | None = None,
+    radius: float = STUD_CORE_R,
+) -> bool:
+    """Does a stud (its base and unit direction in the part's own frame) go into the part's
+    real solid plastic? (See the contract.) ``radius``: how far out from its axis the core
+    is tested (rings at 2.5 LDU and at ``radius``)."""
+    d = np.asarray(d, dtype=float)
+    a = np.array([1.0, 0, 0]) if abs(d[0]) < 0.9 else np.array([0, 0, 1.0])
+    u = np.cross(d, a)
+    u /= np.linalg.norm(u)
+    v = np.cross(d, u)
+    ang = np.linspace(0, 2 * np.pi, 12, endpoint=False)
+    ring = np.outer(np.cos(ang), u) + np.outer(np.sin(ang), v)
+    pts = []
+    for h in np.linspace(STUD_CORE_H[0], STUD_CORE_H[1], 4):
+        c = np.asarray(base, dtype=float) + h * d
+        pts.append(c[None, :])
+        for r in sorted({2.5, radius}):
+            pts.append(c + r * ring)
+    return bool(solid(key, lib).inside(np.concatenate(pts), deep=True).any())
+
+
+_RAYS = np.random.default_rng(5).normal(size=(9, 3))
+_RAYS /= np.linalg.norm(_RAYS, axis=1)[:, None]  # nine skew directions, fixed
+
+
+def drawn_inside(key: str, pts: np.ndarray, lib: Library | None = None) -> np.ndarray:
+    """Which points (the part's frame) are inside the part's DRAWN surface: rays from each in
+    nine fixed skew directions, each counting how often it crosses the part's triangles; a
+    point is inside when at least 5 of the 9 cross an odd number of times. Slower than the
+    voxel solid, and free of what the solid's fill can add (a thin column no triangle draws)."""
+    tris = triangles(key, lib)
+    pts = np.asarray(pts, dtype=float).reshape(-1, 3)
+    out = np.zeros(len(pts), dtype=bool)
+    if not len(tris) or not len(pts):
+        return out
+    a, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+    for k, p in enumerate(pts):
+        votes = 0
+        s_ = p - a
+        q = np.cross(s_, e1)
+        for d in _RAYS:
+            h = np.cross(d, e2)
+            det = np.einsum("ij,ij->i", e1, h)
+            ok = np.abs(det) > 1e-12
+            inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+            u = inv * np.einsum("ij,ij->i", s_, h)
+            v = inv * (q @ d)
+            t = inv * np.einsum("ij,ij->i", e2, q)
+            votes += int(np.sum(ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-9))) % 2
+            if votes >= 5:
+                break
+        out[k] = votes >= 5
+    return out
+
+
+def _middle_points(
+    base: np.ndarray, d: np.ndarray, n: int, heights: tuple[float, ...] = STUD_MIDDLE_H
+) -> list[np.ndarray]:
+    """For each height up a stud: the point on its axis, then n points on the ring
+    ``STUD_MIDDLE_R`` round it."""
+    d = np.asarray(d, dtype=float)
+    a = np.array([1.0, 0, 0]) if abs(d[0]) < 0.9 else np.array([0, 0, 1.0])
+    u = a - (a @ d) * d
+    u /= np.linalg.norm(u)
+    v = np.cross(d, u)  # for a stud pointing up: u along x, v along z
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ring = STUD_MIDDLE_R * (np.outer(np.cos(ang), u) + np.outer(np.sin(ang), v))
+    return [
+        np.vstack([c[None, :], c + ring])
+        for c in (np.asarray(base, dtype=float) + h * d for h in heights)
+    ]
+
+
+def stud_middle_blocked(
+    key: str, base: np.ndarray, d: np.ndarray, lib: Library | None = None
+) -> bool:
+    """Would the middle of a stud (its base and unit direction in the part's frame) be in the
+    part's plastic? At one of ``STUD_MIDDLE_H`` up the stud, its axis point or
+    ``STUD_MIDDLE_OF_6`` of 6 points on the ring ``STUD_MIDDLE_R`` round it are inside the
+    part's DRAWN surface (``drawn_inside``). The voxel solid only picks which studs to try
+    (the axis point or ``STUD_MIDDLE_OF_12`` of 12 ring points deep inside it, at one of 4
+    heights through ``STUD_CORE_H``), so a column its fill adds where nothing is drawn never
+    blocks a socket, and a single rib at a stud's side does not either."""
+    so = solid(key, lib)
+    if not any(
+        (hit := so.inside(pts, deep=True))[0] or int(hit[1:].sum()) >= STUD_MIDDLE_OF_12
+        for pts in _middle_points(base, d, 12, tuple(np.linspace(*STUD_CORE_H, 4)))
+    ):
+        return False
+    for pts in _middle_points(base, d, 6):
+        hit = drawn_inside(key, pts, lib)
+        if hit[0] or int(hit[1:].sum()) >= STUD_MIDDLE_OF_6:
+            return True
+    return False
 
 
 def triangles(key: str, lib: Library | None = None) -> np.ndarray:

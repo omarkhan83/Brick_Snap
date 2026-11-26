@@ -182,3 +182,124 @@ Left:
   and in the other by its box.
 - A proven module's own line ("the joints inside it ... counted as joined") still sits in the
   NOT CHECKED section under the new heading, as before.
+
+## Thin members on clips and bars (branch `wip/Alec-42-thin-members`, 20 November)
+Done:
+- The 11090 bug: a part's own clip no longer hides the name that makes it a bar tube, a bar
+  or a handle; a bar tube's bore (none drawn in the library) is found in its real shape
+  (11090 and 23443: 10 LDU deep to a stop), so a bar in it is a bar in a hollow, tested for
+  fit; a bar pushed past the stop is an overlap. The Cessna's attempt 3 goes from 2 problems
+  (both struts "Loose") to none. Same trap, now handled: 3628 and 4735 (bars with clips of
+  their own), 48729 (a bar with a clip, no primitives). 72869 (Bar Tube with Clip Angled 90)
+  is still not found: its bore is not on its box's middle line.
+- A clip on a bar or handle is tested for fit (`_clip_fit`): the bar through the grip (per
+  clip primitive, `CLIP_GRIP`), leaning at most 5 degrees, bar-thick with the clip round it
+  2 LDU either side of the grip's middle, not at the bar's end; any angle about the bar.
+  A plain bar must be within `CLIP_REACH` of a clip, as a handle is. In the 18 official
+  models 69 clip joints and 8 bar-tube joints are fitted; 8 stay known by name only.
+- Tests: `tests/test_lab_thin.py` builds a bar strut on 23443, one on 11090, a blade strut,
+  a rail, a leg in a clip tile, an aerial, and a clip on a handle at 0, 30, 45, 90 degrees.
+Left:
+- The 8 official clip joints still known by name only: a 15712 whose bar sits at its end
+  (21026); clip6 or clip3 clips on handles or bars whose line cannot be found (40379, 75892:
+  25893, 3957b, 27257); a mechanical arm's clip with no primitive that is not round its
+  handle (75892: 98313); 11090 on 25893's handle (76897).
+- Clip primitives not measured (known by name only): clip2 (4085c, the thick U-clip), clip9,
+  clip10, clip14.
+- The limits no test pinned are settled: the per-primitive reach in `CLIP_GRIP` and
+  `CLIP_TOL` are removed (the grip ring decided every case; the official sets, the 18 models,
+  the free builds and the mutation runs are the same without them); `BAR_BOX` is pinned by a
+  clip on 6190's bar, the bar tube's wall by 11090's clip end, its depth by 20612's middle.
+- Done since: the builder's `clip` and `strut` tools (guide mode, `bricksnap/lab/clips.py`).
+  `clip` places parts whose clip primitive the checker measures; 15712 (no primitive) and the
+  thick U-clip 4085c it cannot place. `strut` uses 11090 and a Bar 3L or 4L only (23443 has
+  a handle, not a clip: a strut on 23443 needs clip plates, placed with `clip`).
+- Hinge halves, finger hinges, ball joints and turntables stay known by name only.
+
+## The review of thin members (20 November): fixed, and logged for later
+Fixed on the branch: a clip's grip is closed (7 of 12 points) with one direction, found per
+clip in its shape (`grip_lines`, shared by the checker and the `clip` tool); a load hung on
+clips is told (`clip_loads`: the parts reach the ground only through N clips, and the checker
+cannot judge whether clips will carry this much; official 75075, 31066 and 40433 trip it
+(40433 since the third review: a canopy on two clips, 50 LDU out from them), and it was kept on purpose as a warning for every model:
+not a false alarm to fix; since the second review every part counts by its own volume, a
+part with a handle too, and the limits are set by cases either side: a 1 x 8 tile blade on
+one clip is not told, a 2 x 6 plate wing is; three bricks on the clip-legged table are not,
+four are; since the third review reach is measured from the grips, on one clip or several,
+and a group hanging beyond a clip-held group adds its weight to the clip that holds that
+group; a 2 x 6 plate held along the bar (2.27 million) stays under the limit that keeps a
+1 x 8 blade held straight out (2.37) silent: no one number separates them);
+`strut` refuses what would not close and its advice closes it;
+`clip` reports what the checker finds; the sentences say "most clips on bars".
+Every limit is pinned or gone: each was loosened in turn and the tests run. Pinned now:
+`GRIP_R` both ways (98460's clip opening below), the bar tube's wall ring (24122: at 6 its pin
+hole counts, at 6.5 its tubes do not). Removed, changing no set, fit, free build or mutation:
+the clip-part and bar-tube exclusions in `_bar_lines`, the bar-tube line in `_joint_clash`,
+the bore's "wall within 2 LDU of the end".
+Logged, not fixed (the review's cases are in `~/.cache/bricksnap/research/review-work/thin/`):
+- Two C-clips from opposite sides on the same 8 LDU of bar pass, though their real shapes share
+  2 LDU.
+- "Joined by name" where nothing is measured: a clip up to 7.5 LDU past a bar's end; an
+  11090's clip end resting on a bar's top; a bar 8 above or 6 beside a tile clip.
+- A measurable clip whose fit fails falls back to "known by name" within `CLIP_REACH` (a clip
+  moved 4 LDU off its bar passes 19 times in 99 in the targeted run).
+- 20612's two oblique tubes are not found (its third, along its own x, is). 72869, named a
+  bar tube, has no bore found at all.
+- The grip's clear ring (none of 12 points at `GRIP_CLEAR`) depends on where its 12 points
+  fall: 48729b's clip passes in the search and fails at the bar, so it is joined by name
+  only (`clip` says so). Testing more points in both would settle it either way.
+
+## Style techniques (branch `wip/Alec-42-style-techniques`, 20 and 21 November)
+Every technique of the style guide is built and checked in `tests/test_lab_style_techniques.py`.
+Done there: a stud beside a cut edge or under open space is no "no socket" problem (35 false
+problems gone from the 18 official models, 226 to 191); parts' stud cells follow their top
+studs (16 parts moved onto the grid); `place` offers only sockets a stud can go in, says when
+another quarter turn catches more studs, and in guide mode turns a part on one stud by an angle.
+
+Left:
+- **Hinge halves are still known by name only.** A rule was tried and withdrawn (21 November):
+  read each half's turning line from the cylinders its file is drawn with, and join two halves
+  only when the lines are one. It misread parts whose hinge is not drawn with cylinders: a
+  locking hinge 30389b/30389c with its finger 40902 or 53029 (the centre axle hole read as the
+  hinge line, 60 LDU off, so a correct hinge became two problems), and 2433, 41529, 4508, 47431
+  and 47978 read their own stud or tube axis. It caught nothing new in 126 hinge mutations, and
+  an official set (75892) has a 3937 and 3938 4 LDU apart. So a hinge top lifted 8 to 16 LDU
+  still passes (the style test of it is a strict expected failure). Done safely it would trust
+  a pair's lines only where the library's own assembly of those two parts (3937c01 for 3937
+  with 3938, and the like) puts them on one line, and measure other pairs against that pose
+  turned about that line; a pair with no assembly stays known by name.
+- **A turned part's corner in its neighbour passes.** A 1 x 2 plate turned 30 to 60 degrees on
+  a jumper's stud into a 1 x 2 x 2 brick beside it shares a piece 1.5 to 1.8 LDU deep with it
+  (real shapes), and the check says "Slight overlap ... no problems": the rough bodies share
+  under 400 LDU^3, so the real shapes are never asked. `place` with an angle now says in its
+  reply that the part runs into its neighbour; the overlap rule itself is unchanged.
+- **The tipper bucket 19001's assembly** had a false stud problem that, since the "no socket"
+  fix, is a false overlap instead: the problem changed words, it did not go away.
+- **48729b (a bar with a clip, no primitives)** is placed by the `clip` tool, but the checker
+  joins it to its bar by name only: what the tool put there is not measured (`clip` now says
+  so; see the grip's clear ring above).
+- **11 of the 16 parts moved onto the stud grid** have no placement in the official models or
+  the library's assemblies to compare with (the review's count); each now lines up with its
+  own top studs, which is all that could be checked for them.
+- **Sockets `place` does not offer: 7 of the 11,335** studs the official files and the
+  library's assemblies seat in an underside. Six are 30602's front row (the socket grid comes
+  from its box and falls on its cut edge; the checker seats studs on its own grid,
+  `validate.stud_grid`); one is a stud of 76897 seated 1 LDU off the centre of 18974's end
+  cell, whose centre fails `Part.is_socket`'s ledge rule (a slope 2.4 LDU below the seat
+  beside it; `is_socket` is the checker's too). The real-shape socket test drops none of the
+  11,335. A builder who needs one of these uses `add`.
+  Tried and withdrawn (25 November): offering the cells of the checker's grid that the socket
+  grid missed, appended after the others, kept where the cell was wholly under the part and
+  roofed. The checker disagreed (`Part.has_sockets` counts the filled body's sockets only, so
+  it called a part on one of them "no sockets underneath ... the two parts collide": 2342,
+  3496c01, 4626, 98136, 25767, 98127), and 35 of the 69 kept cells put the stud into plastic
+  the middle-only test cannot see (the 4086 roof's, 2.8 LDU into two tube walls; 2672's on
+  ribs; others in 2891, 4022, 51345, 98089, 11568, 67338). A safe version needs a full-radius
+  test (`solid.stud_core_inside` false and a drawn-surface ring at radius 5 clear), calibrated
+  on common parts, and the checker's `has_sockets` agreeing.
+- **Restored sockets with plastic near the stud's side.** 23 of the 237 sockets the drawn-
+  surface test gave back have plastic 4 LDU from the stud's axis (7664's sockets 10 and 11,
+  79851, 45274, 53400, 6057, 30078, 32170, 33122, 8009, 29111); main offered them too. The
+  middle-only test (radius 2.5) cannot see it; the same full-radius test is the candidate fix.
+- **48168's socket at (56, -15, -24)** is dropped, and a 24-ray vote calls that a probable false
+  drop.

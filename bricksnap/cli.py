@@ -2230,9 +2230,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 FREE_EXPERIMENTAL = (
     "This is experimental. The checker makes sure every part is held, nothing overlaps and "
-    "the model stands. It checks studs, pins, axles, bars and wheels for fit, but counts parts "
-    "joined by clips, hinges and ball joints as joined without proof, and nothing yet judges "
-    "how strong a joint is."
+    "the model stands. It checks studs, pins, axles, bars, wheels and most clips on bars for fit, "
+    "but counts parts joined by hinges, ball joints and the other clips as joined without "
+    "proof, and nothing yet judges how strong a joint is."
 )
 
 GUIDE_WORDS = (
