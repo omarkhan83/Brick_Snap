@@ -2,6 +2,11 @@
 
 **Turn any object or 3D model into a brick set that looks designed and works.**
 
+Since 25 November the main way is the AI building the set itself from real parts, from words, pictures
+or a 3D model as reference, with every model checked; the solver pipeline below is the older way and a
+tool. The principles that follow were written for that older way; where they say otherwise, the decision
+`docs/decisions/2026-11-19-the-ai-builds-with-real-parts-and-the-solver-becomes-a-tool.md` wins.
+
 *Looks designed* means a person seeing the finished model thinks someone built it on purpose: the right
 parts in the right places (slopes, tiles, round parts, a few well-chosen details), a deliberate set of
 colours, and the features that make the thing recognisable given room to read. Not a pixelated blob.

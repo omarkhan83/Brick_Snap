@@ -1,5 +1,5 @@
 # The AI builds the model from real parts, and the solver becomes one of its tools
-- status: proposed
+- status: accepted
 - by: Alec-42, 2026-11-19
 
 Proposed by Alec's agent after the experiments in `docs/research/2026-11-19-ai-as-the-builder/README.md`.
@@ -20,3 +20,4 @@ Not rejected, but not chosen as the main line: the six-pass studio on the presen
 preferred it to one designer on two models of three, narrowly, at three times the time.
 
 ## Responses
+- Alec-42, 2026-11-25: agree. "The final app should be a single prompt bar, you can type or upload images (the 3d model thing is actually not that important or required if AI is going to build it). The idea is that AI builds it high quality." Recorded by his agent; the app side is `2026-11-25-the-app-is-one-prompt-bar-and-the-ai-builds-from-parts.md`.

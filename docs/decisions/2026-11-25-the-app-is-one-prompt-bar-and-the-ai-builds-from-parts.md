@@ -14,9 +14,9 @@ a 3D file into bricks with the solver stays, folded away as "the older way"; not
 removed. The agreement a paid AI run needs is a box under the bar, remembered in the browser,
 beside a line that always says what Build sends, which Claude, how long and what it costs.
 
-This is the app's side of the open proposal
-`2026-11-19-the-ai-builds-with-real-parts-and-the-solver-becomes-a-tool.md`; it does not decide
-that proposal for the engine. `2026-11-15-a-3d-model-is-always-the-starting-point.md` still holds
+This is the app's side of
+`2026-11-19-the-ai-builds-with-real-parts-and-the-solver-becomes-a-tool.md`, which Alec's words
+above also accept for the engine (recorded there). `2026-11-15-a-3d-model-is-always-the-starting-point.md` still holds
 for the solver's pipeline, the older way; in a free build a 3D file is one more reference.
 
 ## Responses

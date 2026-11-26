@@ -1,5 +1,5 @@
 # The AI edits what the model should look like; only the solver places parts
-- status: accepted
+- status: superseded for the main line by 2026-11-19-the-ai-builds-with-real-parts-and-the-solver-becomes-a-tool.md (still true of the older 3D-to-bricks way)
 - by: Alec-42, 2026-11-15
 
 The AI designer changes a grid of coloured cells with notes (the Design) through declarative edit

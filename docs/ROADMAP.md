@@ -50,6 +50,14 @@ details, the weak spots that remain in thin models, and fewer small plates on cu
 
 ### Stage 4: usable and presentable
 
+**The main line changed on 25 November** (`docs/decisions/2026-11-19-the-ai-builds-with-real-parts-and-the-solver-becomes-a-tool.md`,
+accepted): the app is one prompt bar (words, pictures, a 3D file as reference) and the AI builds the
+model from real parts, checked, with an outside critic's polish. What matters most is that the sets look
+designed and modern (`docs/research/2026-11-20-what-makes-a-model-look-styled/README.md`), then bigger
+models with more parts. The 3D-to-bricks converter stays as the older way and is not developed further
+unless something here needs it. Stage 4 is done when a person types a subject (or drops a photo) into the
+bar and gets a model that reads as designed, with no checker problems, and the walkthrough shows that.
+
 - A web app on a server that runs on your own computer: choose a model, see the plain conversion next to
   the designed build, start the designer, type a change, download the files (`docs/tasks/web-app.md`).
 - Carried over from stage 3: details on the side of a model (round eyes on a face), the weak spots that
